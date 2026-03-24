@@ -1,0 +1,313 @@
+# CloudEasyFiles Project Reference
+
+## Overview
+
+CloudEasyFiles is a desktop application for managing files stored in cloud providers through a unified, intuitive, and user-friendly interface.
+
+Its primary goal is to simplify cloud storage interactions that are often fragmented, provider-specific, and operationally complex. The application should present a consistent experience across supported providers, allowing users to work with cloud files in a way that feels familiar, efficient, and predictable.
+
+This project is also intentionally designed as portfolio-quality software. It should demonstrate strong engineering discipline, clean architecture, maintainable code, and thoughtful product design.
+
+## Purpose
+
+CloudEasyFiles exists to make cloud file management accessible through a desktop experience that abstracts away low-level provider details.
+
+The application should help users:
+
+- Connect multiple cloud accounts
+- Browse storage resources through a structured interface
+- Perform common file operations in a unified way
+- Understand file availability and storage state at a glance
+- Work with archival storage without needing deep provider-specific knowledge
+
+## Core Product Concept
+
+CloudEasyFiles should behave similarly to tools such as pgAdmin or DBeaver, but for cloud storage rather than databases.
+
+The expected interaction model is:
+
+- A tree-based navigation sidebar for accounts and storage containers
+- A central explorer panel for file and folder content
+- Contextual actions for file operations
+- Clear visual status for operations and storage state
+
+Users should be able to register multiple cloud accounts, navigate them through a common interface, and operate on files without needing to learn the specific API model of each provider.
+
+## Initial Provider Scope
+
+The first supported cloud providers are:
+
+- AWS S3, including Glacier-related workflows
+- Azure Blob Storage, including Hot, Cool, and Archive tiers
+
+The design must remain extensible so additional providers can be added later without forcing major changes to the core application layers.
+
+## Functional Requirements
+
+### Account Management
+
+- Support multiple AWS accounts
+- Support multiple Azure accounts
+- Allow users to register and manage connections cleanly
+
+### Navigation and Exploration
+
+- Provide a tree-based navigation panel on the left side
+- Show accounts, buckets, containers, and related hierarchical resources
+- Present a central file explorer panel for browsing content
+
+### File Operations
+
+The application must support a unified workflow for:
+
+- Upload
+- Download
+- Delete
+- Copy
+- Move
+
+These operations should be expressed consistently in the UI regardless of cloud provider.
+
+### Visual Feedback
+
+The application should provide clear operational feedback, including:
+
+- Progress bars for long-running actions
+- Status indicators for success, failure, pending work, and in-progress work
+- Clear display of file availability state
+
+### Storage Tier Awareness
+
+The system must understand whether content is immediately available or archived and must surface that information clearly in the user interface.
+
+## Advanced Requirement: Archival Storage Handling
+
+One of the most important differentiators of CloudEasyFiles is simplifying archival storage workflows.
+
+### AWS Requirements
+
+For AWS S3:
+
+- Detect Glacier-related storage states
+- Allow users to request restore operations
+- Track restore status
+- Allow download only when the object is actually available
+
+### Azure Requirements
+
+For Azure Blob Storage:
+
+- Detect Archive tier blobs
+- Allow users to trigger rehydration
+- Track rehydration progress or status
+- Reflect real availability in the UI
+
+### UX Requirement
+
+Users should not need to understand the provider-specific complexity behind archival operations. The system must translate that complexity into a simple, understandable experience.
+
+## Architecture Principles
+
+CloudEasyFiles must follow high-quality software engineering standards.
+
+### Core Principles
+
+- Clean architecture
+- Strong separation of concerns
+- High cohesion and low coupling
+- Extensibility for future providers
+- Explicit boundaries between application layers
+
+### Architectural Intent
+
+The codebase should be organized so the business intent of the application remains understandable even as integrations grow in complexity.
+
+The architecture must protect the core application from direct dependence on provider-specific APIs and edge cases.
+
+## Provider Abstraction Strategy
+
+A central architectural requirement is provider abstraction.
+
+The system must define a unified interface, trait, or abstraction for core file operations and storage behaviors.
+
+Requirements:
+
+- The core application depends on abstractions, not concrete providers
+- Each provider implements the common abstraction
+- AWS-specific behavior remains isolated in AWS modules
+- Azure-specific behavior remains isolated in Azure modules
+- The application layer orchestrates workflows without embedding provider details
+
+This separation is essential for maintainability, testability, and long-term extensibility.
+
+## Layer Responsibilities
+
+### Core Layer
+
+The core layer is responsible for:
+
+- Orchestrating operations
+- Coordinating workflows across the system
+- Managing generic progress tracking
+- Managing UI-facing state transitions
+- Handling generic errors and application-level rules
+
+This layer must not contain provider-specific implementation logic.
+
+### Provider Layer
+
+The provider layer is responsible for:
+
+- AWS-specific implementation details
+- Azure-specific implementation details
+- Communication with provider SDKs and APIs
+- Translation between provider responses and internal models
+- Handling provider-specific edge cases
+
+### Presentation Layer
+
+The presentation layer is responsible for:
+
+- Desktop UI behavior
+- User interactions
+- Rendering explorer state
+- Presenting progress and status information
+- Triggering application use cases through well-defined interfaces
+
+### Infrastructure Layer
+
+The infrastructure layer should contain:
+
+- HTTP integrations
+- SDK wiring
+- Serialization support
+- Persistence and configuration storage
+- Platform-specific integration details
+
+## Technology Stack
+
+### Desktop Framework
+
+- Tauri
+
+### Backend
+
+- Rust
+
+### Frontend
+
+- HTML
+- CSS
+- JavaScript
+- A framework such as React or Vue may be introduced later if justified
+
+### Async Runtime
+
+- Tokio
+
+### Serialization
+
+- Serde
+
+### HTTP
+
+- Reqwest
+
+### Cloud SDKs
+
+- AWS SDK for Rust for S3 integration
+- Azure SDK for Rust for Blob Storage integration
+
+## Design Goals
+
+CloudEasyFiles should aim for the following product and engineering qualities:
+
+- Lightweight desktop footprint
+- Modern and polished UI/UX
+- High performance
+- Safety and reliability through Rust
+- Clear maintainability over time
+- Strong architectural consistency
+
+The project should avoid unnecessary complexity and should not drift toward Electron-like overhead when a leaner approach is available.
+
+## Code Quality Requirements
+
+This project is intended to represent professional-level engineering quality.
+
+All code generated for this repository must:
+
+- Follow clean architecture principles
+- Be modular and well organized
+- Use clear names and understandable structure
+- Avoid hacks, shortcuts, and prototype-style solutions
+- Be production-quality in style and intent
+- Be maintainable by future contributors
+
+## Learning Context
+
+The primary developer has strong experience with Java and is newer to Rust and Tauri.
+
+This means the codebase should favor:
+
+- Clarity over cleverness
+- Readable structure over dense patterns
+- Brief explanations where they help understanding
+- Incremental complexity rather than unnecessary abstraction too early
+
+When introducing Rust-specific or Tauri-specific patterns, prefer solutions that are easy to reason about and extend.
+
+## Project Constraints
+
+The project must adhere to the following constraints:
+
+- It must be open source
+- It must use the MIT License
+- It must target cross-platform desktop support
+- It should support Windows, macOS, and Linux
+
+## Future Vision
+
+Potential future enhancements include:
+
+- Support for additional providers such as Google Cloud Storage
+- Drag-and-drop interactions
+- File preview capabilities
+- Search functionality
+- Synchronization features
+
+These features should be considered in architectural decisions, especially where extensibility and reusable abstractions are involved.
+
+## Guidance for AI Assistants
+
+This document is the single source of truth for the project context.
+
+When generating code, suggestions, architecture changes, or documentation for CloudEasyFiles, AI assistants must follow these rules:
+
+1. Respect the architecture principles defined here.
+2. Never mix provider-specific logic into the core application layer.
+3. Prefer clarity over cleverness.
+4. Produce production-ready code rather than prototype-style output.
+5. Maintain consistency with the goals, boundaries, and terminology in this document.
+
+## Practical Interpretation for Contributors
+
+When in doubt:
+
+- Put shared concepts in the core or domain-oriented layers
+- Put provider API details behind abstractions
+- Keep the UI focused on presentation and interaction
+- Keep orchestration in application-level services or use cases
+- Optimize for readability, maintainability, and extension
+
+## Document Role
+
+`PROJECT.md` should be treated as the primary contextual reference for:
+
+- New contributors
+- Architecture discussions
+- Code generation tasks
+- AI-assisted development
+- Future planning and scope alignment
+
+If code, documentation, or design decisions drift from this document, they should be reviewed and corrected intentionally.
