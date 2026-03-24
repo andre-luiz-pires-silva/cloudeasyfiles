@@ -60,8 +60,8 @@ At a high level, the system is structured around a small set of clearly separate
 
 - **Framework:** Tauri
 - **Backend:** Rust
-- **Frontend:** HTML, CSS, and JavaScript
-- **Optional UI Layer:** React or Vue
+- **Frontend:** React, TypeScript, and Vite
+- **Styling:** CSS
 
 ### Core Libraries
 
@@ -96,6 +96,12 @@ cd cloudeasyfiles
 
 # install JavaScript dependencies
 npm install
+
+# run only the frontend in development
+npm run dev
+
+# build the frontend bundle
+npm run build
 
 # run the desktop app in development
 npm run tauri dev
@@ -139,8 +145,13 @@ cloudeasyfiles/
 |-- docs/
 |   `-- images/
 |-- src/
+|   |-- app/
+|   |-- lib/
+|   |   |-- i18n/
+|   |   `-- tauri/
+|   |-- locales/
 |   |-- index.html
-|   |-- main.js
+|   |-- main.tsx
 |   `-- styles.css
 |-- src-tauri/
 |   |-- capabilities/
@@ -156,17 +167,28 @@ cloudeasyfiles/
 |   |-- build.rs
 |   `-- tauri.conf.json
 |-- package.json
+|-- tsconfig.json
+|-- tsconfig.node.json
+|-- vite.config.ts
 `-- README.md
 ```
 
 ### What each part does
 
 - `src/`
-  - Contains the desktop UI built with HTML, CSS, and JavaScript
+  - Contains the desktop UI built with React, TypeScript, and Vite
+- `src/app/`
+  - Defines the root application component and top-level providers
+- `src/lib/i18n/`
+  - Holds the lightweight localization provider and hook
+- `src/lib/tauri/`
+  - Encapsulates Tauri command calls used by the frontend
+- `src/locales/`
+  - Stores translation catalogs for supported languages
 - `src/index.html`
-  - Defines the initial window layout
-- `src/main.js`
-  - Loads the greeting and shows how the frontend can call Rust through Tauri
+  - Defines the Vite entry document and root mount node
+- `src/main.tsx`
+  - Boots the React application
 - `src/styles.css`
   - Provides the initial visual design for the app shell
 - `src-tauri/src/app/`
@@ -182,7 +204,22 @@ cloudeasyfiles/
 - `src-tauri/capabilities/default.json`
   - Declares the permissions available to the main window
 - `package.json`
-  - Manages JavaScript dependencies and the Tauri CLI command
+  - Manages frontend dependencies and development scripts
+- `vite.config.ts`
+  - Configures the Vite dev server and production build output
+- `tsconfig.json`
+  - Defines the main TypeScript compiler options for the frontend
+
+## Frontend Architecture
+
+The frontend currently follows a deliberately simple structure:
+
+- `app` for root composition
+- `lib/i18n` for localization
+- `lib/tauri` for desktop command integration
+- `locales` for translation catalogs
+
+The project intentionally avoids extra frontend libraries for routing, global state, forms, or data fetching until those needs become concrete. React hooks and a small provider layer are the default approach.
 
 ## Roadmap
 

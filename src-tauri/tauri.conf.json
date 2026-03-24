@@ -4,7 +4,10 @@
   "version": "0.1.0",
   "identifier": "com.andre.cloudeasyfiles",
   "build": {
-    "frontendDist": "../src"
+    "beforeDevCommand": "npm run dev -- --host 127.0.0.1 --port 1420",
+    "beforeBuildCommand": "npm run build",
+    "devUrl": "http://127.0.0.1:1420",
+    "frontendDist": "../dist"
   },
   "app": {
     "withGlobalTauri": true,

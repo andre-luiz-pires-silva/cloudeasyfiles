@@ -196,10 +196,10 @@ The infrastructure layer should contain:
 
 ### Frontend
 
-- HTML
+- React
+- TypeScript
+- Vite
 - CSS
-- JavaScript
-- A framework such as React or Vue may be introduced later if justified
 
 ### Async Runtime
 
@@ -230,6 +230,33 @@ CloudEasyFiles should aim for the following product and engineering qualities:
 - Strong architectural consistency
 
 The project should avoid unnecessary complexity and should not drift toward Electron-like overhead when a leaner approach is available.
+
+## Frontend Architecture Direction
+
+The frontend has adopted a minimal `React + TypeScript + Vite` stack.
+
+This choice is intended to support richer UI composition and more complex state transitions without introducing unnecessary framework overhead.
+
+### Frontend Constraints
+
+- Prefer React built-ins before adding external libraries
+- Use local component state by default
+- Introduce `useContext` only for truly shared global concerns
+- Avoid state-management libraries unless the native React model becomes insufficient
+- Avoid adding routing, form, or data-fetching libraries before there is clear product pressure for them
+- Keep Tauri command access isolated from presentation components
+
+### Preferred Frontend Structure
+
+The frontend should remain organized around a small number of folders with explicit responsibilities:
+
+- `src/app/` for root app composition and global providers
+- `src/lib/i18n/` for localization logic
+- `src/lib/tauri/` for Tauri command wrappers
+- `src/locales/` for translation catalogs
+- `src/features/` for future feature-specific UI and logic as the application grows
+
+The intent is to scale by adding feature-oriented modules, not by introducing multiple generic layers prematurely.
 
 ## Code Quality Requirements
 

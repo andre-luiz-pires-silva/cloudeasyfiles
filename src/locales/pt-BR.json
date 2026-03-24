@@ -4,7 +4,7 @@
   "hero.eyebrow": "Explorador de Armazenamento em Nuvem",
   "hero.subtitle": "Uma base leve para desktop, construída com Tauri e Rust, para gerenciar arquivos no AWS S3 e no Azure Blob Storage.",
   "status.frontend.label": "Frontend",
-  "status.frontend.value": "HTML, CSS e JavaScript",
+  "status.frontend.value": "React, TypeScript e Vite",
   "status.backend.label": "Backend",
   "status.backend.value": "Rust com comandos Tauri",
   "status.architecture.label": "Arquitetura",
