@@ -1,0 +1,15 @@
+{
+  "app.title": "CloudEasyFiles",
+  "settings.language": "Language",
+  "hero.eyebrow": "Cloud Storage Explorer",
+  "hero.subtitle": "A lightweight desktop foundation built with Tauri and Rust for managing files across AWS S3 and Azure Blob Storage.",
+  "status.frontend.label": "Frontend",
+  "status.frontend.value": "HTML, CSS and JavaScript",
+  "status.backend.label": "Backend",
+  "status.backend.value": "Rust with Tauri commands",
+  "status.architecture.label": "Architecture",
+  "status.architecture.value": "Clean and extensible starting point",
+  "greeting.loading": "Loading CloudEasyFiles...",
+  "greeting.fallback": "Hello, CloudEasyFiles!",
+  "errors.greeting_load_failed": "Failed to load greeting from Rust:"
+}

@@ -1,34 +1,43 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en-US">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>CloudEasyFiles</title>
+    <title data-i18n="app.title">CloudEasyFiles</title>
     <link rel="stylesheet" href="./styles.css" />
     <script type="module" src="./main.js" defer></script>
   </head>
   <body>
     <main class="app-shell">
       <section class="hero-card">
-        <p class="eyebrow">Cloud Storage Explorer</p>
+        <div class="hero-toolbar">
+          <p class="eyebrow" data-i18n="hero.eyebrow">Cloud Storage Explorer</p>
+          <div class="locale-control">
+            <label for="locale-select" data-i18n="settings.language">Language</label>
+            <select id="locale-select" aria-label="Language selector">
+              <option value="en-US">English (US)</option>
+              <option value="pt-BR">Portuguese (Brazil)</option>
+            </select>
+          </div>
+        </div>
         <h1 id="greeting">Loading CloudEasyFiles...</h1>
-        <p class="subtitle">
+        <p class="subtitle" data-i18n="hero.subtitle">
           A lightweight desktop foundation built with Tauri and Rust for
           managing files across AWS S3 and Azure Blob Storage.
         </p>
 
         <div class="status-grid">
           <article class="status-card">
-            <span class="status-label">Frontend</span>
-            <strong>HTML, CSS and JavaScript</strong>
+            <span class="status-label" data-i18n="status.frontend.label">Frontend</span>
+            <strong data-i18n="status.frontend.value">HTML, CSS and JavaScript</strong>
           </article>
           <article class="status-card">
-            <span class="status-label">Backend</span>
-            <strong>Rust with Tauri commands</strong>
+            <span class="status-label" data-i18n="status.backend.label">Backend</span>
+            <strong data-i18n="status.backend.value">Rust with Tauri commands</strong>
           </article>
           <article class="status-card">
-            <span class="status-label">Architecture</span>
-            <strong>Clean and extensible starting point</strong>
+            <span class="status-label" data-i18n="status.architecture.label">Architecture</span>
+            <strong data-i18n="status.architecture.value">Clean and extensible starting point</strong>
           </article>
         </div>
       </section>

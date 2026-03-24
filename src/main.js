@@ -1,20 +1,59 @@
+import { changeLocale, getLocale, initI18n, t } from "./i18n.js";
+
 const greetingElement = document.querySelector("#greeting");
+const localeSelect = document.querySelector("#locale-select");
+let greetingRequestId = 0;
 
 async function loadGreeting() {
   const tauriCore = window.__TAURI__?.core;
+  const requestId = ++greetingRequestId;
+  const locale = getLocale();
 
   if (!tauriCore?.invoke) {
-    greetingElement.textContent = "Hello, CloudEasyFiles!";
+    if (requestId === greetingRequestId) {
+      greetingElement.textContent = t("greeting.fallback");
+    }
     return;
   }
 
   try {
-    const message = await tauriCore.invoke("get_greeting");
+    const message = await tauriCore.invoke("get_greeting", {
+      locale
+    });
+
+    if (requestId !== greetingRequestId || locale !== getLocale()) {
+      return;
+    }
+
     greetingElement.textContent = message;
   } catch (error) {
-    console.error("Failed to load greeting from Rust:", error);
-    greetingElement.textContent = "Hello, CloudEasyFiles!";
+    if (requestId !== greetingRequestId || locale !== getLocale()) {
+      return;
+    }
+
+    console.error(t("errors.greeting_load_failed"), error);
+    greetingElement.textContent = t("greeting.fallback");
   }
 }
 
-loadGreeting();
+function bindLocaleSelector() {
+  if (!localeSelect) {
+    return;
+  }
+
+  localeSelect.value = getLocale();
+  localeSelect.addEventListener("change", async (event) => {
+    greetingElement.textContent = t("greeting.loading");
+    await changeLocale(event.target.value);
+    void loadGreeting();
+  });
+}
+
+async function bootstrap() {
+  await initI18n();
+  greetingElement.textContent = t("greeting.loading");
+  bindLocaleSelector();
+  void loadGreeting();
+}
+
+void bootstrap();
