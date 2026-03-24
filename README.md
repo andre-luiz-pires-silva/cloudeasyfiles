@@ -8,11 +8,11 @@ The project initially targets AWS S3 and Azure Blob Storage, including archival 
 
 ## Screenshots
 
-Screenshots will be added as the UI evolves.
+The repository currently includes SVG placeholders that can later be replaced by real product screenshots.
 
-![Main application window placeholder](./docs/images/screenshot-main-placeholder.png)
-![File explorer placeholder](./docs/images/screenshot-explorer-placeholder.png)
-![Restore workflow placeholder](./docs/images/screenshot-restore-placeholder.png)
+![Main application window placeholder](./docs/images/screenshot-main-placeholder.svg)
+![File explorer placeholder](./docs/images/screenshot-explorer-placeholder.svg)
+![Restore workflow placeholder](./docs/images/screenshot-restore-placeholder.svg)
 
 ## Features
 
@@ -81,27 +81,35 @@ Installation instructions will be expanded as the initial project structure is f
 ### Prerequisites
 
 - [Rust](https://www.rust-lang.org/tools/install)
-- [Tauri prerequisites](https://tauri.app/start/prerequisites/)
-- Node.js package manager if the frontend uses a framework or build tooling
-- Valid AWS and/or Azure credentials for connected accounts
+- [Node.js](https://nodejs.org/)
+- Platform prerequisites required by [Tauri](https://tauri.app/start/prerequisites/)
+- Valid AWS and/or Azure credentials once provider integrations are added
 
-### Planned Setup Flow
+### Development Setup
 
 ```bash
 # clone the repository
-git clone https://github.com/your-username/cloudeasyfiles.git
+git clone https://github.com/andre-luiz-pires-silva/cloudeasyfiles.git
 
 # enter the project directory
 cd cloudeasyfiles
 
-# install frontend dependencies
-# npm install
+# install JavaScript dependencies
+npm install
 
-# run the desktop application
-# npm run tauri dev
+# run the desktop app in development
+npm run tauri dev
 ```
 
-> Note: Exact setup commands may change once the project scaffolding is committed.
+When the application starts successfully, it opens a desktop window and renders the initial greeting:
+
+```text
+Hello, CloudEasyFiles!
+```
+
+### Notes for Windows
+
+Tauri requires the Microsoft C++ build tools and WebView2 runtime on Windows. If the app does not start, confirm the official Tauri prerequisites before troubleshooting the project itself.
 
 ## Usage
 
@@ -124,9 +132,62 @@ Typical workflow:
 - AWS Glacier restore request flow
 - Azure Archive tier rehydration flow
 
+## Project Structure
+
+```text
+cloudeasyfiles/
+|-- docs/
+|   `-- images/
+|-- src/
+|   |-- index.html
+|   |-- main.js
+|   `-- styles.css
+|-- src-tauri/
+|   |-- capabilities/
+|   |   `-- default.json
+|   |-- src/
+|   |   |-- app/
+|   |   |-- application/
+|   |   |-- domain/
+|   |   |-- presentation/
+|   |   |-- lib.rs
+|   |   `-- main.rs
+|   |-- Cargo.toml
+|   |-- build.rs
+|   `-- tauri.conf.json
+|-- package.json
+`-- README.md
+```
+
+### What each part does
+
+- `src/`
+  - Contains the desktop UI built with HTML, CSS, and JavaScript
+- `src/index.html`
+  - Defines the initial window layout
+- `src/main.js`
+  - Loads the greeting and shows how the frontend can call Rust through Tauri
+- `src/styles.css`
+  - Provides the initial visual design for the app shell
+- `src-tauri/src/app/`
+  - Bootstraps the Tauri application and wires the main runtime together
+- `src-tauri/src/application/`
+  - Holds use-case and orchestration logic that coordinates the app behavior
+- `src-tauri/src/domain/`
+  - Stores core business concepts that should stay independent from UI and provider details
+- `src-tauri/src/presentation/`
+  - Exposes Tauri commands used by the frontend
+- `src-tauri/tauri.conf.json`
+  - Defines the desktop window and Tauri application configuration
+- `src-tauri/capabilities/default.json`
+  - Declares the permissions available to the main window
+- `package.json`
+  - Manages JavaScript dependencies and the Tauri CLI command
+
 ## Roadmap
 
 - Initial Tauri application scaffolding
+- Initial greeting flow between frontend and Rust backend
 - AWS S3 integration with multi-account support
 - Azure Blob Storage integration with multi-account support
 - Unified provider abstraction layer

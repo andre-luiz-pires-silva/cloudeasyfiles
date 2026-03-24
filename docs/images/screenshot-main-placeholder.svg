@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" role="img" aria-labelledby="title desc">
+  <title id="title">CloudEasyFiles main window placeholder</title>
+  <desc id="desc">Placeholder image for the main application window screenshot.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0%" stop-color="#f8fbff"/>
+      <stop offset="100%" stop-color="#dce9f5"/>
+    </linearGradient>
+  </defs>
+  <rect width="1280" height="720" fill="url(#bg)"/>
+  <rect x="120" y="110" width="1040" height="500" rx="28" fill="#ffffff" stroke="#d7e1ee"/>
+  <rect x="120" y="110" width="250" height="500" rx="28" fill="#eff6fb"/>
+  <rect x="410" y="180" width="430" height="34" rx="10" fill="#0f766e" opacity="0.12"/>
+  <rect x="410" y="240" width="650" height="18" rx="9" fill="#d7e1ee"/>
+  <rect x="410" y="280" width="600" height="18" rx="9" fill="#d7e1ee"/>
+  <rect x="410" y="320" width="540" height="18" rx="9" fill="#d7e1ee"/>
+  <text x="640" y="400" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="42" fill="#142033">
+    Main Window Placeholder
+  </text>
+  <text x="640" y="445" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="24" fill="#51607a">
+    Replace with a real product screenshot as the UI evolves.
+  </text>
+</svg>

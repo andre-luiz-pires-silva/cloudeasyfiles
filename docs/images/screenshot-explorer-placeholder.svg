@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" role="img" aria-labelledby="title desc">
+  <title id="title">CloudEasyFiles explorer placeholder</title>
+  <desc id="desc">Placeholder image for the file explorer screenshot.</desc>
+  <rect width="1280" height="720" fill="#eef4fb"/>
+  <rect x="90" y="90" width="1100" height="540" rx="28" fill="#ffffff" stroke="#d7e1ee"/>
+  <rect x="90" y="90" width="280" height="540" rx="28" fill="#f5f9fd"/>
+  <rect x="410" y="140" width="710" height="54" rx="18" fill="#eff6fb"/>
+  <rect x="410" y="230" width="710" height="270" rx="22" fill="#fbfdff" stroke="#e2e8f0"/>
+  <text x="760" y="350" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="40" fill="#142033">
+    Explorer Placeholder
+  </text>
+  <text x="760" y="395" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="24" fill="#51607a">
+    Intended for buckets, containers and file listings.
+  </text>
+</svg>

@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.tools/
+
+target/
+src-tauri/target/
+src-tauri/gen/
+
+.DS_Store
+Thumbs.db
