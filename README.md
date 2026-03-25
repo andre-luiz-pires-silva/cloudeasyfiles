@@ -2,7 +2,7 @@
 
 > A unified desktop file explorer for AWS S3 and Azure Blob Storage.
 
-CloudEasyFiles is a desktop application that provides a clean, intuitive interface for managing files across cloud storage providers. It is designed to reduce the complexity of working directly with provider-specific APIs and workflows, offering a consistent experience for browsing, transferring, and managing cloud files.
+CloudEasyFiles is a desktop application that provides a clean, intuitive interface for managing files across cloud storage providers. It is designed to reduce the complexity of working directly with provider-specific APIs and workflows, offering a consistent experience for browsing, transferring, and managing cloud files with an emphasis on simplicity and ease of use.
 
 The project initially targets AWS S3 and Azure Blob Storage, including archival storage workflows such as AWS Glacier restores and Azure Archive tier rehydration.
 
@@ -17,8 +17,10 @@ The repository currently includes SVG placeholders that can later be replaced by
 ## Features
 
 - Connect and manage multiple AWS and Azure accounts
-- Browse cloud storage through a tree-based navigation sidebar
-- Explore files and folders in a central file explorer view
+- Save configured AWS and Azure connections in a tree-based navigation sidebar
+- Browse cloud resources through a familiar interface inspired primarily by VSCode, with pgAdmin and DBeaver as secondary references
+- Update the main content area based on the selected tree node, showing relevant details and contextual actions
+- Explore files and folders in a central file explorer view when the selected context requires it
 - Upload, download, delete, copy, and move files
 - Track operations with progress bars and status indicators
 - Use a unified interface across supported providers
@@ -119,17 +121,19 @@ Tauri requires the Microsoft C++ build tools and WebView2 runtime on Windows. If
 
 ## Usage
 
-CloudEasyFiles is intended to feel familiar to anyone who has used a database explorer or file management tool.
+CloudEasyFiles is intended to feel familiar to anyone who has used tools such as VSCode, pgAdmin, or DBeaver, with VSCode serving as the primary reference for a simple and approachable navigation model.
 
 Typical workflow:
 
 1. Launch the application
 2. Add one or more AWS or Azure accounts
-3. Select a storage account, bucket, or container from the navigation tree
-4. Browse files in the explorer panel
-5. Perform file operations such as upload, download, copy, move, or delete
-6. Monitor operation progress and file state changes in the UI
-7. Trigger restore or rehydration workflows for archived content when needed
+3. Save those connections in the left navigation tree for future access
+4. Select an account, bucket, container, folder, or file from the tree
+5. Review the selected node details and available actions in the main panel
+6. Browse files in the explorer area when the selected context exposes content navigation
+7. Perform file operations such as upload, download, copy, move, or delete
+8. Monitor operation progress and file state changes in the UI
+9. Trigger restore or rehydration workflows for archived content when needed
 
 ### Supported Storage Workflows
 

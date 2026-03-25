@@ -4,7 +4,7 @@
 
 CloudEasyFiles is a desktop application for managing files stored in cloud providers through a unified, intuitive, and user-friendly interface.
 
-Its primary goal is to simplify cloud storage interactions that are often fragmented, provider-specific, and operationally complex. The application should present a consistent experience across supported providers, allowing users to work with cloud files in a way that feels familiar, efficient, and predictable.
+Its primary goal is to simplify cloud storage interactions that are often fragmented, provider-specific, and operationally complex. The application should present a consistent experience across supported providers, allowing users to work with cloud files in a way that feels familiar, efficient, predictable, and easy to learn.
 
 This project is also intentionally designed as portfolio-quality software. It should demonstrate strong engineering discipline, clean architecture, maintainable code, and thoughtful product design.
 
@@ -19,16 +19,23 @@ The application should help users:
 - Perform common file operations in a unified way
 - Understand file availability and storage state at a glance
 - Work with archival storage without needing deep provider-specific knowledge
+- Navigate saved cloud connections and resources with minimal friction
 
 ## Core Product Concept
 
-CloudEasyFiles should behave similarly to tools such as pgAdmin or DBeaver, but for cloud storage rather than databases.
+CloudEasyFiles should behave similarly to VSCode first, with pgAdmin and DBeaver as secondary references, but for cloud storage rather than source code or databases.
+
+The interface should appeal through simplicity and ease of use. The goal is not to expose every provider concept upfront, but to guide the user through a clear navigation model with contextual information and actions.
 
 The expected interaction model is:
 
-- A tree-based navigation sidebar for accounts and storage containers
-- A central explorer panel for file and folder content
-- Contextual actions for file operations
+- A tree-based navigation sidebar on the left
+- Saved AWS and Azure connections persisted in that tree
+- Hierarchical nodes for accounts, buckets, containers, folders, and files
+- A main content area that updates according to the selected node
+- Detailed information about the selected node in the main area
+- Contextual actions and features that make sense for the selected node
+- A central explorer experience for file and folder content when applicable
 - Clear visual status for operations and storage state
 
 Users should be able to register multiple cloud accounts, navigate them through a common interface, and operate on files without needing to learn the specific API model of each provider.
@@ -49,12 +56,16 @@ The design must remain extensible so additional providers can be added later wit
 - Support multiple AWS accounts
 - Support multiple Azure accounts
 - Allow users to register and manage connections cleanly
+- Persist configured connections in the navigation tree for easy reuse
 
 ### Navigation and Exploration
 
 - Provide a tree-based navigation panel on the left side
-- Show accounts, buckets, containers, and related hierarchical resources
-- Present a central file explorer panel for browsing content
+- Use VSCode as the main interaction reference for the navigation model
+- Show saved connections, accounts, buckets, containers, and related hierarchical resources
+- Update the main area based on the selected node
+- Present node details and context-aware actions in the main area
+- Present a central file explorer panel for browsing content when the selected node supports it
 
 ### File Operations
 
@@ -75,6 +86,7 @@ The application should provide clear operational feedback, including:
 - Progress bars for long-running actions
 - Status indicators for success, failure, pending work, and in-progress work
 - Clear display of file availability state
+- A straightforward, low-friction interface that prioritizes comprehension over density
 
 ### Storage Tier Awareness
 
