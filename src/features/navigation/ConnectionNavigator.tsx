@@ -1,4 +1,14 @@
 import { useEffect, useId, useMemo, useState } from "react";
+import {
+  ChevronDown,
+  ChevronRight,
+  Cloud,
+  Ellipsis,
+  File,
+  Folder,
+  Home,
+  Plus
+} from "lucide-react";
 import type { Locale } from "../../lib/i18n/I18nProvider";
 import { useI18n } from "../../lib/i18n/useI18n";
 
@@ -82,16 +92,16 @@ function createFakeNodes(connectionId: string): TreeNode[] {
   ];
 }
 
-function getNodeIcon(nodeType: TreeNodeType): string {
+function getNodeIcon(nodeType: TreeNodeType) {
   if (nodeType === "connection") {
-    return "◉";
+    return <Cloud size={16} strokeWidth={1.9} />;
   }
 
   if (nodeType === "group") {
-    return "▣";
+    return <Folder size={16} strokeWidth={1.9} />;
   }
 
-  return "•";
+  return <File size={16} strokeWidth={1.9} />;
 }
 
 function removeNodeFromTree(nodes: TreeNode[], nodeId: string): RemoveNodeResult {
@@ -387,7 +397,7 @@ export function ConnectionNavigator({
                 title={t("navigation.home")}
                 onClick={handleSelectHome}
               >
-                ⌂
+                <Home size={18} strokeWidth={2} />
               </button>
 
               <button
@@ -397,7 +407,7 @@ export function ConnectionNavigator({
                 title={t("navigation.new_connection")}
                 onClick={openModal}
               >
-                +
+                <Plus size={18} strokeWidth={2.2} />
               </button>
             </div>
           </div>
@@ -428,7 +438,11 @@ export function ConnectionNavigator({
                         }
                         onClick={() => toggleExpanded(connection.id)}
                       >
-                        {expandedNodeIds.has(connection.id) ? "▾" : "▸"}
+                        {expandedNodeIds.has(connection.id) ? (
+                          <ChevronDown size={16} strokeWidth={2.1} />
+                        ) : (
+                          <ChevronRight size={16} strokeWidth={2.1} />
+                        )}
                       </button>
 
                       <button
@@ -677,7 +691,11 @@ function TreeBranch({
             aria-label={isExpanded ? t("navigation.collapse") : t("navigation.expand")}
             onClick={() => onToggle(node.id)}
           >
-            {isExpanded ? "▾" : "▸"}
+            {isExpanded ? (
+              <ChevronDown size={16} strokeWidth={2.1} />
+            ) : (
+              <ChevronRight size={16} strokeWidth={2.1} />
+            )}
           </button>
         ) : (
           <span className="tree-toggle-spacer" aria-hidden="true" />
@@ -749,7 +767,7 @@ function TreeItemMenu({ nodeType, nodeId, isOpen, onToggle, onAction, t }: TreeI
         aria-expanded={isOpen}
         onClick={() => onToggle(isOpen ? null : nodeId)}
       >
-        ⋯
+        <Ellipsis size={16} strokeWidth={2.1} />
       </button>
 
       {isOpen ? (
