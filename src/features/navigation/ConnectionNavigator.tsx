@@ -1,7 +1,9 @@
 import { useEffect, useId, useMemo, useState } from "react";
+import type { Locale } from "../../lib/i18n/I18nProvider";
 import { useI18n } from "../../lib/i18n/useI18n";
 
 type TreeNodeType = "connection" | "group" | "resource";
+type NavigatorView = "home" | "node";
 
 type TreeNode = {
   id: string;
@@ -209,11 +211,21 @@ function flattenTreeNodes(connections: ConnectionItem[]): Array<{
   return items;
 }
 
-export function ConnectionNavigator() {
+type ConnectionNavigatorProps = {
+  locale: Locale;
+  onLocaleChange: (locale: string) => Promise<void>;
+};
+
+export function ConnectionNavigator({
+  locale,
+  onLocaleChange
+}: ConnectionNavigatorProps) {
   const { t } = useI18n();
   const nameFieldId = useId();
   const providerFieldId = useId();
+  const localeFieldId = useId();
   const [connections, setConnections] = useState<ConnectionItem[]>([]);
+  const [selectedView, setSelectedView] = useState<NavigatorView>("home");
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [connectionName, setConnectionName] = useState("");
@@ -223,23 +235,30 @@ export function ConnectionNavigator() {
 
   const flatNodes = useMemo(() => flattenTreeNodes(connections), [connections]);
   const selectedNode =
-    flatNodes.find((node) => node.id === selectedNodeId) ??
-    (flatNodes.length > 0 ? flatNodes[0] : null);
+    selectedView === "node"
+      ? (flatNodes.find((node) => node.id === selectedNodeId) ?? null)
+      : null;
 
   useEffect(() => {
     if (flatNodes.length === 0) {
-      if (selectedNodeId !== null) {
+      if (selectedNodeId !== null || selectedView !== "home") {
         setSelectedNodeId(null);
+        setSelectedView("home");
       }
+      return;
+    }
+
+    if (selectedView !== "node") {
       return;
     }
 
     const selectedNodeStillExists = flatNodes.some((node) => node.id === selectedNodeId);
 
     if (!selectedNodeStillExists) {
-      setSelectedNodeId(flatNodes[0].id);
+      setSelectedNodeId(null);
+      setSelectedView("home");
     }
-  }, [flatNodes, selectedNodeId]);
+  }, [flatNodes, selectedNodeId, selectedView]);
 
   useEffect(() => {
     if (!isModalOpen) {
@@ -295,9 +314,22 @@ export function ConnectionNavigator() {
     const nextConnection = buildConnection(trimmedName, connectionProvider, createConnectionId());
 
     setConnections((currentConnections) => [...currentConnections, nextConnection]);
+    setSelectedView("node");
     setSelectedNodeId(nextConnection.id);
     setOpenMenuNodeId(null);
     closeModal();
+  }
+
+  function handleSelectHome() {
+    setSelectedView("home");
+    setSelectedNodeId(null);
+    setOpenMenuNodeId(null);
+  }
+
+  function handleSelectNode(nodeId: string) {
+    setSelectedView("node");
+    setSelectedNodeId(nodeId);
+    setOpenMenuNodeId(null);
   }
 
   function handleRemoveNode(nodeId: string) {
@@ -347,15 +379,27 @@ export function ConnectionNavigator() {
               <h2 className="sidebar-title">{t("navigation.title")}</h2>
             </div>
 
-            <button
-              type="button"
-              className="icon-button"
-              aria-label={t("navigation.new_connection")}
-              title={t("navigation.new_connection")}
-              onClick={openModal}
-            >
-              +
-            </button>
+            <div className="sidebar-actions">
+              <button
+                type="button"
+                className={`icon-button icon-button-secondary${selectedView === "home" ? " is-active" : ""}`}
+                aria-label={t("navigation.home")}
+                title={t("navigation.home")}
+                onClick={handleSelectHome}
+              >
+                ⌂
+              </button>
+
+              <button
+                type="button"
+                className="icon-button"
+                aria-label={t("navigation.new_connection")}
+                title={t("navigation.new_connection")}
+                onClick={openModal}
+              >
+                +
+              </button>
+            </div>
           </div>
 
           {connections.length === 0 ? (
@@ -390,7 +434,7 @@ export function ConnectionNavigator() {
                       <button
                         type="button"
                         className="tree-node-button"
-                        onClick={() => setSelectedNodeId(connection.id)}
+                        onClick={() => handleSelectNode(connection.id)}
                       >
                         <span className="tree-node-main">
                           <span className="tree-node-icon" aria-hidden="true">
@@ -419,9 +463,9 @@ export function ConnectionNavigator() {
                           <TreeBranch
                             key={child.id}
                             node={child}
-                            selectedNodeId={selectedNode?.id ?? null}
+                            selectedNodeId={selectedNodeId}
                             expandedNodeIds={expandedNodeIds}
-                            onSelect={setSelectedNodeId}
+                            onSelect={handleSelectNode}
                             onToggle={toggleExpanded}
                             openMenuNodeId={openMenuNodeId}
                             onMenuToggle={setOpenMenuNodeId}
@@ -438,15 +482,43 @@ export function ConnectionNavigator() {
           )}
         </aside>
 
-        <section className="content-panel">
-          <div className="content-toolbar">
-            <div>
-              <p className="content-eyebrow">{t("content.eyebrow")}</p>
-              <h1 className="content-title">{selectedNode?.name ?? t("content.empty.title")}</h1>
+        <section className={`content-panel${selectedView === "home" ? " content-panel-home" : ""}`}>
+          {selectedView === "home" ? null : (
+            <div className="content-toolbar">
+              <div>
+                <p className="content-eyebrow">{t("content.eyebrow")}</p>
+                <h1 className="content-title">{selectedNode?.name ?? t("content.empty.title")}</h1>
+              </div>
             </div>
-          </div>
+          )}
 
-          {selectedNode ? (
+          {selectedView === "home" ? (
+            <div className="home-card">
+              <div className="home-header">
+                <div>
+                  <h2 className="home-title">{t("app.title")}</h2>
+                  <p className="eyebrow home-eyebrow">{t("hero.eyebrow")}</p>
+                </div>
+
+                <label className="field-group compact-field-group home-locale-field" htmlFor={localeFieldId}>
+                  <span>{t("settings.language")}</span>
+                  <select
+                    id={localeFieldId}
+                    aria-label={t("settings.language")}
+                    value={locale}
+                    onChange={(event) => {
+                      void onLocaleChange(event.target.value);
+                    }}
+                  >
+                    <option value="en-US">English (US)</option>
+                    <option value="pt-BR">Portuguese (Brazil)</option>
+                  </select>
+                </label>
+              </div>
+
+              <p className="content-description">{t("hero.subtitle")}</p>
+            </div>
+          ) : selectedNode ? (
             <div className="content-card">
               <p className="content-description">
                 {selectedNode.type === "connection"
