@@ -9,6 +9,7 @@ import {
   Home,
   Plus
 } from "lucide-react";
+import logoPrimary from "../../assets/logo-primary.svg";
 import type { Locale } from "../../lib/i18n/I18nProvider";
 import { useI18n } from "../../lib/i18n/useI18n";
 
@@ -509,9 +510,13 @@ export function ConnectionNavigator({
           {selectedView === "home" ? (
             <div className="home-card">
               <div className="home-header">
-                <div>
-                  <h2 className="home-title">{t("app.title")}</h2>
-                  <p className="eyebrow home-eyebrow">{t("hero.eyebrow")}</p>
+                <div className="home-brand">
+                  <img src={logoPrimary} alt="" className="home-logo" />
+
+                  <div>
+                    <h2 className="home-title">{t("app.title")}</h2>
+                    <p className="eyebrow home-eyebrow">{t("hero.eyebrow")}</p>
+                  </div>
                 </div>
 
                 <label className="field-group compact-field-group home-locale-field" htmlFor={localeFieldId}>

@@ -427,6 +427,19 @@ body {
   margin-bottom: 24px;
 }
 
+.home-brand {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.home-logo {
+  width: 72px;
+  height: 72px;
+  flex: 0 0 auto;
+  display: block;
+}
+
 .home-title {
   margin: 0;
   font-size: clamp(2rem, 4vw, 3rem);
@@ -567,6 +580,15 @@ body {
 
   .home-header {
     flex-direction: column;
+  }
+
+  .home-brand {
+    gap: 14px;
+  }
+
+  .home-logo {
+    width: 60px;
+    height: 60px;
   }
 
   .home-locale-field {
