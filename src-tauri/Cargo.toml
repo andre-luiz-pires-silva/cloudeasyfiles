@@ -29,3 +29,12 @@ tauri-runtime = { version = "=2.1.1" }
 tauri-runtime-wry = { version = "=2.1.2", default-features = false }
 tauri-utils = { version = "=2.0.2", features = ["resources"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+keyring = { version = "3", default-features = false, features = ["linux-native-sync-persistent", "crypto-rust"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "3", default-features = false, features = ["apple-native"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+keyring = { version = "3", default-features = false, features = ["windows-native"] }

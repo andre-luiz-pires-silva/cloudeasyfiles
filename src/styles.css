@@ -397,6 +397,16 @@ body {
   min-width: 0;
 }
 
+.tree-node-copy {
+  display: grid;
+  min-width: 0;
+}
+
+.tree-node-meta {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+
 .tree-node-icon {
   display: inline-grid;
   place-items: center;
@@ -554,6 +564,7 @@ body {
   display: block;
   font-size: 1rem;
   line-height: 1.5;
+  overflow-wrap: anywhere;
 }
 
 .action-row {
@@ -588,6 +599,22 @@ body {
   font-weight: 600;
 }
 
+.field-helper,
+.field-error {
+  font-size: 0.86rem;
+  line-height: 1.5;
+}
+
+.field-helper {
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+.field-error,
+.status-message-error {
+  color: #b42318;
+}
+
 .field-group input {
   width: 100%;
   padding: 13px 14px;
@@ -606,6 +633,26 @@ body {
   font: inherit;
   color: var(--text-primary);
   background: rgba(247, 249, 252, 0.9);
+}
+
+.form-placeholder {
+  margin-top: 22px;
+  padding: 18px;
+  border: 1px dashed rgba(15, 23, 42, 0.12);
+  border-radius: 18px;
+  background: rgba(247, 249, 252, 0.72);
+}
+
+.form-placeholder-title {
+  margin: 0 0 8px;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.form-placeholder-copy,
+.status-message-error {
+  margin: 0;
+  line-height: 1.6;
 }
 
 .modal-actions {
