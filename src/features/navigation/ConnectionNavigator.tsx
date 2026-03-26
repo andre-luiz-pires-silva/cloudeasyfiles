@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import {
   ChevronDown,
   ChevronRight,
@@ -227,6 +227,12 @@ type ConnectionNavigatorProps = {
   onLocaleChange: (locale: string) => Promise<void>;
 };
 
+const DEFAULT_SIDEBAR_WIDTH = 360;
+const MIN_SIDEBAR_WIDTH = 300;
+const MAX_SIDEBAR_WIDTH = 520;
+const MIN_CONTENT_WIDTH = 420;
+const SIDEBAR_WIDTH_STORAGE_KEY = "cloudeasyfiles.sidebar-width";
+
 export function ConnectionNavigator({
   locale,
   onLocaleChange
@@ -243,6 +249,27 @@ export function ConnectionNavigator({
   const [connectionProvider, setConnectionProvider] = useState<ConnectionItem["provider"]>("aws");
   const [expandedNodeIds, setExpandedNodeIds] = useState<Set<string>>(new Set());
   const [openMenuNodeId, setOpenMenuNodeId] = useState<string | null>(null);
+  const [sidebarWidth, setSidebarWidth] = useState(() => {
+    if (typeof window === "undefined") {
+      return DEFAULT_SIDEBAR_WIDTH;
+    }
+
+    const savedSidebarWidth = window.localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY);
+
+    if (!savedSidebarWidth) {
+      return DEFAULT_SIDEBAR_WIDTH;
+    }
+
+    const parsedSidebarWidth = Number(savedSidebarWidth);
+
+    if (!Number.isFinite(parsedSidebarWidth)) {
+      return DEFAULT_SIDEBAR_WIDTH;
+    }
+
+    return Math.min(Math.max(parsedSidebarWidth, MIN_SIDEBAR_WIDTH), MAX_SIDEBAR_WIDTH);
+  });
+  const [isResizingSidebar, setIsResizingSidebar] = useState(false);
+  const workspaceRef = useRef<HTMLDivElement | null>(null);
 
   const flatNodes = useMemo(() => flattenTreeNodes(connections), [connections]);
   const selectedNode =
@@ -288,6 +315,68 @@ export function ConnectionNavigator({
       window.removeEventListener("keydown", handleEscape);
     };
   }, [isModalOpen]);
+
+  useEffect(() => {
+    if (!isResizingSidebar) {
+      return undefined;
+    }
+
+    function handlePointerMove(event: PointerEvent) {
+      const workspaceElement = workspaceRef.current;
+
+      if (!workspaceElement) {
+        return;
+      }
+
+      const workspaceRect = workspaceElement.getBoundingClientRect();
+      const nextWidth = event.clientX - workspaceRect.left;
+      const maxWidth = Math.min(MAX_SIDEBAR_WIDTH, workspaceRect.width - MIN_CONTENT_WIDTH);
+      const clampedWidth = Math.min(Math.max(nextWidth, MIN_SIDEBAR_WIDTH), maxWidth);
+
+      setSidebarWidth(clampedWidth);
+    }
+
+    function handlePointerUp() {
+      setIsResizingSidebar(false);
+    }
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp);
+
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+    };
+  }, [isResizingSidebar]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    window.localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(sidebarWidth));
+  }, [sidebarWidth]);
+
+  useEffect(() => {
+    if (!isResizingSidebar) {
+      return undefined;
+    }
+
+    const previousCursor = document.body.style.cursor;
+    const previousUserSelect = document.body.style.userSelect;
+
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+
+    return () => {
+      document.body.style.cursor = previousCursor;
+      document.body.style.userSelect = previousUserSelect;
+    };
+  }, [isResizingSidebar]);
+
+  function handleResizeStart() {
+    setIsResizingSidebar(true);
+  }
 
   function openModal() {
     setConnectionName("");
@@ -382,7 +471,13 @@ export function ConnectionNavigator({
 
   return (
     <>
-      <div className="workspace-shell">
+      <div
+        ref={workspaceRef}
+        className={`workspace-shell${isResizingSidebar ? " is-resizing" : ""}`}
+        style={{
+          gridTemplateColumns: `${sidebarWidth}px 12px minmax(0, 1fr)`
+        }}
+      >
         <aside className="sidebar-panel" aria-label={t("navigation.sidebar_aria_label")}>
           <div className="sidebar-header">
             <div>
@@ -496,6 +591,16 @@ export function ConnectionNavigator({
             </div>
           )}
         </aside>
+
+        <div
+          className="sidebar-resizer"
+          role="separator"
+          aria-orientation="vertical"
+          aria-label={t("navigation.sidebar_aria_label")}
+          onPointerDown={handleResizeStart}
+        >
+          <span className="sidebar-resizer-handle" aria-hidden="true" />
+        </div>
 
         <section className={`content-panel${selectedView === "home" ? " content-panel-home" : ""}`}>
           {selectedView === "home" ? null : (
