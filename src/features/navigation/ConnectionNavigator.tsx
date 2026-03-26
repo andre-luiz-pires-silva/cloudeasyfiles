@@ -14,6 +14,7 @@ import type { Locale } from "../../lib/i18n/I18nProvider";
 import { useI18n } from "../../lib/i18n/useI18n";
 
 type NavigatorView = "home" | "node";
+type ConnectionTestStatus = "idle" | "testing" | "success" | "error";
 type FormErrors = Partial<
   Record<"connectionName" | "region" | "accessKeyId" | "secretAccessKey", string>
 >;
@@ -65,6 +66,9 @@ export function ConnectionNavigator({
   const [accessKeyId, setAccessKeyId] = useState("");
   const [secretAccessKey, setSecretAccessKey] = useState("");
   const [localCacheDirectory, setLocalCacheDirectory] = useState("");
+  const [connectionTestStatus, setConnectionTestStatus] =
+    useState<ConnectionTestStatus>("idle");
+  const [connectionTestMessage, setConnectionTestMessage] = useState<string | null>(null);
   const [formErrors, setFormErrors] = useState<FormErrors>({});
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -91,6 +95,7 @@ export function ConnectionNavigator({
   });
   const [isResizingSidebar, setIsResizingSidebar] = useState(false);
   const workspaceRef = useRef<HTMLDivElement | null>(null);
+  const connectionTestTimeoutRef = useRef<number | null>(null);
 
   const selectedConnection = useMemo(
     () => connections.find((connection) => connection.id === selectedConnectionId) ?? null,
@@ -147,24 +152,6 @@ export function ConnectionNavigator({
   }, [connections, selectedConnectionId]);
 
   useEffect(() => {
-    if (!isModalOpen) {
-      return undefined;
-    }
-
-    function handleEscape(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        closeModal();
-      }
-    }
-
-    window.addEventListener("keydown", handleEscape);
-
-    return () => {
-      window.removeEventListener("keydown", handleEscape);
-    };
-  }, [isModalOpen]);
-
-  useEffect(() => {
     if (!isResizingSidebar) {
       return undefined;
     }
@@ -198,6 +185,14 @@ export function ConnectionNavigator({
   }, [isResizingSidebar]);
 
   useEffect(() => {
+    return () => {
+      if (connectionTestTimeoutRef.current !== null) {
+        window.clearTimeout(connectionTestTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
     if (typeof window === "undefined") {
       return;
     }
@@ -223,6 +218,7 @@ export function ConnectionNavigator({
   }, [isResizingSidebar]);
 
   function resetForm() {
+    resetConnectionTestState();
     setConnectionName("");
     setConnectionProvider("aws");
     setRegion("");
@@ -262,6 +258,7 @@ export function ConnectionNavigator({
       setLocalCacheDirectory(connection.localCacheDirectory ?? "");
       setAccessKeyId("");
       setSecretAccessKey("");
+      resetConnectionTestState();
       setFormErrors({});
       setIsModalOpen(true);
 
@@ -279,6 +276,61 @@ export function ConnectionNavigator({
           : t("navigation.modal.credentials_load_warning")
       );
     }
+  }
+
+  function resetConnectionTestState() {
+    if (connectionTestTimeoutRef.current !== null) {
+      window.clearTimeout(connectionTestTimeoutRef.current);
+      connectionTestTimeoutRef.current = null;
+    }
+
+    setConnectionTestStatus("idle");
+    setConnectionTestMessage(null);
+  }
+
+  function validateConnectionTestFields(): FormErrors {
+    const nextErrors: FormErrors = {};
+
+    if (!region.trim()) {
+      nextErrors.region = t("navigation.modal.validation.region_required");
+    }
+
+    if (!accessKeyId.trim()) {
+      nextErrors.accessKeyId = t("navigation.modal.validation.access_key_required");
+    }
+
+    if (!secretAccessKey.trim()) {
+      nextErrors.secretAccessKey = t("navigation.modal.validation.secret_key_required");
+    }
+
+    return nextErrors;
+  }
+
+  function handleTestConnection() {
+    const nextErrors = validateConnectionTestFields();
+    setFormErrors(nextErrors);
+
+    if (Object.keys(nextErrors).length > 0) {
+      setConnectionTestStatus("error");
+      setConnectionTestMessage(t("navigation.modal.aws.test_connection_validation_error"));
+      return;
+    }
+
+    setConnectionTestStatus("testing");
+    setConnectionTestMessage(t("navigation.modal.aws.test_connection_in_progress"));
+
+    connectionTestTimeoutRef.current = window.setTimeout(() => {
+      connectionTestTimeoutRef.current = null;
+
+      if (accessKeyId.trim().toUpperCase().includes("FAIL")) {
+        setConnectionTestStatus("error");
+        setConnectionTestMessage(t("navigation.modal.aws.test_connection_failure"));
+        return;
+      }
+
+      setConnectionTestStatus("success");
+      setConnectionTestMessage(t("navigation.modal.aws.test_connection_success"));
+    }, 900);
   }
 
   function closeModal() {
@@ -589,14 +641,8 @@ export function ConnectionNavigator({
       </div>
 
       {isModalOpen ? (
-        <div className="modal-backdrop" role="presentation" onClick={closeModal}>
-          <div
-            className="modal-card"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="connection-modal-title"
-            onClick={(event) => event.stopPropagation()}
-          >
+        <div className="modal-backdrop" role="presentation">
+          <div className="modal-card" role="dialog" aria-modal="true" aria-labelledby="connection-modal-title">
             <div className="modal-header">
               <div>
                 <p className="modal-eyebrow">
@@ -625,7 +671,10 @@ export function ConnectionNavigator({
                   type="text"
                   value={connectionName}
                   placeholder={t("navigation.modal.name_placeholder")}
-                  onChange={(event) => setConnectionName(event.target.value)}
+                  onChange={(event) => {
+                    setConnectionName(event.target.value);
+                    resetConnectionTestState();
+                  }}
                   autoFocus
                 />
                 {formErrors.connectionName ? (
@@ -638,7 +687,10 @@ export function ConnectionNavigator({
                 <select
                   id={providerFieldId}
                   value={connectionProvider}
-                  onChange={(event) => setConnectionProvider(event.target.value as ConnectionProvider)}
+                  onChange={(event) => {
+                    setConnectionProvider(event.target.value as ConnectionProvider);
+                    resetConnectionTestState();
+                  }}
                 >
                   <option value="aws">{t("content.provider.aws")}</option>
                   <option value="azure">{t("content.provider.azure")}</option>
@@ -660,10 +712,26 @@ export function ConnectionNavigator({
                     accessKeyId: formErrors.accessKeyId,
                     secretAccessKey: formErrors.secretAccessKey
                   }}
-                  onRegionChange={setRegion}
-                  onAccessKeyIdChange={setAccessKeyId}
-                  onSecretAccessKeyChange={setSecretAccessKey}
-                  onLocalCacheDirectoryChange={setLocalCacheDirectory}
+                  connectionTestStatus={connectionTestStatus}
+                  connectionTestMessage={connectionTestMessage}
+                  isTestButtonDisabled={isSubmitting || connectionTestStatus === "testing"}
+                  onRegionChange={(value) => {
+                    setRegion(value);
+                    resetConnectionTestState();
+                  }}
+                  onAccessKeyIdChange={(value) => {
+                    setAccessKeyId(value);
+                    resetConnectionTestState();
+                  }}
+                  onSecretAccessKeyChange={(value) => {
+                    setSecretAccessKey(value);
+                    resetConnectionTestState();
+                  }}
+                  onLocalCacheDirectoryChange={(value) => {
+                    setLocalCacheDirectory(value);
+                    resetConnectionTestState();
+                  }}
+                  onTestConnection={handleTestConnection}
                   t={t}
                 />
               ) : (

@@ -655,6 +655,83 @@ body {
   line-height: 1.6;
 }
 
+.connection-test-panel {
+  display: grid;
+  gap: 12px;
+  margin-top: 22px;
+  padding: 18px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 18px;
+  background: rgba(247, 249, 252, 0.72);
+}
+
+.connection-test-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  gap: 16px;
+}
+
+.connection-test-label {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.connection-test-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.connection-test-status.is-idle {
+  color: var(--text-primary);
+  background: rgba(15, 23, 42, 0.08);
+}
+
+.connection-test-status.is-testing {
+  color: #0f766e;
+  background: rgba(15, 118, 110, 0.12);
+}
+
+.connection-test-status.is-success {
+  color: #166534;
+  background: rgba(22, 101, 52, 0.12);
+}
+
+.connection-test-status.is-error {
+  color: #b42318;
+  background: rgba(180, 35, 24, 0.1);
+}
+
+.connection-test-message {
+  margin: 0;
+  color: var(--text-muted);
+  line-height: 1.6;
+}
+
+.connection-test-spinner {
+  animation: connection-test-spin 0.9s linear infinite;
+}
+
+@keyframes connection-test-spin {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .modal-actions {
   display: flex;
   justify-content: end;
@@ -687,6 +764,10 @@ body {
   }
 
   .home-header {
+    flex-direction: column;
+  }
+
+  .connection-test-header {
     flex-direction: column;
   }
 
