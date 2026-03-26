@@ -13,7 +13,8 @@ pub fn run() {
             commands::get_greeting,
             commands::save_aws_connection_secrets,
             commands::load_aws_connection_secrets,
-            commands::delete_aws_connection_secrets
+            commands::delete_aws_connection_secrets,
+            commands::test_aws_connection
         ])
         .run(tauri::generate_context!())
         .expect("failed to run CloudEasyFiles application");

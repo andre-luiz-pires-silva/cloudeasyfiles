@@ -1,5 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
-import { Cloud, Ellipsis, Home, Plus } from "lucide-react";
+import { CircleAlert, Cloud, Ellipsis, Home, LoaderCircle, Plus } from "lucide-react";
 import logoPrimary from "../../assets/logo-primary.svg";
 import { AwsConnectionFields } from "../connections/components/AwsConnectionFields";
 import { AzureConnectionPlaceholder } from "../connections/components/AzureConnectionPlaceholder";
@@ -10,18 +10,21 @@ import type {
   SavedConnectionSummary
 } from "../connections/models";
 import { connectionService } from "../connections/services/connectionService";
+import { testAwsConnection } from "../../lib/tauri/awsConnections";
 import type { Locale } from "../../lib/i18n/I18nProvider";
 import { useI18n } from "../../lib/i18n/useI18n";
 
 type NavigatorView = "home" | "node";
 type ConnectionTestStatus = "idle" | "testing" | "success" | "error";
+type ConnectionIndicatorStatus = "disconnected" | "connecting" | "connected" | "error";
 type FormErrors = Partial<
   Record<"connectionName" | "region" | "accessKeyId" | "secretAccessKey", string>
 >;
 type NodeAction = {
-  id: "edit" | "remove";
+  id: "connect" | "disconnect" | "edit" | "remove";
   label: string;
   variant?: "danger";
+  disabled?: boolean;
 };
 
 const DEFAULT_SIDEBAR_WIDTH = 360;
@@ -29,9 +32,62 @@ const MIN_SIDEBAR_WIDTH = 300;
 const MAX_SIDEBAR_WIDTH = 520;
 const MIN_CONTENT_WIDTH = 420;
 const SIDEBAR_WIDTH_STORAGE_KEY = "cloudeasyfiles.sidebar-width";
+const MISSING_MINIMUM_S3_PERMISSION_ERROR = "AWS_S3_LIST_BUCKETS_PERMISSION_REQUIRED";
+const CONNECTING_CONNECTION_TITLE_KEY = "navigation.connection_status.connecting";
+const CONNECTED_CONNECTION_TITLE_KEY = "navigation.connection_status.connected";
+const DISCONNECTED_CONNECTION_TITLE_KEY = "navigation.connection_status.disconnected";
 
-function getConnectionActions(t: (key: string) => string): NodeAction[] {
+type ConnectionIndicator = {
+  status: ConnectionIndicatorStatus;
+  message?: string;
+};
+
+function extractErrorMessage(error: unknown): string | null {
+  if (typeof error === "string") {
+    return error;
+  }
+
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "message" in error &&
+    typeof error.message === "string"
+  ) {
+    return error.message;
+  }
+
+  return null;
+}
+
+function buildConnectionFailureMessage(
+  error: unknown,
+  t: (key: string) => string
+): string {
+  const errorMessage = extractErrorMessage(error);
+
+  if (errorMessage === MISSING_MINIMUM_S3_PERMISSION_ERROR) {
+    return t("navigation.modal.aws.test_connection_missing_minimum_permission");
+  }
+
+  return errorMessage ?? t("navigation.modal.aws.test_connection_failure");
+}
+
+function getConnectionActions(
+  t: (key: string) => string,
+  indicator: ConnectionIndicator
+): NodeAction[] {
   return [
+    indicator.status === "connected"
+      ? { id: "disconnect", label: t("navigation.menu.disconnect") }
+      : {
+          id: "connect",
+          label: t("navigation.menu.connect"),
+          disabled: indicator.status === "connecting"
+        },
     { id: "edit", label: t("navigation.menu.edit_settings") },
     { id: "remove", label: t("navigation.menu.remove"), variant: "danger" }
   ];
@@ -74,6 +130,12 @@ export function ConnectionNavigator({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isLoadingConnections, setIsLoadingConnections] = useState(true);
   const [openMenuConnectionId, setOpenMenuConnectionId] = useState<string | null>(null);
+  const [connectionIndicators, setConnectionIndicators] = useState<
+    Record<string, ConnectionIndicator>
+  >({});
+  const [connectionProviderAccountIds, setConnectionProviderAccountIds] = useState<
+    Record<string, string>
+  >({});
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     if (typeof window === "undefined") {
       return DEFAULT_SIDEBAR_WIDTH;
@@ -95,7 +157,8 @@ export function ConnectionNavigator({
   });
   const [isResizingSidebar, setIsResizingSidebar] = useState(false);
   const workspaceRef = useRef<HTMLDivElement | null>(null);
-  const connectionTestTimeoutRef = useRef<number | null>(null);
+  const connectionTestRequestIdRef = useRef(0);
+  const connectionRequestIdsRef = useRef<Record<string, number>>({});
 
   const selectedConnection = useMemo(
     () => connections.find((connection) => connection.id === selectedConnectionId) ?? null,
@@ -152,6 +215,36 @@ export function ConnectionNavigator({
   }, [connections, selectedConnectionId]);
 
   useEffect(() => {
+    setConnectionIndicators((previousIndicators) => {
+      const nextIndicators: Record<string, ConnectionIndicator> = {};
+
+      for (const connection of connections) {
+        nextIndicators[connection.id] = previousIndicators[connection.id] ?? {
+          status: "disconnected"
+        };
+      }
+
+      return nextIndicators;
+    });
+  }, [connections]);
+
+  useEffect(() => {
+    setConnectionProviderAccountIds((previousProviderAccountIds) => {
+      const nextProviderAccountIds: Record<string, string> = {};
+
+      for (const connection of connections) {
+        const providerAccountId = previousProviderAccountIds[connection.id];
+
+        if (providerAccountId) {
+          nextProviderAccountIds[connection.id] = providerAccountId;
+        }
+      }
+
+      return nextProviderAccountIds;
+    });
+  }, [connections]);
+
+  useEffect(() => {
     if (!isResizingSidebar) {
       return undefined;
     }
@@ -186,9 +279,7 @@ export function ConnectionNavigator({
 
   useEffect(() => {
     return () => {
-      if (connectionTestTimeoutRef.current !== null) {
-        window.clearTimeout(connectionTestTimeoutRef.current);
-      }
+      connectionTestRequestIdRef.current += 1;
     };
   }, []);
 
@@ -279,13 +370,103 @@ export function ConnectionNavigator({
   }
 
   function resetConnectionTestState() {
-    if (connectionTestTimeoutRef.current !== null) {
-      window.clearTimeout(connectionTestTimeoutRef.current);
-      connectionTestTimeoutRef.current = null;
-    }
-
+    connectionTestRequestIdRef.current += 1;
     setConnectionTestStatus("idle");
     setConnectionTestMessage(null);
+  }
+
+  function updateConnectionIndicator(connectionId: string, indicator: ConnectionIndicator) {
+    setConnectionIndicators((previousIndicators) => ({
+      ...previousIndicators,
+      [connectionId]: indicator
+    }));
+  }
+
+  async function connectConnection(
+    connectionId: string,
+    connectionOverride?: SavedConnectionSummary
+  ): Promise<void> {
+    const connection =
+      connectionOverride ?? connections.find((item) => item.id === connectionId);
+
+    if (!connection) {
+      return;
+    }
+
+    const requestId = (connectionRequestIdsRef.current[connectionId] ?? 0) + 1;
+    connectionRequestIdsRef.current[connectionId] = requestId;
+
+    setConnectionProviderAccountIds((previousProviderAccountIds) => {
+      const nextProviderAccountIds = { ...previousProviderAccountIds };
+      delete nextProviderAccountIds[connectionId];
+      return nextProviderAccountIds;
+    });
+    updateConnectionIndicator(connectionId, { status: "connecting" });
+
+    if (connection.provider !== "aws") {
+      if (connectionRequestIdsRef.current[connectionId] !== requestId) {
+        return;
+      }
+
+      updateConnectionIndicator(connectionId, {
+        status: "error",
+        message: t("navigation.connection_status.unsupported_provider")
+      });
+      return;
+    }
+
+    try {
+      const draft = await connectionService.getAwsConnectionDraft(connectionId);
+      const result = await testAwsConnection(
+        draft.region.trim(),
+        draft.accessKeyId.trim(),
+        draft.secretAccessKey.trim()
+      );
+
+      if (connectionRequestIdsRef.current[connectionId] !== requestId) {
+        return;
+      }
+
+      if (!result.accountId) {
+        updateConnectionIndicator(connectionId, {
+          status: "error",
+          message: t("navigation.modal.aws.test_connection_failure")
+        });
+        return;
+      }
+
+      setConnectionProviderAccountIds((previousProviderAccountIds) => ({
+        ...previousProviderAccountIds,
+        [connectionId]: result.accountId
+      }));
+
+      updateConnectionIndicator(connectionId, { status: "connected" });
+    } catch (error) {
+      if (connectionRequestIdsRef.current[connectionId] !== requestId) {
+        return;
+      }
+
+      setConnectionProviderAccountIds((previousProviderAccountIds) => {
+        const nextProviderAccountIds = { ...previousProviderAccountIds };
+        delete nextProviderAccountIds[connectionId];
+        return nextProviderAccountIds;
+      });
+      updateConnectionIndicator(connectionId, {
+        status: "error",
+        message: buildConnectionFailureMessage(error, t)
+      });
+    }
+  }
+
+  async function disconnectConnection(connectionId: string) {
+    connectionRequestIdsRef.current[connectionId] =
+      (connectionRequestIdsRef.current[connectionId] ?? 0) + 1;
+    setConnectionProviderAccountIds((previousProviderAccountIds) => {
+      const nextProviderAccountIds = { ...previousProviderAccountIds };
+      delete nextProviderAccountIds[connectionId];
+      return nextProviderAccountIds;
+    });
+    updateConnectionIndicator(connectionId, { status: "disconnected" });
   }
 
   function validateConnectionTestFields(): FormErrors {
@@ -306,7 +487,7 @@ export function ConnectionNavigator({
     return nextErrors;
   }
 
-  function handleTestConnection() {
+  async function handleTestConnection() {
     const nextErrors = validateConnectionTestFields();
     setFormErrors(nextErrors);
 
@@ -319,18 +500,41 @@ export function ConnectionNavigator({
     setConnectionTestStatus("testing");
     setConnectionTestMessage(t("navigation.modal.aws.test_connection_in_progress"));
 
-    connectionTestTimeoutRef.current = window.setTimeout(() => {
-      connectionTestTimeoutRef.current = null;
+    const requestId = connectionTestRequestIdRef.current + 1;
+    connectionTestRequestIdRef.current = requestId;
 
-      if (accessKeyId.trim().toUpperCase().includes("FAIL")) {
+    try {
+      const result = await testAwsConnection(
+        region.trim(),
+        accessKeyId.trim(),
+        secretAccessKey.trim()
+      );
+
+      if (connectionTestRequestIdRef.current !== requestId) {
+        return;
+      }
+
+      if (!result.accountId) {
         setConnectionTestStatus("error");
         setConnectionTestMessage(t("navigation.modal.aws.test_connection_failure"));
         return;
       }
 
       setConnectionTestStatus("success");
-      setConnectionTestMessage(t("navigation.modal.aws.test_connection_success"));
-    }, 900);
+      setConnectionTestMessage(
+        t("navigation.modal.aws.test_connection_success").replace(
+          "{accountId}",
+          result.accountId
+        )
+      );
+    } catch (error) {
+      if (connectionTestRequestIdRef.current !== requestId) {
+        return;
+      }
+
+      setConnectionTestStatus("error");
+      setConnectionTestMessage(buildConnectionFailureMessage(error, t));
+    }
   }
 
   function closeModal() {
@@ -408,6 +612,7 @@ export function ConnectionNavigator({
       setSelectedConnectionId(savedConnection.id);
       setOpenMenuConnectionId(null);
       closeModal();
+      await connectConnection(savedConnection.id, savedConnection);
     } catch (error) {
       setSubmitError(error instanceof Error ? error.message : t("navigation.modal.save_error"));
     } finally {
@@ -426,7 +631,22 @@ export function ConnectionNavigator({
     }
   }
 
-  async function handleConnectionAction(actionId: "edit" | "remove", connectionId: string) {
+  async function handleConnectionAction(
+    actionId: "connect" | "disconnect" | "edit" | "remove",
+    connectionId: string
+  ) {
+    if (actionId === "connect") {
+      setOpenMenuConnectionId(null);
+      await connectConnection(connectionId);
+      return;
+    }
+
+    if (actionId === "disconnect") {
+      await disconnectConnection(connectionId);
+      setOpenMenuConnectionId(null);
+      return;
+    }
+
     if (actionId === "edit") {
       await openEditModal(connectionId);
       setOpenMenuConnectionId(null);
@@ -434,6 +654,21 @@ export function ConnectionNavigator({
     }
 
     await handleRemoveConnection(connectionId);
+  }
+
+  async function handleDefaultConnectionAction(connectionId: string) {
+    const indicator = connectionIndicators[connectionId] ?? { status: "disconnected" };
+
+    if (indicator.status === "connecting") {
+      return;
+    }
+
+    if (indicator.status === "connected") {
+      await openEditModal(connectionId);
+      return;
+    }
+
+    await connectConnection(connectionId);
   }
 
   return (
@@ -495,11 +730,17 @@ export function ConnectionNavigator({
                         type="button"
                         className="tree-node-button"
                         onClick={() => handleSelectConnection(connection.id)}
+                        onDoubleClick={() => {
+                          void handleDefaultConnectionAction(connection.id);
+                        }}
                       >
                         <span className="tree-node-main">
-                          <span className="tree-node-icon" aria-hidden="true">
-                            <Cloud size={16} strokeWidth={1.9} />
-                          </span>
+                          <ConnectionStatusIcon
+                            indicator={connectionIndicators[connection.id] ?? { status: "disconnected" }}
+                            connectingTitle={t(CONNECTING_CONNECTION_TITLE_KEY)}
+                            connectedTitle={t(CONNECTED_CONNECTION_TITLE_KEY)}
+                            disconnectedTitle={t(DISCONNECTED_CONNECTION_TITLE_KEY)}
+                          />
 
                           <span className="tree-node-copy">
                             <span>{connection.name}</span>
@@ -507,13 +748,18 @@ export function ConnectionNavigator({
                           </span>
                         </span>
 
-                        <span className={`provider-badge provider-${connection.provider}`}>
-                          {connection.provider.toUpperCase()}
+                        <span className="tree-node-trailing">
+                          <span className={`provider-badge provider-${connection.provider}`}>
+                            {connection.provider.toUpperCase()}
+                          </span>
                         </span>
                       </button>
 
                       <TreeItemMenu
                         connectionId={connection.id}
+                        indicator={
+                          connectionIndicators[connection.id] ?? { status: "disconnected" }
+                        }
                         isOpen={openMenuConnectionId === connection.id}
                         onToggle={setOpenMenuConnectionId}
                         onAction={(actionId, connectionId) => {
@@ -548,6 +794,26 @@ export function ConnectionNavigator({
                   {selectedConnection?.name ?? t("content.empty.title")}
                 </h1>
               </div>
+
+              {selectedConnection ? (
+                <div className="content-toolbar-status">
+                  <ConnectionStatusIcon
+                    indicator={
+                      connectionIndicators[selectedConnection.id] ?? { status: "disconnected" }
+                    }
+                    connectingTitle={t(CONNECTING_CONNECTION_TITLE_KEY)}
+                    connectedTitle={t(CONNECTED_CONNECTION_TITLE_KEY)}
+                    disconnectedTitle={t(DISCONNECTED_CONNECTION_TITLE_KEY)}
+                    size={22}
+                  />
+                  <span>
+                    {getConnectionStatusLabel(
+                      connectionIndicators[selectedConnection.id] ?? { status: "disconnected" },
+                      t
+                    )}
+                  </span>
+                </div>
+              ) : null}
             </div>
           )}
 
@@ -588,8 +854,6 @@ export function ConnectionNavigator({
             </div>
           ) : selectedConnection ? (
             <div className="content-card">
-              <p className="content-description">{t("content.connection.description")}</p>
-
               <div className="details-grid">
                 <article className="detail-card">
                   <span className="detail-label">{t("content.detail.type")}</span>
@@ -603,7 +867,10 @@ export function ConnectionNavigator({
 
                 <article className="detail-card">
                   <span className="detail-label">{t("content.detail.identifier")}</span>
-                  <strong>{selectedConnection.id}</strong>
+                  <strong>
+                    {connectionProviderAccountIds[selectedConnection.id] ??
+                      t("content.detail.identifier_unavailable")}
+                  </strong>
                 </article>
 
                 <article className="detail-card detail-card-wide">
@@ -616,11 +883,15 @@ export function ConnectionNavigator({
               </div>
 
               <div className="action-row">
-                {getConnectionActions(t).map((action) => (
+                {getConnectionActions(
+                  t,
+                  connectionIndicators[selectedConnection.id] ?? { status: "disconnected" }
+                ).map((action) => (
                   <button
                     key={action.id}
                     type="button"
                     className={`secondary-button${action.variant === "danger" ? " secondary-button-danger" : ""}`}
+                    disabled={action.disabled}
                     onClick={() => {
                       void handleConnectionAction(action.id, selectedConnection.id);
                     }}
@@ -760,15 +1031,75 @@ export function ConnectionNavigator({
   );
 }
 
+type ConnectionStatusIconProps = {
+  indicator: ConnectionIndicator;
+  connectingTitle: string;
+  connectedTitle: string;
+  disconnectedTitle: string;
+  size?: number;
+};
+
+function ConnectionStatusIcon({
+  indicator,
+  connectingTitle,
+  connectedTitle,
+  disconnectedTitle,
+  size = 16
+}: ConnectionStatusIconProps) {
+  if (indicator.status === "connecting") {
+    return (
+      <span className="connection-status-icon connection-status-icon-connecting" title={connectingTitle}>
+        <LoaderCircle size={size} strokeWidth={2} />
+      </span>
+    );
+  }
+
+  if (indicator.status === "connected") {
+    return (
+      <span className="connection-status-icon connection-status-icon-connected" title={connectedTitle}>
+        <Cloud size={size} strokeWidth={1.9} />
+      </span>
+    );
+  }
+
+  if (indicator.status === "error") {
+    return (
+      <span
+        className="connection-status-icon connection-status-icon-error"
+        title={indicator.message ?? disconnectedTitle}
+      >
+        <CircleAlert size={size} strokeWidth={2} />
+      </span>
+    );
+  }
+
+  return (
+    <span className="connection-status-icon connection-status-icon-disconnected" title={disconnectedTitle}>
+      <Cloud size={size} strokeWidth={1.9} />
+    </span>
+  );
+}
+
 type TreeItemMenuProps = {
   connectionId: string;
+  indicator: ConnectionIndicator;
   isOpen: boolean;
   onToggle: (connectionId: string | null) => void;
-  onAction: (actionId: "edit" | "remove", connectionId: string) => void;
+  onAction: (
+    actionId: "connect" | "disconnect" | "edit" | "remove",
+    connectionId: string
+  ) => void;
   t: (key: string) => string;
 };
 
-function TreeItemMenu({ connectionId, isOpen, onToggle, onAction, t }: TreeItemMenuProps) {
+function TreeItemMenu({
+  connectionId,
+  indicator,
+  isOpen,
+  onToggle,
+  onAction,
+  t
+}: TreeItemMenuProps) {
   return (
     <div className="tree-item-menu">
       <button
@@ -782,11 +1113,12 @@ function TreeItemMenu({ connectionId, isOpen, onToggle, onAction, t }: TreeItemM
 
       {isOpen ? (
         <div className="tree-menu-popup" role="menu">
-          {getConnectionActions(t).map((action) => (
+          {getConnectionActions(t, indicator).map((action) => (
             <button
               key={action.id}
               type="button"
               className={`tree-menu-action${action.variant === "danger" ? " tree-menu-action-danger" : ""}`}
+              disabled={action.disabled}
               role="menuitem"
               onClick={() => onAction(action.id, connectionId)}
             >
@@ -797,4 +1129,23 @@ function TreeItemMenu({ connectionId, isOpen, onToggle, onAction, t }: TreeItemM
       ) : null}
     </div>
   );
+}
+
+function getConnectionStatusLabel(
+  indicator: ConnectionIndicator,
+  t: (key: string) => string
+): string {
+  if (indicator.status === "connected") {
+    return t(CONNECTED_CONNECTION_TITLE_KEY);
+  }
+
+  if (indicator.status === "connecting") {
+    return t(CONNECTING_CONNECTION_TITLE_KEY);
+  }
+
+  if (indicator.status === "error") {
+    return t("navigation.connection_status.error");
+  }
+
+  return t(DISCONNECTED_CONNECTION_TITLE_KEY);
 }

@@ -1,5 +1,7 @@
+use crate::application::services::aws_connection_service::AwsConnectionService;
 use crate::application::services::aws_connection_secret_service::AwsConnectionSecretService;
 use crate::application::services::greeting_service::GreetingService;
+use crate::domain::aws_connection::{AwsConnectionTestInput, AwsConnectionTestResult};
 use crate::domain::connection_secrets::{AwsConnectionSecretsInput, AwsConnectionSecretsOutput};
 
 #[tauri::command]
@@ -73,6 +75,28 @@ pub async fn delete_aws_connection_secrets(connection_id: String) -> Result<(), 
             "[commands] delete_aws_connection_secrets failed for connection_id={} with error={}",
             connection_id, error
         );
+    }
+
+    result
+}
+
+#[tauri::command]
+pub async fn test_aws_connection(
+    region: String,
+    access_key_id: String,
+    secret_access_key: String,
+) -> Result<AwsConnectionTestResult, String> {
+    eprintln!("[commands] test_aws_connection called for region={}", region);
+
+    let result = AwsConnectionService::test_connection(AwsConnectionTestInput {
+        region,
+        access_key_id,
+        secret_access_key,
+    })
+    .await;
+
+    if let Err(error) = &result {
+        eprintln!("[commands] test_aws_connection failed with error={}", error);
     }
 
     result
