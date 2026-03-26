@@ -524,7 +524,7 @@ body {
 
 .details-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 14px;
   margin-top: 22px;
 }
@@ -534,6 +534,10 @@ body {
   border-radius: 18px;
   background: rgba(255, 255, 255, 0.84);
   border: 1px solid rgba(15, 23, 42, 0.05);
+}
+
+.detail-card-wide {
+  grid-column: 1 / -1;
 }
 
 .detail-label {

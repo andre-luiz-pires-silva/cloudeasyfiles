@@ -3,6 +3,7 @@ import {
   ChevronDown,
   ChevronRight,
   Cloud,
+  Database,
   Ellipsis,
   File,
   Folder,
@@ -13,13 +14,24 @@ import logoPrimary from "../../assets/logo-primary.svg";
 import type { Locale } from "../../lib/i18n/I18nProvider";
 import { useI18n } from "../../lib/i18n/useI18n";
 
-type TreeNodeType = "connection" | "group" | "resource";
+type TreeNodeType = "connection" | "container" | "directory" | "file";
 type NavigatorView = "home" | "node";
+type AvailabilityStatus = "available" | "archived" | "restoring";
+type LocalFileState = "not_downloaded" | "downloaded" | "outdated";
+type StorageClass = "standard" | "cool" | "cold" | "archived";
+type ConnectionModalMode = "create" | "edit";
 
 type TreeNode = {
   id: string;
   name: string;
   type: TreeNodeType;
+  path?: string;
+  description?: string;
+  storageClass?: StorageClass;
+  availabilityStatus?: AvailabilityStatus;
+  localFileState?: LocalFileState;
+  sizeLabel?: string;
+  lastModified?: string;
   children?: TreeNode[];
 };
 
@@ -27,6 +39,8 @@ type ConnectionItem = {
   id: string;
   name: string;
   provider: "aws" | "azure";
+  localCacheEnabled: boolean;
+  localCachePath?: string;
   children: TreeNode[];
 };
 
@@ -42,54 +56,185 @@ type NodeAction = {
   variant?: "danger";
 };
 
-function createFakeNodes(connectionId: string): TreeNode[] {
+function compareByName(a: { name: string }, b: { name: string }) {
+  return a.name.localeCompare(b.name, undefined, {
+    sensitivity: "base",
+    numeric: true
+  });
+}
+
+function sortTreeNodes(nodes: TreeNode[]): TreeNode[] {
+  return [...nodes]
+    .map((node) => ({
+      ...node,
+      children: node.children ? sortTreeNodes(node.children) : undefined
+    }))
+    .sort(compareByName);
+}
+
+function sortConnections(connections: ConnectionItem[]): ConnectionItem[] {
+  return [...connections].sort(compareByName);
+}
+
+function createContainerNode(
+  connectionId: string,
+  containerKey: string,
+  name: string,
+  children: TreeNode[]
+): TreeNode {
+  return {
+    id: `${connectionId}-container-${containerKey}`,
+    name,
+    type: "container",
+    path: name,
+    description: `${name} container`,
+    children
+  };
+}
+
+function createDirectoryNode(connectionId: string, path: string, children: TreeNode[]): TreeNode {
+  const normalizedPath = path.endsWith("/") ? path : `${path}/`;
+  const normalizedId = normalizedPath.split("/").join("-");
+  const pathSegments = normalizedPath.split("/").filter(Boolean);
+
+  return {
+    id: `${connectionId}-directory-${normalizedId}`,
+    name: pathSegments[pathSegments.length - 1] ?? normalizedPath,
+    type: "directory",
+    path: normalizedPath,
+    description: normalizedPath,
+    children
+  };
+}
+
+function createFileNode(
+  connectionId: string,
+  path: string,
+  file: Omit<TreeNode, "id" | "type" | "name" | "path">
+): TreeNode {
+  const pathSegments = path.split("/");
+
+  return {
+    id: `${connectionId}-file-${path.split("/").join("-")}`,
+    name: pathSegments[pathSegments.length - 1] ?? path,
+    type: "file",
+    path,
+    ...file
+  };
+}
+
+function createFakeNodes(
+  connectionId: string,
+  provider: ConnectionItem["provider"]
+): TreeNode[] {
+  if (provider === "aws") {
+    return [
+      createContainerNode(connectionId, "finops-prod", "finops-prod", [
+        createDirectoryNode(connectionId, "reports", [
+          createDirectoryNode(connectionId, "reports/2026", [
+            createFileNode(connectionId, "reports/2026/january-costs.csv", {
+              description: "Monthly export generated from the finance data pipeline.",
+              storageClass: "standard",
+              availabilityStatus: "available",
+              localFileState: "downloaded",
+              sizeLabel: "2.4 MB",
+              lastModified: "2026-03-24 09:12 UTC"
+            }),
+            createFileNode(connectionId, "reports/2026/february-costs.csv", {
+              description: "Latest finalized billing export for February.",
+              storageClass: "standard",
+              availabilityStatus: "available",
+              localFileState: "outdated",
+              sizeLabel: "2.8 MB",
+              lastModified: "2026-03-25 18:47 UTC"
+            })
+          ]),
+          createDirectoryNode(connectionId, "reports/archive", [
+            createFileNode(connectionId, "reports/archive/2024-summary.parquet", {
+              description: "Archived financial dataset kept for compliance retention.",
+              storageClass: "archived",
+              availabilityStatus: "restoring",
+              localFileState: "not_downloaded",
+              sizeLabel: "184 MB",
+              lastModified: "2026-01-12 07:30 UTC"
+            })
+          ])
+        ]),
+        createDirectoryNode(connectionId, "shared", [
+          createFileNode(connectionId, "shared/team-access-matrix.xlsx", {
+            description: "Operational spreadsheet shared between platform and security teams.",
+            storageClass: "cool",
+            availabilityStatus: "available",
+            localFileState: "downloaded",
+            sizeLabel: "420 KB",
+            lastModified: "2026-03-23 13:05 UTC"
+          })
+        ])
+      ]),
+      createContainerNode(connectionId, "legal-archive", "legal-archive", [
+        createDirectoryNode(connectionId, "contracts", [
+          createFileNode(connectionId, "contracts/vendor-master-2021.pdf", {
+            description: "Historical supplier contract stored in archival tier.",
+            storageClass: "archived",
+            availabilityStatus: "archived",
+            localFileState: "not_downloaded",
+            sizeLabel: "6.1 MB",
+            lastModified: "2025-11-02 15:41 UTC"
+          })
+        ])
+      ])
+    ];
+  }
+
   return [
-    {
-      id: `${connectionId}-folder-1`,
-      name: "Folder 1",
-      type: "group",
-      children: [
-        {
-          id: `${connectionId}-file-1`,
-          name: "File 1",
-          type: "resource"
-        },
-        {
-          id: `${connectionId}-file-2`,
-          name: "File 2",
-          type: "resource"
-        }
-      ]
-    },
-    {
-      id: `${connectionId}-folder-2`,
-      name: "Folder 2",
-      type: "group",
-      children: [
-        {
-          id: `${connectionId}-folder-3`,
-          name: "Folder 3",
-          type: "group",
-          children: [
-            {
-              id: `${connectionId}-file-3`,
-              name: "File 3",
-              type: "resource"
-            },
-            {
-              id: `${connectionId}-file-4`,
-              name: "File 4",
-              type: "resource"
-            }
-          ]
-        },
-        {
-          id: `${connectionId}-file-5`,
-          name: "File 5",
-          type: "resource"
-        }
-      ]
-    }
+    createContainerNode(connectionId, "product-assets", "product-assets", [
+      createDirectoryNode(connectionId, "images", [
+        createDirectoryNode(connectionId, "images/raw", [
+          createFileNode(connectionId, "images/raw/hero-banner.psd", {
+            description: "Large design source stored in cool access tier.",
+            storageClass: "cool",
+            availabilityStatus: "available",
+            localFileState: "downloaded",
+            sizeLabel: "48 MB",
+            lastModified: "2026-03-20 10:18 UTC"
+          })
+        ]),
+        createDirectoryNode(connectionId, "images/published", [
+          createFileNode(connectionId, "images/published/landing-hero.webp", {
+            description: "Optimized asset currently served by the product website.",
+            storageClass: "standard",
+            availabilityStatus: "available",
+            localFileState: "outdated",
+            sizeLabel: "1.1 MB",
+            lastModified: "2026-03-26 08:04 UTC"
+          })
+        ])
+      ]),
+      createDirectoryNode(connectionId, "releases", [
+        createDirectoryNode(connectionId, "releases/2026", [
+          createFileNode(connectionId, "releases/2026/changelog-v4.txt", {
+            description: "Release note artifact exported from the deployment pipeline.",
+            storageClass: "standard",
+            availabilityStatus: "available",
+            localFileState: "not_downloaded",
+            sizeLabel: "92 KB",
+            lastModified: "2026-03-25 22:10 UTC"
+          })
+        ])
+      ])
+    ]),
+    createContainerNode(connectionId, "app-backups", "app-backups", [
+      createDirectoryNode(connectionId, "snapshots", [
+        createFileNode(connectionId, "snapshots/db-2026-02-01.bak", {
+          description: "Monthly database backup retained for disaster recovery drills.",
+          storageClass: "archived",
+          availabilityStatus: "restoring",
+          localFileState: "not_downloaded",
+          sizeLabel: "3.2 GB",
+          lastModified: "2026-02-01 03:00 UTC"
+        })
+      ])
+    ])
   ];
 }
 
@@ -98,7 +243,11 @@ function getNodeIcon(nodeType: TreeNodeType) {
     return <Cloud size={16} strokeWidth={1.9} />;
   }
 
-  if (nodeType === "group") {
+  if (nodeType === "container") {
+    return <Database size={16} strokeWidth={1.9} />;
+  }
+
+  if (nodeType === "directory") {
     return <Folder size={16} strokeWidth={1.9} />;
   }
 
@@ -147,7 +296,7 @@ function getNodeMenuActions(
     ];
   }
 
-  if (nodeType === "group") {
+  if (nodeType === "container" || nodeType === "directory") {
     return [
       { id: "refresh", label: t("navigation.menu.refresh") },
       { id: "delete", label: t("navigation.menu.delete"), variant: "danger" }
@@ -169,6 +318,36 @@ function createConnectionId(): string {
   return `connection-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
+function getNodeDescription(
+  selectedNode: NonNullable<ReturnType<typeof flattenTreeNodes>[number]>,
+  t: (key: string) => string
+) {
+  if (selectedNode.type === "connection") {
+    return t("content.connection.description");
+  }
+
+  if (selectedNode.type === "container") {
+    return t("content.container.description");
+  }
+
+  if (selectedNode.type === "directory") {
+    return t("content.directory.description");
+  }
+
+  return t("content.file.description");
+}
+
+function getDefaultLocalCachePath(
+  name: string,
+  provider: ConnectionItem["provider"]
+): string | undefined {
+  if (provider !== "aws") {
+    return undefined;
+  }
+
+  return `/Users/demo/CloudEasyFiles/${name.split(" ").join("-")}`;
+}
+
 function buildConnection(
   name: string,
   provider: ConnectionItem["provider"],
@@ -180,7 +359,9 @@ function buildConnection(
     id: connectionId,
     name: normalizedName,
     provider,
-    children: createFakeNodes(connectionId)
+    localCacheEnabled: provider === "aws",
+    localCachePath: getDefaultLocalCachePath(normalizedName, provider),
+    children: sortTreeNodes(createFakeNodes(connectionId, provider))
   };
 }
 
@@ -188,24 +369,61 @@ function flattenTreeNodes(connections: ConnectionItem[]): Array<{
   id: string;
   name: string;
   type: TreeNodeType;
-  provider?: ConnectionItem["provider"];
+  provider: ConnectionItem["provider"];
+  path?: string;
+  description?: string;
+  storageClass?: StorageClass;
+  availabilityStatus?: AvailabilityStatus;
+  localFileState?: LocalFileState;
+  sizeLabel?: string;
+  lastModified?: string;
+  localCacheEnabled?: boolean;
+  localCachePath?: string;
+  childCount?: number;
 }> {
   const items: Array<{
     id: string;
     name: string;
     type: TreeNodeType;
-    provider?: ConnectionItem["provider"];
+    provider: ConnectionItem["provider"];
+    path?: string;
+    description?: string;
+    storageClass?: StorageClass;
+    availabilityStatus?: AvailabilityStatus;
+    localFileState?: LocalFileState;
+    sizeLabel?: string;
+    lastModified?: string;
+    localCacheEnabled?: boolean;
+    localCachePath?: string;
+    childCount?: number;
   }> = [];
 
-  function visitNode(node: TreeNode, provider: ConnectionItem["provider"]) {
+  function visitNode(
+    node: TreeNode,
+    provider: ConnectionItem["provider"],
+    localCacheEnabled: boolean,
+    localCachePath?: string
+  ) {
     items.push({
       id: node.id,
       name: node.name,
       type: node.type,
-      provider
+      provider,
+      path: node.path,
+      description: node.description,
+      storageClass: node.storageClass,
+      availabilityStatus: node.availabilityStatus,
+      localFileState: node.localFileState,
+      sizeLabel: node.sizeLabel,
+      lastModified: node.lastModified,
+      localCacheEnabled,
+      localCachePath,
+      childCount: node.children?.length ?? 0
     });
 
-    node.children?.forEach((childNode) => visitNode(childNode, provider));
+    node.children?.forEach((childNode) =>
+      visitNode(childNode, provider, localCacheEnabled, localCachePath)
+    );
   }
 
   connections.forEach((connection) => {
@@ -213,10 +431,21 @@ function flattenTreeNodes(connections: ConnectionItem[]): Array<{
       id: connection.id,
       name: connection.name,
       type: "connection",
-      provider: connection.provider
+      provider: connection.provider,
+      description: `${connection.children.length} simulated containers`,
+      localCacheEnabled: connection.localCacheEnabled,
+      localCachePath: connection.localCachePath,
+      childCount: connection.children.length
     });
 
-    connection.children.forEach((childNode) => visitNode(childNode, connection.provider));
+    connection.children.forEach((childNode) =>
+      visitNode(
+        childNode,
+        connection.provider,
+        connection.localCacheEnabled,
+        connection.localCachePath
+      )
+    );
   });
 
   return items;
@@ -245,6 +474,8 @@ export function ConnectionNavigator({
   const [selectedView, setSelectedView] = useState<NavigatorView>("home");
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [modalMode, setModalMode] = useState<ConnectionModalMode>("create");
+  const [editingConnectionId, setEditingConnectionId] = useState<string | null>(null);
   const [connectionName, setConnectionName] = useState("");
   const [connectionProvider, setConnectionProvider] = useState<ConnectionItem["provider"]>("aws");
   const [expandedNodeIds, setExpandedNodeIds] = useState<Set<string>>(new Set());
@@ -379,13 +610,31 @@ export function ConnectionNavigator({
   }
 
   function openModal() {
+    setModalMode("create");
+    setEditingConnectionId(null);
     setConnectionName("");
     setConnectionProvider("aws");
     setIsModalOpen(true);
   }
 
+  function openEditModal(connectionId: string) {
+    const connection = connections.find((item) => item.id === connectionId);
+
+    if (!connection) {
+      return;
+    }
+
+    setModalMode("edit");
+    setEditingConnectionId(connection.id);
+    setConnectionName(connection.name);
+    setConnectionProvider(connection.provider);
+    setIsModalOpen(true);
+  }
+
   function closeModal() {
     setIsModalOpen(false);
+    setModalMode("create");
+    setEditingConnectionId(null);
     setConnectionName("");
     setConnectionProvider("aws");
   }
@@ -411,9 +660,34 @@ export function ConnectionNavigator({
       return;
     }
 
+    if (modalMode === "edit" && editingConnectionId) {
+      setConnections((currentConnections) =>
+        sortConnections(
+          currentConnections.map((connection) => {
+            if (connection.id !== editingConnectionId) {
+              return connection;
+            }
+
+            return {
+              ...connection,
+              name: trimmedName,
+              provider: connectionProvider,
+              localCacheEnabled: connectionProvider === "aws",
+              localCachePath: getDefaultLocalCachePath(trimmedName, connectionProvider)
+            };
+          })
+        )
+      );
+      setSelectedView("node");
+      setSelectedNodeId(editingConnectionId);
+      setOpenMenuNodeId(null);
+      closeModal();
+      return;
+    }
+
     const nextConnection = buildConnection(trimmedName, connectionProvider, createConnectionId());
 
-    setConnections((currentConnections) => [...currentConnections, nextConnection]);
+    setConnections((currentConnections) => sortConnections([...currentConnections, nextConnection]));
     setSelectedView("node");
     setSelectedNodeId(nextConnection.id);
     setOpenMenuNodeId(null);
@@ -461,6 +735,12 @@ export function ConnectionNavigator({
   }
 
   function handleNodeAction(actionId: string, nodeId: string) {
+    if (actionId === "edit") {
+      openEditModal(nodeId);
+      setOpenMenuNodeId(null);
+      return;
+    }
+
     if (actionId === "remove" || actionId === "delete") {
       handleRemoveNode(nodeId);
       return;
@@ -644,13 +924,7 @@ export function ConnectionNavigator({
             </div>
           ) : selectedNode ? (
             <div className="content-card">
-              <p className="content-description">
-                {selectedNode.type === "connection"
-                  ? t("content.connection.description")
-                  : selectedNode.type === "group"
-                    ? t("content.group.description")
-                    : t("content.resource.description")}
-              </p>
+              <p className="content-description">{getNodeDescription(selectedNode, t)}</p>
 
               <div className="details-grid">
                 <article className="detail-card">
@@ -659,16 +933,21 @@ export function ConnectionNavigator({
                 </article>
 
                 <article className="detail-card">
+                  <span className="detail-label">{t("content.detail.provider")}</span>
+                  <strong>{t(`content.provider.${selectedNode.provider}`)}</strong>
+                </article>
+
+                <article className="detail-card">
                   <span className="detail-label">{t("content.detail.identifier")}</span>
                   <strong>{selectedNode.id}</strong>
                 </article>
 
-                <article className="detail-card">
-                  <span className="detail-label">{t("content.detail.provider")}</span>
+                <article className="detail-card detail-card-wide">
+                  <span className="detail-label">{t("content.detail.cache_path")}</span>
                   <strong>
-                    {selectedNode.provider
-                      ? t(`content.provider.${selectedNode.provider}`)
-                      : t("content.provider.contextual")}
+                    {selectedNode.localCacheEnabled && selectedNode.localCachePath
+                      ? selectedNode.localCachePath
+                      : t("content.local_cache.not_configured")}
                   </strong>
                 </article>
               </div>
@@ -706,9 +985,15 @@ export function ConnectionNavigator({
           >
             <div className="modal-header">
               <div>
-                <p className="modal-eyebrow">{t("navigation.modal.eyebrow")}</p>
+                <p className="modal-eyebrow">
+                  {modalMode === "edit"
+                    ? t("navigation.modal.edit_eyebrow")
+                    : t("navigation.modal.eyebrow")}
+                </p>
                 <h2 id="connection-modal-title" className="modal-title">
-                  {t("navigation.modal.title")}
+                  {modalMode === "edit"
+                    ? t("navigation.modal.edit_title")
+                    : t("navigation.modal.title")}
                 </h2>
               </div>
             </div>
@@ -754,7 +1039,7 @@ export function ConnectionNavigator({
                   className="primary-button"
                   disabled={connectionName.trim().length === 0}
                 >
-                  {t("common.save")}
+                  {modalMode === "edit" ? t("common.update") : t("common.save")}
                 </button>
               </div>
             </form>
