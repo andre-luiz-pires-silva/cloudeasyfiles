@@ -6,6 +6,8 @@ CloudEasyFiles is a desktop application that provides a clean, intuitive interfa
 
 The project initially targets AWS S3 and Azure Blob Storage, including archival storage workflows such as AWS Glacier restores and Azure Archive tier rehydration.
 
+Although the interface looks folder-oriented, CloudEasyFiles works on top of object storage. AWS S3 and Azure Blob Storage do not provide real directories in the traditional file system sense. Instead, the application interprets object key prefixes as folders so users can browse cloud content through a familiar hierarchical view.
+
 ## Screenshots
 
 The repository currently includes SVG placeholders that can later be replaced by real product screenshots.
@@ -25,9 +27,12 @@ The repository currently includes SVG placeholders that can later be replaced by
 - Track operations with progress bars and status indicators
 - Use a unified interface across supported providers
 - View clear file state indicators such as available, archived, and restoring
+- Understand file status clearly through local indicators such as not downloaded, downloaded, and outdated
 - Simplify archival workflows:
   - AWS S3 Glacier restore requests
   - Azure Blob Archive rehydration
+- Normalize storage tier differences across providers so archival content is presented consistently
+- Optionally track downloaded files through a local cache directory
 - Build on an extensible architecture designed for future provider support
 
 ## Architecture Overview
@@ -46,6 +51,8 @@ At a high level, the system is structured around a small set of clearly separate
   - Encapsulate AWS and Azure implementation details behind stable interfaces
 - `Infrastructure`
   - Handles HTTP, SDK integrations, serialization, local persistence, and platform-specific concerns
+
+The core browsing model is intentionally provider-agnostic. Buckets and blob containers are treated as cloud containers, while files and folder-like entries are presented as cloud items. This allows the UI to offer a consistent experience even though each provider exposes its data differently.
 
 ### Architectural Goals
 
@@ -134,6 +141,58 @@ Typical workflow:
 7. Perform file operations such as upload, download, copy, move, or delete
 8. Monitor operation progress and file state changes in the UI
 9. Trigger restore or rehydration workflows for archived content when needed
+
+### How Cloud Listing Works
+
+- Files and folders are always listed from the cloud provider
+- The local cache does not replace cloud listing and does not act as a sync engine
+- Local information only affects status indicators such as whether a file is downloaded or outdated
+
+### Storage Availability
+
+CloudEasyFiles simplifies storage tier differences across providers:
+
+- AWS Glacier-style content and Azure Archive content are both presented as `Archived`
+- Restore and rehydration workflows are both presented as `Restoring`
+- The UI focuses on whether a file is available to use, not on provider-specific storage jargon
+
+### Local Cache (Optional)
+
+Users can optionally configure a local cache directory for a connection.
+
+When local cache is enabled:
+
+- Downloaded files are stored in the configured local directory
+- The app tracks file status using cloud metadata and cached metadata
+- The UI can show whether a file is downloaded or outdated
+
+When local cache is disabled:
+
+- Downloads behave like a browser-style save operation
+- The user chooses where the file should be written
+- The app does not track the downloaded file afterward
+
+The cloud provider always remains the source of truth. Local files are treated as convenience copies, not authoritative data.
+
+### Download Behavior
+
+CloudEasyFiles supports two user-facing download flows:
+
+- `Download`
+  - Uses the local cache when a cache directory is configured, allowing the app to track file state
+- `Download As...`
+  - Lets the user choose a destination manually and does not add the file to the tracked cache
+
+If a user triggers a download without a configured cache, the app should warn that the file will not be tracked locally and can offer a shortcut to configure the cache. Even when cache is enabled, users can still choose `Download As...` for one-off manual downloads.
+
+### Explicit Non-Goals
+
+CloudEasyFiles is intentionally not a synchronization tool.
+
+- No automatic synchronization
+- No bidirectional sync
+- No automatic upload of local files
+- No background file watching to mirror local file changes back to the cloud
 
 ### Supported Storage Workflows
 

@@ -49,6 +49,116 @@ The first supported cloud providers are:
 
 The design must remain extensible so additional providers can be added later without forcing major changes to the core application layers.
 
+## Object Storage Model
+
+CloudEasyFiles operates on top of object storage systems, not traditional hierarchical file systems.
+
+- AWS S3 stores objects in buckets
+- Azure Blob Storage stores blobs in containers
+- Neither provider exposes real directories as first-class filesystem entities
+- Folder structures are virtual and inferred from object naming conventions
+
+This distinction is central to both product behavior and technical design. The UI presents a familiar tree and explorer because users expect folder-oriented navigation, but the underlying model must remain faithful to object storage semantics.
+
+### Virtual Directories
+
+Virtual directories are synthetic entries derived from object key prefixes.
+
+Examples:
+
+- `reports/2026/january.csv`
+- `reports/2026/february.csv`
+
+In the UI, these keys may be presented as:
+
+- `reports/`
+- `reports/2026/`
+- `reports/2026/january.csv`
+- `reports/2026/february.csv`
+
+The directory nodes above are not persisted cloud resources. They are interpreted views over prefixes.
+
+### Prefix-Based Hierarchy
+
+The hierarchy shown by the application is resolved through prefix parsing:
+
+- A container is the top-level physical storage namespace
+- A delimiter-aware prefix scan produces virtual directory nodes
+- Leaf entries that represent concrete objects become file items
+- Intermediate segments become virtual directory items
+
+This means path interpretation must be deterministic and provider-agnostic:
+
+- `container + path` identifies a logical cloud location
+- Paths must be normalized consistently across providers
+- A virtual directory path does not imply a corresponding cloud object exists
+- A file path maps to a concrete provider object or blob
+
+## Unified Data Model
+
+The application uses a shared domain vocabulary so the UI and application layer can remain provider-agnostic.
+
+### CloudContainer
+
+`CloudContainer` represents the top-level storage unit for a provider connection.
+
+Examples:
+
+- S3 bucket
+- Azure blob container
+
+Purpose:
+
+- Provide a unified representation of the root namespace being explored
+- Decouple the rest of the application from provider-specific naming
+- Act as the boundary between connection context and item listing
+
+Suggested fields:
+
+- `id`
+- `provider`
+- `name`
+- `display_name`
+- `region` or provider-specific location metadata when available
+- `connection_id`
+
+### CloudItem
+
+`CloudItem` represents an entry shown in the explorer.
+
+It can model:
+
+- A concrete file/object/blob
+- A virtual directory derived from prefixes
+
+Purpose:
+
+- Provide a single explorer-facing shape for all providers
+- Support navigation, selection, metadata display, downloads, and status resolution
+- Separate physical cloud objects from UI navigation structure without leaking provider APIs into the UI
+
+Suggested fields:
+
+- `container_id`
+- `path`
+- `name`
+- `kind`
+  - `File`
+  - `VirtualDirectory`
+- `size`
+- `etag`
+- `last_modified`
+- `storage_class`
+- `availability_status`
+- `provider_metadata`
+
+Interpretation rules:
+
+- `path` is the logical cloud path relative to the container
+- `kind = VirtualDirectory` means the item is synthetic and prefix-derived
+- `kind = File` means the item corresponds to a provider object/blob
+- Provider-specific metadata may exist, but normalized fields must be preferred by the application layer
+
 ## Functional Requirements
 
 ### Account Management
@@ -79,6 +189,8 @@ The application must support a unified workflow for:
 
 These operations should be expressed consistently in the UI regardless of cloud provider.
 
+Downloads require explicit handling because the application supports both tracked cache downloads and untracked direct downloads.
+
 ### Visual Feedback
 
 The application should provide clear operational feedback, including:
@@ -91,6 +203,8 @@ The application should provide clear operational feedback, including:
 ### Storage Tier Awareness
 
 The system must understand whether content is immediately available or archived and must surface that information clearly in the user interface.
+
+The application should normalize provider terminology into shared states wherever possible so that users see a consistent conceptual model.
 
 ## Advanced Requirement: Archival Storage Handling
 
@@ -152,6 +266,29 @@ Requirements:
 
 This separation is essential for maintainability, testability, and long-term extensibility.
 
+### Provider Abstraction Layer
+
+The provider abstraction layer is the contract boundary between the core application and cloud-specific implementations.
+
+Architectural expectations:
+
+- The application layer depends on traits or interfaces defined in the core/domain boundary
+- Provider implementations translate provider APIs into shared domain models such as `CloudContainer`, `CloudItem`, `StorageClass`, and `AvailabilityStatus`
+- AWS and Azure modules remain isolated and can evolve independently
+- The UI never reasons directly in terms of S3 SDK responses or Azure SDK blob models
+
+Expected provider responsibilities behind the abstraction:
+
+- List containers
+- List items by logical path/prefix
+- Read object metadata
+- Upload and download file content
+- Delete, copy, and move items
+- Trigger restore or rehydration flows
+- Resolve provider-specific metadata into normalized states
+
+This keeps the core application provider-agnostic and makes it possible to add future providers without rewriting orchestration or presentation logic.
+
 ## Layer Responsibilities
 
 ### Core Layer
@@ -163,6 +300,8 @@ The core layer is responsible for:
 - Managing generic progress tracking
 - Managing UI-facing state transitions
 - Handling generic errors and application-level rules
+- Resolving file state from cloud metadata and cache metadata
+- Coordinating tracked and untracked download workflows
 
 This layer must not contain provider-specific implementation logic.
 
@@ -175,6 +314,7 @@ The provider layer is responsible for:
 - Communication with provider SDKs and APIs
 - Translation between provider responses and internal models
 - Handling provider-specific edge cases
+- Translation of storage classes and availability states into normalized abstractions
 
 ### Presentation Layer
 
@@ -195,6 +335,263 @@ The infrastructure layer should contain:
 - Serialization support
 - Persistence and configuration storage
 - Platform-specific integration details
+- Local cache persistence and metadata index storage
+
+## Storage and Availability Abstractions
+
+Provider-specific storage tiers must be normalized into shared abstractions so the rest of the application can reason about file availability without branching on provider-specific terminology.
+
+### StorageClass
+
+`StorageClass` is a normalized representation of how content is stored.
+
+Representative normalized states may include:
+
+- `Standard`
+- `Cool`
+- `Cold`
+- `Archived`
+
+Examples of normalization:
+
+- AWS Glacier-like tiers map to `Archived`
+- Azure Archive maps to `Archived`
+
+This abstraction is intentionally lossy at the application layer. Detailed provider-specific metadata can still be preserved for diagnostics or advanced UI, but general workflows should rely on normalized values.
+
+### AvailabilityStatus
+
+`AvailabilityStatus` represents whether content can be read immediately.
+
+Representative normalized states may include:
+
+- `Available`
+- `Archived`
+- `Restoring`
+
+Examples:
+
+- AWS object in Glacier and not yet restored -> `Archived`
+- AWS restore in progress -> `Restoring`
+- Azure blob in Archive tier -> `Archived`
+- Azure rehydration in progress -> `Restoring`
+
+The UI and orchestration layer should mostly depend on `AvailabilityStatus`, not raw provider storage labels.
+
+## Local Cache Strategy
+
+Local cache is a deliberate product feature, not an implicit side effect of downloads.
+
+### Core Rules
+
+- Local cache is optional per connection
+- Local cache is only used for downloaded files
+- Local cache is not a synchronization system
+- Local cache does not change the fact that the cloud is the source of truth
+
+### LocalCacheConfig
+
+Each connection may optionally define a `LocalCacheConfig`.
+
+Purpose:
+
+- Opt a connection into tracked local downloads
+- Define where cache files are stored on the local machine
+- Enable file state indicators such as `Downloaded` and `Outdated`
+
+Suggested fields:
+
+- `enabled`
+- `base_directory`
+- `connection_id`
+- Optional cache behavior flags in the future
+
+### Cache Index
+
+Filesystem presence alone is insufficient to determine whether a local file corresponds to a cloud file and whether it is current.
+
+The application therefore requires a cache index that maps cloud items to local cached files.
+
+The index should map:
+
+- `connection_id`
+- `container`
+- `cloud_path`
+- `local_path`
+
+Associated metadata should include:
+
+- `etag`
+- `last_modified`
+- `size`
+- `downloaded_at`
+
+Optional additional metadata may include:
+
+- `provider`
+- `storage_class`
+- hash/checksum values when useful
+
+### Why Filesystem-Only Tracking Is Insufficient
+
+Relying only on local filesystem inspection is not enough because:
+
+- The app cannot infer the original cloud path from an arbitrary local filename
+- Users may rename, move, or duplicate files outside the application
+- File timestamps alone are not reliable cross-provider freshness indicators
+- A file existing on disk does not prove it matches the current cloud object version
+
+A metadata-backed cache index is therefore required for correct state resolution.
+
+## Source of Truth
+
+The cloud provider is always the source of truth.
+
+Implications:
+
+- Local files are cache copies only
+- There is no conflict resolution between local and cloud versions
+- There is no bidirectional sync model
+- Local file edits do not automatically become uploads
+- Explorer listing is always resolved from the cloud, not from local cache contents
+
+This decision simplifies product expectations and keeps architecture aligned with the actual use case.
+
+## Download Strategy
+
+Downloads must support two explicit modes.
+
+### DownloadMode
+
+Representative download modes:
+
+- `CacheDownload`
+- `DirectDownload`
+
+### Cache Download
+
+Used when a connection has local cache enabled and the user chooses the standard download flow.
+
+Flow:
+
+1. Resolve the selected `CloudItem` from the cloud context
+2. Download the file into the configured cache directory
+3. Update or insert cache index metadata
+4. Mark the file as locally tracked
+5. Surface the resulting local file state as `Downloaded`
+
+Rules:
+
+- Only valid for file items, not virtual directories
+- The resulting local file participates in state tracking
+- Future cloud metadata comparisons may mark the item as `Outdated`
+
+### Direct Download
+
+Used when the user chooses `Download As` or when no local cache is configured and the user confirms a manual download.
+
+Flow:
+
+1. Ask the user for a destination path
+2. Download the selected cloud file directly to that location
+3. Do not write cache index metadata
+4. Do not enroll the file into tracked local state
+
+Rules:
+
+- Direct downloads are ignored by the cache tracking system
+- The system does not later treat those files as downloaded cache entries
+- This mode behaves like a one-off export rather than managed local storage
+
+## Local File State Tracking
+
+The UI should present a simple normalized local file state derived from cloud metadata and cache metadata.
+
+### LocalFileState
+
+Representative states:
+
+- `NotDownloaded`
+- `Downloaded`
+- `Outdated`
+
+### State Resolution Logic
+
+State resolution depends on both cloud data and cache index data.
+
+Rules:
+
+- If there is no cache entry for a file, state is `NotDownloaded`
+- If there is a cache entry and the cached metadata matches current cloud metadata, state is `Downloaded`
+- If there is a cache entry but the cloud metadata no longer matches, state is `Outdated`
+
+Signals used for comparison may include:
+
+- `etag`
+- `last_modified`
+- `size`
+
+The exact comparison strategy should be consistent across providers and based on normalized metadata where possible.
+
+## File Listing Behavior
+
+Listing behavior must remain cloud-first.
+
+Rules:
+
+- Containers and items are always listed from the cloud provider
+- Virtual directories are derived from provider listing results
+- Local cache never becomes the source for explorer contents
+- Local cache only enriches listed items with local state information
+
+This preserves the source-of-truth decision and prevents the explorer from drifting into accidental synchronization behavior.
+
+## Explicit Non-Goals
+
+The following are intentionally out of scope for the current product and architecture:
+
+- No automatic synchronization
+- No bidirectional sync
+- No automatic upload of changed local files
+- No filesystem watchers for synchronization
+- No local-first offline mode that later reconciles against the cloud
+
+These boundaries should shape implementation decisions. If a feature proposal starts to imply conflict resolution, local mutation tracking, or reconciliation logic, it is outside the current scope unless the project direction is deliberately changed.
+
+## Architecture Impact
+
+The architecture must explicitly separate cloud integration, cache handling, and orchestration.
+
+### Updated Layering
+
+- Cloud providers
+  - AWS and Azure implementations behind provider abstractions
+- Local cache layer
+  - Cache configuration, cache index persistence, and local file metadata handling
+- Application layer
+  - Workflow orchestration, download decisions, file state resolution, and UI-facing use cases
+- Presentation layer
+  - User interactions, status display, and command invocation
+
+### New or Clarified Services
+
+`CacheService`
+
+- Owns cache index reads and writes
+- Resolves local cache paths
+- Persists metadata for tracked downloads
+
+`DownloadService`
+
+- Orchestrates `CacheDownload` versus `DirectDownload`
+- Depends on provider abstraction plus cache services
+- Ensures only cache downloads become tracked files
+
+`FileStateResolver`
+
+- Combines cloud metadata and cache metadata
+- Produces `NotDownloaded`, `Downloaded`, or `Outdated`
+- Keeps state resolution logic out of UI components and provider adapters
 
 ## Technology Stack
 
@@ -313,7 +710,7 @@ Potential future enhancements include:
 - Drag-and-drop interactions
 - File preview capabilities
 - Search functionality
-- Synchronization features
+- Additional cache ergonomics and performance improvements
 
 These features should be considered in architectural decisions, especially where extensibility and reusable abstractions are involved.
 
