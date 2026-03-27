@@ -6,7 +6,7 @@
     <title>CloudEasyFiles</title>
     <meta
       name="description"
-      content="CloudEasyFiles is a real-world case study of Spec-Driven Development with AI, built around a cloud file explorer for AWS S3 and Azure Blob Storage."
+      content="CloudEasyFiles is a real-world case study of Spec-Driven Development with AI, built around a cloud file explorer for cloud storage providers, initially supporting AWS S3 and Azure Blob Storage."
     />
     <link rel="stylesheet" href="./site.css" />
   </head>
@@ -31,20 +31,25 @@
           </nav>
 
           <div class="hero-panel">
-            <p class="eyebrow">Case Study</p>
+            <p class="eyebrow">Spec-Driven Development</p>
             <h1>CloudEasyFiles</h1>
             <p class="hero-subtitle">
-              A real-world case study of Spec-Driven Development with AI.
+              A desktop cloud file explorer shaped by specs, architecture, and AI-assisted development.
             </p>
             <p class="hero-copy">
               This is a real software project created as a practical engineering experiment.
               It combines product design, architecture decisions, structured specs, and
               AI-assisted implementation to validate a spec-oriented development workflow in
-              practice.
+              practice, using cloud storage providers as the real-world domain.
             </p>
 
             <div class="hero-actions">
-              <a class="primary-button" href="./../../PROJECT.md">View Documentation</a>
+              <a
+                class="primary-button"
+                href="https://github.com/andre-luiz-pires-silva/cloudeasyfiles/tree/main/docs"
+              >
+                View Documentation
+              </a>
               <a
                 class="secondary-button"
                 href="https://github.com/andre-luiz-pires-silva/cloudeasyfiles"
@@ -61,52 +66,78 @@
             <h2>About the project</h2>
             <p>
               CloudEasyFiles is a desktop application for browsing and managing files across
-              AWS S3 and Azure Blob Storage through a unified interface.
+              cloud storage providers through a unified interface.
             </p>
             <p>
               The project focuses on structural navigation, central object listing, archival
               restore workflows, and a provider-aware architecture that simplifies usage
-              without hiding real cloud limitations.
+              without hiding real cloud limitations. AWS S3 and Azure Blob Storage are the
+              initial supported providers, but the product is designed around cloud storage
+              as a broader category.
             </p>
+            <img
+              src="./assets/screenshot-1.png"
+              alt="CloudEasyFiles application screenshot"
+              class="project-screenshot"
+            />
           </article>
 
-          <article class="content-card content-card-highlight">
+          <article class="content-card content-card-highlight engineering-case-card">
             <p class="eyebrow">Engineering Case</p>
-            <h2>This is an engineering case study</h2>
-            <p>
-              CloudEasyFiles is not presented only as a product. It is also an intentional
-              technical experiment conducted by an experienced developer exploring:
-            </p>
-            <ul class="feature-list">
-              <li>Spec-Driven Development</li>
-              <li>AI-assisted software development</li>
-              <li>Definition-first implementation flow</li>
-            </ul>
-            <p>
-              The goal is to validate this approach in a real project, with architecture
-              docs, ADRs, feature specs, and implementation plans acting as the main source
-              of truth.
-            </p>
+            <div class="developer-heading">
+              <img
+                src="./assets/andre-IA-avatar.jpg"
+                alt="Andre Luiz Pires Silva"
+                class="developer-avatar"
+              />
+              <h2>A real-world case study</h2>
+            </div>
+            <div class="developer-inline">
+              <div class="developer-copy">
+                <p>
+                  CloudEasyFiles is not presented only as a product. It is also an intentional
+                  technical experiment conducted by Andre Luiz Pires Silva, an experienced
+                  software developer with more than 15 years of experience across multiple
+                  languages, platforms, cloud environments, serverless systems, backend
+                  engineering, and software architecture.
+                </p>
+                <p>
+                  This project is a practical case for exploring:
+                </p>
+                <ul class="feature-list">
+                  <li>Spec-Driven Development</li>
+                  <li>AI-assisted software development</li>
+                  <li>Definition-first implementation flow</li>
+                </ul>
+                <p>
+                  The goal is to validate this approach in a real project, with architecture
+                  docs, ADRs, feature specs, and implementation plans acting as the main
+                  source of truth.
+                </p>
+              </div>
+            </div>
           </article>
-        </section>
-
-        <section class="content-card">
-          <p class="eyebrow">Problem</p>
-          <h2>Problem it solves</h2>
-          <p>
-            Cloud storage workflows are fragmented, provider-specific, and often awkward to
-            use directly. This becomes harder when users need to browse large object-storage
-            namespaces, work across providers, or restore archived files before downloading
-            them.
-          </p>
-          <p>
-            CloudEasyFiles addresses that with a clearer navigation model, normalized storage
-            states, and a workflow that keeps cloud object exploration in the main content
-            area instead of overloading the sidebar.
-          </p>
         </section>
 
         <section class="content-grid">
+          <article class="content-card">
+            <p class="eyebrow">Problem</p>
+            <h2>Problem it solves</h2>
+            <p>
+              Cloud storage providers are powerful, but they are not always easy for ordinary
+              users to work with directly. This is especially true for backup and archival
+              scenarios, where files may be stored in low-cost tiers that are cheaper to keep
+              but harder to retrieve and manage.
+            </p>
+            <p>
+              CloudEasyFiles aims to make these services more approachable by offering a
+              clearer interface for browsing cloud storage, understanding availability states,
+              requesting restores, tracking progress, and downloading files when they are
+              ready, without forcing the user to navigate complex provider consoles and
+              provider-specific terminology.
+            </p>
+          </article>
+
           <article class="content-card">
             <p class="eyebrow">Process</p>
             <h2>How it was developed</h2>
@@ -117,37 +148,40 @@
               <li>Implementation was guided by structured docs, not ad-hoc prompts only.</li>
             </ul>
           </article>
+        </section>
 
+        <section class="content-grid">
           <article class="content-card">
             <p class="eyebrow">Capabilities</p>
             <h2>Main capabilities</h2>
             <ul class="feature-list">
-              <li>Saved cloud connections for AWS S3 and Azure Blob Storage</li>
+              <li>Saved connections for cloud storage providers, initially AWS S3 and Azure Blob Storage</li>
               <li>Structural sidebar navigation by connection and container</li>
               <li>Central object browsing with virtual directories</li>
               <li>Normalized availability states such as Available, Archived, and Restoring</li>
               <li>Archival restore workflows and tracked downloads through optional local cache</li>
             </ul>
           </article>
-        </section>
 
-        <section class="content-card">
-          <p class="eyebrow">Architecture</p>
-          <h2>Architecture and product direction</h2>
-          <p>
-            The system is organized around a clean separation between UI, application
-            orchestration, domain logic, provider adapters, and infrastructure. The core
-            model stays provider-aware: it normalizes what improves usability, but it does
-            not pretend AWS S3 and Azure Blob Storage are identical.
-          </p>
-          <div class="architecture-pills" aria-label="Architecture highlights">
-            <span>Clean layering</span>
-            <span>Provider adapters</span>
-            <span>Cloud-first listing</span>
-            <span>Virtual directories</span>
-            <span>Local Filter</span>
-            <span>Advanced Search</span>
-          </div>
+          <article class="content-card">
+            <p class="eyebrow">Architecture</p>
+            <h2>Architecture and product direction</h2>
+            <p>
+              The system is organized around a clean separation between UI, application
+              orchestration, domain logic, provider adapters, and infrastructure. The core
+              model stays provider-aware: it normalizes what improves usability, but it does
+              not pretend that different cloud storage providers are identical. AWS S3 and
+              Azure Blob Storage are the first implementations of that model.
+            </p>
+            <div class="architecture-pills" aria-label="Architecture highlights">
+              <span>Clean layering</span>
+              <span>Provider adapters</span>
+              <span>Cloud-first listing</span>
+              <span>Virtual directories</span>
+              <span>Local Filter</span>
+              <span>Advanced Search</span>
+            </div>
+          </article>
         </section>
 
         <section class="content-card docs-card">
