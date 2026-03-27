@@ -11,7 +11,7 @@ Cloud object storage does not expose real directories. The product must provide 
 ## Functional Requirements
 
 - The sidebar must display saved connections.
-- The sidebar must display containers for the selected connection.
+- The sidebar must display containers for connected connections.
 - The sidebar must not display file objects.
 - The selected context must determine what the main panel shows.
 - Virtual directories must be resolved dynamically from object key prefixes.
@@ -38,6 +38,7 @@ Cloud object storage does not expose real directories. The product must provide 
 
 - Connections and containers are visible in the tree.
 - Files are not rendered in the tree.
+- Selecting a connection updates the main panel context with connection-level information and the currently loaded containers.
 - Selecting a container or virtual directory updates the main panel context correctly.
 - Virtual directories are derived from prefixes rather than assumed as real resources.
 

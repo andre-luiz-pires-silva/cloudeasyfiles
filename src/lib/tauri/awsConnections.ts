@@ -20,6 +20,7 @@ export type AwsObjectSummary = {
   size: number;
   eTag?: string | null;
   lastModified?: string | null;
+  storageClass?: string | null;
 };
 
 export type AwsBucketItemsResult = {

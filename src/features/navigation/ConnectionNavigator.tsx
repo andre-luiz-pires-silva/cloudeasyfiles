@@ -7,6 +7,8 @@ import {
   File,
   Folder,
   Home,
+  LayoutGrid,
+  List,
   LoaderCircle,
   Plus
 } from "lucide-react";
@@ -55,11 +57,14 @@ const CONNECTED_CONNECTION_TITLE_KEY = "navigation.connection_status.connected";
 const DISCONNECTED_CONNECTION_TITLE_KEY = "navigation.connection_status.disconnected";
 const BUCKET_REGION_PLACEHOLDER = "...";
 const MAX_BUCKET_REGION_REQUESTS = 4;
+const CONTENT_VIEW_MODE_STORAGE_KEY = "cloudeasyfiles.content-view-mode";
 
 type ConnectionIndicator = {
   status: ConnectionIndicatorStatus;
   message?: string;
 };
+
+type ContentViewMode = "list" | "compact";
 
 type ContentExplorerItem = {
   id: string;
@@ -68,6 +73,7 @@ type ContentExplorerItem = {
   path: string;
   size?: number;
   lastModified?: string | null;
+  storageClass?: string | null;
 };
 
 type TreeNodeKind = "connection" | "bucket";
@@ -192,7 +198,8 @@ function buildContentItems(result: AwsBucketItemsResult): ContentExplorerItem[] 
       name: file.key.split("/").pop() || file.key,
       path: file.key,
       size: file.size,
-      lastModified: file.lastModified
+      lastModified: file.lastModified,
+      storageClass: file.storageClass
     }))
     .sort((left, right) =>
       left.name.localeCompare(right.name, undefined, {
@@ -215,8 +222,11 @@ function getPathTitle(path: string, fallback: string): string {
   return name && name.length > 0 ? name : path;
 }
 
-function buildBreadcrumbs(bucketName: string, path: string) {
-  const breadcrumbs = [{ label: bucketName, path: "" }];
+function buildBreadcrumbs(connectionName: string, bucketName: string, path: string) {
+  const breadcrumbs = [
+    { label: connectionName, path: null as string | null },
+    { label: bucketName, path: "" }
+  ];
 
   if (!path) {
     return breadcrumbs;
@@ -355,6 +365,14 @@ export function ConnectionNavigator({
   const [contentItems, setContentItems] = useState<ContentExplorerItem[]>([]);
   const [isLoadingContent, setIsLoadingContent] = useState(false);
   const [contentError, setContentError] = useState<string | null>(null);
+  const [contentViewMode, setContentViewMode] = useState<ContentViewMode>(() => {
+    if (typeof window === "undefined") {
+      return "list";
+    }
+
+    const savedMode = window.localStorage.getItem(CONTENT_VIEW_MODE_STORAGE_KEY);
+    return savedMode === "compact" ? "compact" : "list";
+  });
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     if (typeof window === "undefined") {
       return DEFAULT_SIDEBAR_WIDTH;
@@ -410,6 +428,9 @@ export function ConnectionNavigator({
       connections.find((connection) => connection.id === pendingDeleteConnectionId) ?? null,
     [connections, pendingDeleteConnectionId]
   );
+  const selectedConnectionIndicator = selectedConnection
+    ? (connectionIndicators[selectedConnection.id] ?? { status: "disconnected" })
+    : { status: "disconnected" as const };
 
   const selectedBucketPath =
     selectedNode?.kind === "bucket" ? (bucketContentPaths[selectedNode.id] ?? "") : "";
@@ -426,8 +447,12 @@ export function ConnectionNavigator({
       ? getPathTitle(selectedBucketPath, selectedNode.name)
       : (selectedNode?.name ?? t("content.empty.title"));
   const selectedBreadcrumbs =
-    selectedNode?.kind === "bucket"
-      ? buildBreadcrumbs(selectedNode.bucketName ?? selectedNode.name, selectedBucketPath)
+    selectedNode?.kind === "bucket" && selectedConnection
+      ? buildBreadcrumbs(
+          selectedConnection.name,
+          selectedNode.bucketName ?? selectedNode.name,
+          selectedBucketPath
+        )
       : [];
 
   useEffect(() => {
@@ -653,6 +678,14 @@ export function ConnectionNavigator({
 
     window.localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(sidebarWidth));
   }, [sidebarWidth]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    window.localStorage.setItem(CONTENT_VIEW_MODE_STORAGE_KEY, contentViewMode);
+  }, [contentViewMode]);
 
   useEffect(() => {
     if (!isResizingSidebar) {
@@ -1284,7 +1317,21 @@ export function ConnectionNavigator({
                             <button
                               type="button"
                               className="content-breadcrumb-link"
-                              onClick={() => navigateBucketPath(selectedNode.id, breadcrumb.path)}
+                              onClick={() => {
+                                if (breadcrumb.path === null) {
+                                  const connectionNode = treeNodes.find(
+                                    (node) => node.id === selectedNode.connectionId
+                                  );
+
+                                  if (connectionNode) {
+                                    handleSelectNode(connectionNode);
+                                  }
+
+                                  return;
+                                }
+
+                                navigateBucketPath(selectedNode.id, breadcrumb.path);
+                              }}
                             >
                               {breadcrumb.label}
                             </button>
@@ -1297,22 +1344,51 @@ export function ConnectionNavigator({
               </div>
 
               {selectedConnection ? (
-                <div className="content-toolbar-status">
-                  <ConnectionStatusIcon
-                    indicator={
-                      connectionIndicators[selectedConnection.id] ?? { status: "disconnected" }
-                    }
-                    connectingTitle={t(CONNECTING_CONNECTION_TITLE_KEY)}
-                    connectedTitle={t(CONNECTED_CONNECTION_TITLE_KEY)}
-                    disconnectedTitle={t(DISCONNECTED_CONNECTION_TITLE_KEY)}
-                    size={22}
-                  />
-                  <span>
-                    {getConnectionStatusLabel(
-                      connectionIndicators[selectedConnection.id] ?? { status: "disconnected" },
-                      t
-                    )}
-                  </span>
+                <div className="content-toolbar-side">
+                  <div className="content-toolbar-status">
+                    <ConnectionStatusIcon
+                      indicator={
+                        connectionIndicators[selectedConnection.id] ?? { status: "disconnected" }
+                      }
+                      connectingTitle={t(CONNECTING_CONNECTION_TITLE_KEY)}
+                      connectedTitle={t(CONNECTED_CONNECTION_TITLE_KEY)}
+                      disconnectedTitle={t(DISCONNECTED_CONNECTION_TITLE_KEY)}
+                      size={22}
+                    />
+                    <span>
+                      {getConnectionStatusLabel(
+                        connectionIndicators[selectedConnection.id] ?? { status: "disconnected" },
+                        t
+                      )}
+                    </span>
+                  </div>
+
+                  {selectedNode && (selectedNode.kind === "bucket" || selectedNode.kind === "connection") ? (
+                    <div
+                      className="content-view-switcher"
+                      role="group"
+                      aria-label={t("content.view_mode.label")}
+                    >
+                      <button
+                        type="button"
+                        className={`content-view-button${contentViewMode === "list" ? " is-active" : ""}`}
+                        aria-label={t("content.view_mode.list")}
+                        title={t("content.view_mode.list")}
+                        onClick={() => setContentViewMode("list")}
+                      >
+                        <List size={16} strokeWidth={2} />
+                      </button>
+                      <button
+                        type="button"
+                        className={`content-view-button${contentViewMode === "compact" ? " is-active" : ""}`}
+                        aria-label={t("content.view_mode.compact")}
+                        title={t("content.view_mode.compact")}
+                        onClick={() => setContentViewMode("compact")}
+                      >
+                        <LayoutGrid size={16} strokeWidth={2} />
+                      </button>
+                    </div>
+                  ) : null}
                 </div>
               ) : null}
             </div>
@@ -1403,6 +1479,57 @@ export function ConnectionNavigator({
                       </button>
                     ))}
                   </div>
+
+                  <div className="content-list-section content-list-section-nested">
+                    {selectedConnectionIndicator.status === "connecting" ? (
+                      <p className="content-list-state">{t("content.list.loading_containers")}</p>
+                    ) : selectedConnectionIndicator.status === "error" ? (
+                      <p className="status-message-error">
+                        {selectedConnectionIndicator.message ??
+                          t("navigation.connection_status.error")}
+                      </p>
+                    ) : selectedConnectionIndicator.status !== "connected" ? (
+                      <p className="content-list-state">{t("content.list.connect_to_load")}</p>
+                    ) : (connectionBuckets[selectedNode.id] ?? []).length === 0 ? (
+                      <p className="content-list-state">{t("content.list.empty_connection")}</p>
+                    ) : (
+                      <div
+                        className={`content-list${contentViewMode === "compact" ? " is-compact" : ""}`}
+                      >
+                        {(connectionBuckets[selectedNode.id] ?? []).map((bucketNode) => (
+                          <button
+                            key={bucketNode.id}
+                            type="button"
+                            className={`content-list-item content-list-item-action${contentViewMode === "compact" ? " is-compact" : ""}`}
+                            onClick={() => handleSelectNode(bucketNode)}
+                          >
+                            <span className="content-list-item-main">
+                              <span className="content-list-item-icon content-list-item-icon-directory">
+                                <Folder size={18} strokeWidth={1.9} />
+                              </span>
+                              <span className="content-list-item-copy">
+                                <strong>{bucketNode.name}</strong>
+                                {contentViewMode === "list" ? (
+                                  <span>{bucketNode.region ?? BUCKET_REGION_PLACEHOLDER}</span>
+                                ) : null}
+                              </span>
+                            </span>
+
+                            {contentViewMode === "compact" ? (
+                              <span className="content-list-item-meta is-compact">
+                                <ChevronRight size={16} strokeWidth={2} />
+                              </span>
+                            ) : (
+                              <span className="content-list-item-meta">
+                                <span>{t("content.type.container")}</span>
+                                <ChevronRight size={16} strokeWidth={2} />
+                              </span>
+                            )}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </>
               ) : (
                 <div className="content-list-section">
@@ -1417,46 +1544,60 @@ export function ConnectionNavigator({
                         : t("content.list.empty_container")}
                     </p>
                   ) : (
-                    <div className="content-list">
+                    <div
+                      className={`content-list${contentViewMode === "compact" ? " is-compact" : ""}`}
+                    >
                       {contentItems.map((item) =>
                         item.kind === "directory" ? (
                           <button
                             key={item.id}
                             type="button"
-                            className="content-list-item content-list-item-action"
+                            className={`content-list-item content-list-item-action${contentViewMode === "compact" ? " is-compact" : ""}`}
                             onClick={() => navigateBucketPath(selectedNode.id, item.path)}
                           >
                             <span className="content-list-item-main">
                               <span className="content-list-item-icon content-list-item-icon-directory">
                                 <Folder size={18} strokeWidth={1.9} />
                               </span>
-                              <span className="content-list-item-copy">
+                              <span className="content-list-item-copy content-list-item-copy-directory">
                                 <strong>{item.name}</strong>
-                                <span>{item.path}</span>
                               </span>
                             </span>
 
-                            <span className="content-list-item-meta">
-                              <span>{t("content.type.directory")}</span>
-                              <ChevronRight size={16} strokeWidth={2} />
-                            </span>
+                            {contentViewMode === "compact" ? (
+                              <span className="content-list-item-meta is-compact">
+                                <ChevronRight size={16} strokeWidth={2} />
+                              </span>
+                            ) : (
+                              <span className="content-list-item-meta">
+                                <span>{t("content.type.directory")}</span>
+                                <ChevronRight size={16} strokeWidth={2} />
+                              </span>
+                            )}
                           </button>
                         ) : (
-                          <div key={item.id} className="content-list-item">
+                          <div
+                            key={item.id}
+                            className={`content-list-item${contentViewMode === "compact" ? " is-compact" : ""}`}
+                          >
                             <span className="content-list-item-main">
                               <span className="content-list-item-icon content-list-item-icon-file">
                                 <File size={18} strokeWidth={1.9} />
                               </span>
-                              <span className="content-list-item-copy">
+                              <span className="content-list-item-copy content-list-item-copy-file">
                                 <strong>{item.name}</strong>
-                                <span>{item.path}</span>
+                                {item.storageClass ? (
+                                  <span>{item.storageClass}</span>
+                                ) : null}
                               </span>
                             </span>
 
-                            <span className="content-list-item-meta content-list-item-meta-stack">
-                              <span>{formatBytes(item.size, locale)}</span>
-                              <span>{formatDateTime(item.lastModified, locale)}</span>
-                            </span>
+                            {contentViewMode === "compact" ? null : (
+                              <span className="content-list-item-meta content-list-item-meta-stack">
+                                <span>{formatBytes(item.size, locale)}</span>
+                                <span>{formatDateTime(item.lastModified, locale)}</span>
+                              </span>
+                            )}
                           </div>
                         )
                       )}

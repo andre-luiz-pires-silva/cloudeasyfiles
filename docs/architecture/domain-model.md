@@ -61,7 +61,8 @@ Representative fields:
 - `path` is always logical and relative to the container
 - `VirtualDirectory` means synthetic, prefix-derived navigation
 - `File` means a concrete provider object or blob
-- normalized fields should be preferred by the application layer
+- `storage_class` may preserve the provider-native label for transparency in the UI
+- `availability_status` is the preferred normalized cross-provider state
 - provider-specific metadata may still be retained when needed
 
 ## Local Cache Concepts

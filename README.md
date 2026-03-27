@@ -174,9 +174,11 @@ Typical workflow:
 ### How Cloud Listing Works
 
 - The sidebar shows only higher-level structure such as saved connections and buckets or containers
+- Selecting a saved connection can also show its loaded containers in the main content area
 - Files and virtual directories are browsed in the main content area
 - Virtual directories are derived dynamically from object key prefixes
 - The app resolves and lists only the immediate level for the current path
+- The current path is shown through a breadcrumb that starts at the selected connection
 - Files and folders are always listed from the cloud provider
 - The local cache does not replace cloud listing and does not act as a sync engine
 - Local information only affects status indicators such as whether a file is downloaded or outdated

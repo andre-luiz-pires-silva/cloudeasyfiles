@@ -26,12 +26,19 @@ Rationale:
 
 The main content area is the primary place for browsing cloud objects.
 
+When a connection is selected, the main panel shows:
+
+- connection details and actions
+- the currently loaded containers for that connection
+
 When a container or virtual directory is selected, the main panel lists:
 
 - immediate virtual subdirectories
 - immediate files
 
 Navigation happens one level at a time in the main panel.
+
+The current browsing path is represented with a breadcrumb that starts at the selected connection and continues through the active container and virtual directory path.
 
 ## Virtual Directories
 
@@ -48,6 +55,8 @@ Rules:
 - The sidebar defines the current context.
 - The main panel renders the navigable contents for that context.
 - Object browsing should feel hierarchical without implying a real filesystem.
+- Selecting a connection keeps the user at the structural level.
+- Selecting a container moves the main panel into object browsing for that container.
 
 ## Scalability Implications
 

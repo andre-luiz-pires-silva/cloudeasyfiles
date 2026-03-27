@@ -35,6 +35,7 @@ pub struct AwsObjectSummary {
     pub size: i64,
     pub e_tag: Option<String>,
     pub last_modified: Option<String>,
+    pub storage_class: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]

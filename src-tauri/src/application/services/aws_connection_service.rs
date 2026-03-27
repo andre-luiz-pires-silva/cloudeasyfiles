@@ -418,6 +418,12 @@ impl AwsConnectionService {
                         size: object.size().unwrap_or_default(),
                         e_tag: object.e_tag().map(ToString::to_string),
                         last_modified: object.last_modified().map(ToString::to_string),
+                        storage_class: Some(
+                            object
+                                .storage_class()
+                                .map(|storage_class| storage_class.as_str().to_string())
+                                .unwrap_or_else(|| "STANDARD".to_string()),
+                        ),
                     });
                 }
             }

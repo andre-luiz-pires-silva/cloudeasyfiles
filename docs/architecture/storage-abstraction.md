@@ -6,21 +6,24 @@ Provider-specific storage tiers and availability behavior are normalized where t
 
 ## StorageClass
 
-`StorageClass` is a normalized representation of how content is stored.
-
-Representative normalized states:
-
-- `Standard`
-- `Cool`
-- `Cold`
-- `Archived`
+`StorageClass` should retain the provider-native label when that is more operationally useful to the user.
 
 Examples:
 
-- AWS Glacier-like storage maps to `Archived`
-- Azure Archive maps to `Archived`
+- AWS examples:
+  - `STANDARD`
+  - `STANDARD_IA`
+  - `GLACIER`
+  - `DEEP_ARCHIVE`
+- Azure examples:
+  - `Hot`
+  - `Cool`
+  - `Cold`
+  - `Archive`
 
-This abstraction is intentionally lossy at the application layer.
+The current direction is to expose these provider-specific tier names directly in file listings so the UI stays transparent about what the provider is really using.
+
+Cross-provider simplification should happen primarily through `AvailabilityStatus`, not by erasing the native storage tier label.
 
 ## AvailabilityStatus
 
@@ -38,6 +41,8 @@ Examples:
 - Azure Archive content maps to `Archived`
 - AWS restore in progress maps to `Restoring`
 - Azure rehydration in progress maps to `Restoring`
+
+This is the preferred layer for cross-provider normalization in the file list.
 
 ## Restore Options
 
