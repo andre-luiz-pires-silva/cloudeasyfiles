@@ -4,9 +4,33 @@
 
 CloudEasyFiles is a desktop application that provides a clean, intuitive interface for managing files across cloud storage providers. It is designed to reduce the complexity of working directly with provider-specific APIs and workflows, offering a consistent experience for browsing, transferring, and managing cloud files with an emphasis on simplicity and ease of use.
 
+For the project documentation map, architecture references, ADRs, and feature specs, see [PROJECT.md](./PROJECT.md) and the documents under [`/docs`](./docs).
+
 The project initially targets AWS S3 and Azure Blob Storage, including archival storage workflows such as AWS Glacier restores and Azure Archive tier rehydration.
 
 Although the interface looks folder-oriented, CloudEasyFiles works on top of object storage. AWS S3 and Azure Blob Storage do not provide real directories in the traditional file system sense. Instead, the application interprets object key prefixes as folders so users can browse cloud content through a familiar hierarchical view.
+
+## Why Archival Storage Matters
+
+Many teams need to keep large volumes of backup and historical data for long periods of time. As that data grows, standard cloud storage can become expensive.
+
+AWS and Azure both offer low-cost archival storage options such as Glacier, Deep Archive, and Archive tier. These options reduce storage cost significantly, but they also introduce operational complexity:
+
+- Archived files are not immediately available
+- A restore or rehydration request must be submitted first
+- Retrieval may take minutes or even hours
+- Provider consoles are often cumbersome for this workflow
+
+CloudEasyFiles exists in part to make this practical. Instead of forcing users to learn two different archival workflows, the app presents a simpler and more consistent way to restore, monitor, and download archived files.
+
+## Why CloudEasyFiles
+
+CloudEasyFiles makes low-cost cloud storage more practical to use day to day.
+
+- It abstracts provider-specific archival complexity
+- It gives users a unified way to request restores
+- It shows restore progress directly in the app
+- It makes it clear when a file is ready to download
 
 ## Screenshots
 
@@ -22,7 +46,8 @@ The repository currently includes SVG placeholders that can later be replaced by
 - Save configured AWS and Azure connections in a tree-based navigation sidebar
 - Browse cloud resources through a familiar interface inspired primarily by VSCode, with pgAdmin and DBeaver as secondary references
 - Update the main content area based on the selected tree node, showing relevant details and contextual actions
-- Explore files and folders in a central file explorer view when the selected context requires it
+- Keep the sidebar intentionally simplified, showing only saved connections and cloud containers
+- Explore files and virtual directories in the main content area, where object browsing happens level by level
 - Upload, download, delete, copy, and move files
 - Track operations with progress bars and status indicators
 - Use a unified interface across supported providers
@@ -33,6 +58,8 @@ The repository currently includes SVG placeholders that can later be replaced by
   - Azure Blob Archive rehydration
 - Normalize storage tier differences across providers so archival content is presented consistently
 - Optionally track downloaded files through a local cache directory
+- Quickly refine visible items through `Filter`
+- Prepare more powerful provider-aware discovery through `Advanced Search`
 - Build on an extensible architecture designed for future provider support
 
 ## Architecture Overview
@@ -52,7 +79,7 @@ At a high level, the system is structured around a small set of clearly separate
 - `Infrastructure`
   - Handles HTTP, SDK integrations, serialization, local persistence, and platform-specific concerns
 
-The core browsing model is intentionally provider-agnostic. Buckets and blob containers are treated as cloud containers, while files and folder-like entries are presented as cloud items. This allows the UI to offer a consistent experience even though each provider exposes its data differently.
+The core browsing model is intentionally provider-agnostic. Buckets and blob containers are treated as cloud containers, while files and folder-like entries are presented as cloud items in the main panel. This allows the UI to offer a consistent experience even though each provider exposes its data differently.
 
 ### Architectural Goals
 
@@ -135,18 +162,41 @@ Typical workflow:
 1. Launch the application
 2. Add one or more AWS or Azure accounts
 3. Save those connections in the left navigation tree for future access
-4. Select an account, bucket, container, folder, or file from the tree
+4. Select a connection or bucket/container from the tree
 5. Review the selected node details and available actions in the main panel
-6. Browse files in the explorer area when the selected context exposes content navigation
-7. Perform file operations such as upload, download, copy, move, or delete
-8. Monitor operation progress and file state changes in the UI
-9. Trigger restore or rehydration workflows for archived content when needed
+6. Browse immediate virtual directories and files in the main panel, one level at a time
+7. Use `Filter` to quickly refine the items currently visible on screen
+8. Use `Advanced Search` when you need more powerful search options
+9. Perform file operations such as upload, download, copy, move, or delete
+10. Monitor operation progress and file state changes in the UI
+11. Trigger restore or rehydration workflows for archived content when needed
 
 ### How Cloud Listing Works
 
+- The sidebar shows only higher-level structure such as saved connections and buckets or containers
+- Files and virtual directories are browsed in the main content area
+- Virtual directories are derived dynamically from object key prefixes
+- The app resolves and lists only the immediate level for the current path
 - Files and folders are always listed from the cloud provider
 - The local cache does not replace cloud listing and does not act as a sync engine
 - Local information only affects status indicators such as whether a file is downloaded or outdated
+
+This keeps the sidebar simple, avoids overcrowding, and makes object browsing easier to follow in the main panel.
+
+### Filter and Advanced Search
+
+CloudEasyFiles supports two different ways to narrow what you are looking at:
+
+- `Filter`
+  - Available in the sidebar and in the main content area
+  - Works only on the items currently visible
+  - Does not trigger new provider calls
+- `Advanced Search`
+  - Uses a dedicated modal dialog
+  - Designed for more powerful search options in the future
+  - May use provider-specific capabilities when needed
+
+In practice, `Filter` is for quick on-screen refinement, while `Advanced Search` is for deeper cloud searches.
 
 ### Storage Availability
 
@@ -155,6 +205,28 @@ CloudEasyFiles simplifies storage tier differences across providers:
 - AWS Glacier-style content and Azure Archive content are both presented as `Archived`
 - Restore and rehydration workflows are both presented as `Restoring`
 - The UI focuses on whether a file is available to use, not on provider-specific storage jargon
+
+### Archival Storage Support
+
+CloudEasyFiles is designed to make archived storage easier to work with.
+
+- The app detects when a file is archived
+- The app lets the user request a restore when needed
+- The app shows when a file is still restoring
+- The app allows download when the file becomes available again
+- Provider-specific restore options are handled transparently in the workflow
+
+### Restore Workflow
+
+The restore experience is intended to be direct and understandable:
+
+1. The user sees a file marked as archived
+2. The user clicks `Restore`
+3. A confirmation modal shows the available restore options, estimated time, and estimated cost when the provider supplies that information
+4. The user confirms the restore request
+5. The file enters the `Restoring` state
+6. The user tracks progress directly in the file list
+7. When the restore is complete, the file becomes available for download
 
 ### Local Cache (Optional)
 
@@ -193,6 +265,8 @@ CloudEasyFiles is intentionally not a synchronization tool.
 - No bidirectional sync
 - No automatic upload of local files
 - No background file watching to mirror local file changes back to the cloud
+
+It also intentionally avoids turning the sidebar into a full object explorer. Deep object browsing belongs in the main panel, not in the left navigation tree.
 
 ### Supported Storage Workflows
 
