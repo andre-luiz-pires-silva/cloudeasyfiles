@@ -2,7 +2,7 @@ use crate::application::services::aws_connection_service::AwsConnectionService;
 use crate::application::services::aws_connection_secret_service::AwsConnectionSecretService;
 use crate::application::services::greeting_service::GreetingService;
 use crate::domain::aws_connection::{
-    AwsBucketSummary, AwsConnectionTestInput, AwsConnectionTestResult,
+    AwsBucketItemsResult, AwsBucketSummary, AwsConnectionTestInput, AwsConnectionTestResult,
 };
 use crate::domain::connection_secrets::{AwsConnectionSecretsInput, AwsConnectionSecretsOutput};
 
@@ -127,7 +127,7 @@ pub async fn get_aws_bucket_region(
     access_key_id: String,
     secret_access_key: String,
     bucket_name: String,
- ) -> Result<String, String> {
+) -> Result<String, String> {
     eprintln!(
         "[commands] get_aws_bucket_region called for bucket_name={}",
         bucket_name
@@ -144,6 +144,38 @@ pub async fn get_aws_bucket_region(
 
     if let Err(error) = &result {
         eprintln!("[commands] get_aws_bucket_region failed with error={}", error);
+    }
+
+    result
+}
+
+#[tauri::command]
+pub async fn list_aws_bucket_items(
+    access_key_id: String,
+    secret_access_key: String,
+    bucket_name: String,
+    prefix: Option<String>,
+    bucket_region: Option<String>,
+) -> Result<AwsBucketItemsResult, String> {
+    eprintln!(
+        "[commands] list_aws_bucket_items called for bucket_name={} prefix={}",
+        bucket_name,
+        prefix.clone().unwrap_or_default()
+    );
+
+    let result = AwsConnectionService::list_bucket_items(
+        AwsConnectionTestInput {
+            access_key_id,
+            secret_access_key,
+        },
+        bucket_name,
+        prefix,
+        bucket_region,
+    )
+    .await;
+
+    if let Err(error) = &result {
+        eprintln!("[commands] list_aws_bucket_items failed with error={}", error);
     }
 
     result

@@ -10,6 +10,24 @@ export type AwsBucketSummary = {
   name: string;
 };
 
+export type AwsVirtualDirectorySummary = {
+  name: string;
+  path: string;
+};
+
+export type AwsObjectSummary = {
+  key: string;
+  size: number;
+  eTag?: string | null;
+  lastModified?: string | null;
+};
+
+export type AwsBucketItemsResult = {
+  bucketRegion: string;
+  directories: AwsVirtualDirectorySummary[];
+  files: AwsObjectSummary[];
+};
+
 export async function testAwsConnection(
   accessKeyId: string,
   secretAccessKey: string
@@ -39,5 +57,21 @@ export async function getAwsBucketRegion(
     accessKeyId,
     secretAccessKey,
     bucketName
+  });
+}
+
+export async function listAwsBucketItems(
+  accessKeyId: string,
+  secretAccessKey: string,
+  bucketName: string,
+  prefix?: string,
+  bucketRegion?: string
+): Promise<AwsBucketItemsResult> {
+  return invoke<AwsBucketItemsResult>("list_aws_bucket_items", {
+    accessKeyId,
+    secretAccessKey,
+    bucketName,
+    prefix,
+    bucketRegion
   });
 }

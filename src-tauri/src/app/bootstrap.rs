@@ -16,7 +16,8 @@ pub fn run() {
             commands::delete_aws_connection_secrets,
             commands::test_aws_connection,
             commands::list_aws_buckets,
-            commands::get_aws_bucket_region
+            commands::get_aws_bucket_region,
+            commands::list_aws_bucket_items
         ])
         .run(tauri::generate_context!())
         .expect("failed to run CloudEasyFiles application");

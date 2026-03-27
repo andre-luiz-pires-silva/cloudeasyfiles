@@ -5,9 +5,11 @@ use aws_sdk_s3::types::BucketLocationConstraint;
 use aws_sdk_sts::error::ProvideErrorMetadata;
 use aws_sdk_sts::operation::RequestId;
 use aws_sdk_sts::Client;
+use std::collections::HashSet;
 
 use crate::domain::aws_connection::{
-    AwsBucketSummary, AwsConnectionTestInput, AwsConnectionTestResult,
+    AwsBucketItemsResult, AwsBucketSummary, AwsConnectionTestInput, AwsConnectionTestResult,
+    AwsObjectSummary, AwsVirtualDirectorySummary,
 };
 
 pub struct AwsConnectionService;
@@ -77,6 +79,17 @@ fn normalize_bucket_region(location_constraint: Option<&BucketLocationConstraint
         Some(BucketLocationConstraint::Eu) => "eu-west-1".to_string(),
         Some(value) => value.as_str().to_string(),
     }
+}
+
+fn build_directory_name(path: &str) -> String {
+    let trimmed = path.strip_suffix('/').unwrap_or(path);
+    let name = trimmed.rsplit('/').next().unwrap_or(trimmed);
+
+    if name.is_empty() {
+        return "/".to_string();
+    }
+
+    name.to_string()
 }
 
 impl AwsConnectionService {
@@ -191,6 +204,36 @@ impl AwsConnectionService {
         }))
     }
 
+    async fn resolve_bucket_region(
+        access_key_id: &str,
+        secret_access_key: &str,
+        bucket_name: &str,
+        bucket_region: Option<String>,
+    ) -> Result<String, String> {
+        if let Some(bucket_region) = bucket_region {
+            if !bucket_region.trim().is_empty() && bucket_region != "..." {
+                return Ok(bucket_region);
+            }
+        }
+
+        let context =
+            Self::resolve_global_access_context(access_key_id, secret_access_key).await?;
+        let bucket_location = context
+            .s3_client
+            .get_bucket_location()
+            .bucket(bucket_name)
+            .send()
+            .await
+            .map_err(|error| {
+                error
+                    .as_service_error()
+                    .map(format_provider_service_error)
+                    .unwrap_or_else(|| error.to_string())
+            })?;
+
+        Ok(normalize_bucket_region(bucket_location.location_constraint()))
+    }
+
     pub async fn test_connection(
         input: AwsConnectionTestInput,
     ) -> Result<AwsConnectionTestResult, String> {
@@ -287,4 +330,115 @@ impl AwsConnectionService {
         Ok(normalize_bucket_region(bucket_location.location_constraint()))
     }
 
+    pub async fn list_bucket_items(
+        input: AwsConnectionTestInput,
+        bucket_name: String,
+        prefix: Option<String>,
+        bucket_region: Option<String>,
+    ) -> Result<AwsBucketItemsResult, String> {
+        let access_key_id = input.access_key_id.trim().to_string();
+        let secret_access_key = input.secret_access_key.trim().to_string();
+        let bucket_name = bucket_name.trim().to_string();
+        let prefix = prefix.unwrap_or_default();
+
+        eprintln!(
+            "[aws_connection_service] listing S3 objects for bucket={} prefix={}",
+            bucket_name, prefix
+        );
+
+        let resolved_bucket_region = Self::resolve_bucket_region(
+            &access_key_id,
+            &secret_access_key,
+            &bucket_name,
+            bucket_region,
+        )
+        .await?;
+
+        let (_, s3_client) = Self::build_clients(
+            &resolved_bucket_region,
+            access_key_id,
+            secret_access_key,
+        )
+        .await;
+
+        let mut continuation_token: Option<String> = None;
+        let mut seen_directories = HashSet::new();
+        let mut seen_files = HashSet::new();
+        let mut directories = Vec::new();
+        let mut files = Vec::new();
+
+        loop {
+            let response = s3_client
+                .list_objects_v2()
+                .bucket(bucket_name.clone())
+                .delimiter("/")
+                .set_prefix((!prefix.is_empty()).then_some(prefix.clone()))
+                .set_continuation_token(continuation_token.clone())
+                .send()
+                .await
+                .map_err(|error| {
+                    let error_message = error
+                        .as_service_error()
+                        .map(format_provider_service_error)
+                        .unwrap_or_else(|| error.to_string());
+
+                    eprintln!(
+                        "[aws_connection_service] failed to list S3 objects for bucket={} prefix={} error={}",
+                        bucket_name, prefix, error_message
+                    );
+
+                    error_message
+                })?;
+
+            for directory_path in response
+                .common_prefixes()
+                .iter()
+                .filter_map(|common_prefix| common_prefix.prefix())
+            {
+                if seen_directories.insert(directory_path.to_string()) {
+                    directories.push(AwsVirtualDirectorySummary {
+                        name: build_directory_name(directory_path),
+                        path: directory_path.to_string(),
+                    });
+                }
+            }
+
+            for object in response.contents().iter() {
+                let Some(key) = object.key() else {
+                    continue;
+                };
+
+                if key == prefix || key.ends_with('/') {
+                    continue;
+                }
+
+                if seen_files.insert(key.to_string()) {
+                    files.push(AwsObjectSummary {
+                        key: key.to_string(),
+                        size: object.size().unwrap_or_default(),
+                        e_tag: object.e_tag().map(ToString::to_string),
+                        last_modified: object.last_modified().map(ToString::to_string),
+                    });
+                }
+            }
+
+            if !response.is_truncated().unwrap_or(false) {
+                break;
+            }
+
+            continuation_token = response
+                .next_continuation_token()
+                .map(ToString::to_string);
+
+            if continuation_token.is_none() {
+                break;
+            }
+        }
+
+        Ok(AwsBucketItemsResult {
+            bucket_region: resolved_bucket_region,
+            directories,
+            files,
+        })
+    }
 }

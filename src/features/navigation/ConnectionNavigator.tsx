@@ -1,8 +1,10 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import {
+  ChevronRight,
   CircleAlert,
   Cloud,
   Ellipsis,
+  File,
   Folder,
   Home,
   LoaderCircle,
@@ -21,9 +23,11 @@ import { connectionService } from "../connections/services/connectionService";
 import {
   type AwsBucketSummary,
   getAwsBucketRegion,
+  listAwsBucketItems,
   listAwsBuckets,
   testAwsConnection
 } from "../../lib/tauri/awsConnections";
+import type { AwsBucketItemsResult } from "../../lib/tauri/awsConnections";
 import type { Locale } from "../../lib/i18n/I18nProvider";
 import { useI18n } from "../../lib/i18n/useI18n";
 
@@ -55,6 +59,15 @@ const MAX_BUCKET_REGION_REQUESTS = 4;
 type ConnectionIndicator = {
   status: ConnectionIndicatorStatus;
   message?: string;
+};
+
+type ContentExplorerItem = {
+  id: string;
+  kind: "directory" | "file";
+  name: string;
+  path: string;
+  size?: number;
+  lastModified?: string | null;
 };
 
 type TreeNodeKind = "connection" | "bucket";
@@ -157,6 +170,111 @@ function extractErrorMessage(error: unknown): string | null {
   return null;
 }
 
+function buildContentItems(result: AwsBucketItemsResult): ContentExplorerItem[] {
+  const directories: ContentExplorerItem[] = result.directories
+    .map((directory) => ({
+      id: `directory:${directory.path}`,
+      kind: "directory" as const,
+      name: directory.name,
+      path: directory.path
+    }))
+    .sort((left, right) =>
+      left.name.localeCompare(right.name, undefined, {
+        sensitivity: "base",
+        numeric: true
+      })
+    );
+
+  const files: ContentExplorerItem[] = result.files
+    .map((file) => ({
+      id: `file:${file.key}`,
+      kind: "file" as const,
+      name: file.key.split("/").pop() || file.key,
+      path: file.key,
+      size: file.size,
+      lastModified: file.lastModified
+    }))
+    .sort((left, right) =>
+      left.name.localeCompare(right.name, undefined, {
+        sensitivity: "base",
+        numeric: true
+      })
+    );
+
+  return [...directories, ...files];
+}
+
+function getPathTitle(path: string, fallback: string): string {
+  if (!path) {
+    return fallback;
+  }
+
+  const trimmed = path.endsWith("/") ? path.slice(0, -1) : path;
+  const name = trimmed.split("/").pop();
+
+  return name && name.length > 0 ? name : path;
+}
+
+function buildBreadcrumbs(bucketName: string, path: string) {
+  const breadcrumbs = [{ label: bucketName, path: "" }];
+
+  if (!path) {
+    return breadcrumbs;
+  }
+
+  const trimmed = path.endsWith("/") ? path.slice(0, -1) : path;
+  const segments = trimmed.split("/");
+  let accumulatedPath = "";
+
+  for (const segment of segments) {
+    accumulatedPath += `${segment}/`;
+    breadcrumbs.push({
+      label: segment || "/",
+      path: accumulatedPath
+    });
+  }
+
+  return breadcrumbs;
+}
+
+function formatBytes(size: number | undefined, locale: Locale): string {
+  if (typeof size !== "number" || !Number.isFinite(size)) {
+    return "-";
+  }
+
+  if (size < 1024) {
+    return `${new Intl.NumberFormat(locale).format(size)} B`;
+  }
+
+  const units = ["KB", "MB", "GB", "TB"];
+  let value = size / 1024;
+  let unitIndex = 0;
+
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+
+  return `${new Intl.NumberFormat(locale, { maximumFractionDigits: 1 }).format(value)} ${units[unitIndex]}`;
+}
+
+function formatDateTime(value: string | null | undefined, locale: Locale): string {
+  if (!value) {
+    return "-";
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return new Intl.DateTimeFormat(locale, {
+    dateStyle: "medium",
+    timeStyle: "short"
+  }).format(date);
+}
+
 function buildConnectionFailureMessage(
   error: unknown,
   t: (key: string) => string
@@ -233,6 +351,10 @@ export function ConnectionNavigator({
   const [connectionBuckets, setConnectionBuckets] = useState<
     Record<string, ExplorerTreeNode[]>
   >({});
+  const [bucketContentPaths, setBucketContentPaths] = useState<Record<string, string>>({});
+  const [contentItems, setContentItems] = useState<ContentExplorerItem[]>([]);
+  const [isLoadingContent, setIsLoadingContent] = useState(false);
+  const [contentError, setContentError] = useState<string | null>(null);
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     if (typeof window === "undefined") {
       return DEFAULT_SIDEBAR_WIDTH;
@@ -256,6 +378,7 @@ export function ConnectionNavigator({
   const workspaceRef = useRef<HTMLDivElement | null>(null);
   const connectionTestRequestIdRef = useRef(0);
   const connectionRequestIdsRef = useRef<Record<string, number>>({});
+  const contentRequestIdRef = useRef(0);
 
   const treeNodes = useMemo(
     () =>
@@ -287,6 +410,25 @@ export function ConnectionNavigator({
       connections.find((connection) => connection.id === pendingDeleteConnectionId) ?? null,
     [connections, pendingDeleteConnectionId]
   );
+
+  const selectedBucketPath =
+    selectedNode?.kind === "bucket" ? (bucketContentPaths[selectedNode.id] ?? "") : "";
+  const selectedBucketConnectionId =
+    selectedNode?.kind === "bucket" ? selectedNode.connectionId : null;
+  const selectedBucketId = selectedNode?.kind === "bucket" ? selectedNode.id : null;
+  const selectedBucketName =
+    selectedNode?.kind === "bucket" ? (selectedNode.bucketName ?? selectedNode.name) : null;
+  const selectedBucketProvider = selectedNode?.kind === "bucket" ? selectedNode.provider : null;
+  const selectedBucketRegion =
+    selectedNode?.kind === "bucket" ? selectedNode.region ?? null : null;
+  const displayedContentTitle =
+    selectedNode?.kind === "bucket"
+      ? getPathTitle(selectedBucketPath, selectedNode.name)
+      : (selectedNode?.name ?? t("content.empty.title"));
+  const selectedBreadcrumbs =
+    selectedNode?.kind === "bucket"
+      ? buildBreadcrumbs(selectedNode.bucketName ?? selectedNode.name, selectedBucketPath)
+      : [];
 
   useEffect(() => {
     let isActive = true;
@@ -384,6 +526,20 @@ export function ConnectionNavigator({
   }, [connections]);
 
   useEffect(() => {
+    setBucketContentPaths((previousBucketContentPaths) => {
+      const nextBucketContentPaths: Record<string, string> = {};
+
+      for (const connectionId of Object.keys(previousBucketContentPaths)) {
+        if (findNodeById(treeNodes, connectionId)) {
+          nextBucketContentPaths[connectionId] = previousBucketContentPaths[connectionId];
+        }
+      }
+
+      return nextBucketContentPaths;
+    });
+  }, [treeNodes]);
+
+  useEffect(() => {
     if (!isResizingSidebar) {
       return undefined;
     }
@@ -419,8 +575,76 @@ export function ConnectionNavigator({
   useEffect(() => {
     return () => {
       connectionTestRequestIdRef.current += 1;
+      contentRequestIdRef.current += 1;
     };
   }, []);
+
+  useEffect(() => {
+    async function loadContentItems() {
+      if (!selectedBucketId || !selectedBucketConnectionId || !selectedBucketName) {
+        contentRequestIdRef.current += 1;
+        setContentItems([]);
+        setContentError(null);
+        setIsLoadingContent(false);
+        return;
+      }
+
+      const requestId = contentRequestIdRef.current + 1;
+      contentRequestIdRef.current = requestId;
+      setIsLoadingContent(true);
+      setContentError(null);
+
+      try {
+        if (selectedBucketProvider !== "aws") {
+          throw new Error(t("navigation.connection_status.unsupported_provider"));
+        }
+
+        const draft = await connectionService.getAwsConnectionDraft(selectedBucketConnectionId);
+        const result = await listAwsBucketItems(
+          draft.accessKeyId.trim(),
+          draft.secretAccessKey.trim(),
+          selectedBucketName,
+          selectedBucketPath || undefined,
+          selectedBucketRegion && selectedBucketRegion !== BUCKET_REGION_PLACEHOLDER
+            ? selectedBucketRegion
+            : undefined
+        );
+
+        if (contentRequestIdRef.current !== requestId) {
+          return;
+        }
+
+        setContentItems(buildContentItems(result));
+        setIsLoadingContent(false);
+
+        if (result.bucketRegion && result.bucketRegion !== selectedBucketRegion) {
+          updateBucketNode(selectedBucketConnectionId, selectedBucketId, (node) => ({
+            ...node,
+            region: result.bucketRegion
+          }));
+        }
+      } catch (error) {
+        if (contentRequestIdRef.current !== requestId) {
+          return;
+        }
+
+        const message = extractErrorMessage(error) ?? t("content.list.load_error");
+        setContentItems([]);
+        setContentError(message);
+        setIsLoadingContent(false);
+      }
+    }
+
+    void loadContentItems();
+  }, [
+    selectedBucketConnectionId,
+    selectedBucketId,
+    selectedBucketName,
+    selectedBucketPath,
+    selectedBucketProvider,
+    selectedBucketRegion,
+    t
+  ]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -525,6 +749,13 @@ export function ConnectionNavigator({
       delete nextConnectionBuckets[connectionId];
       return nextConnectionBuckets;
     });
+  }
+
+  function navigateBucketPath(bucketNodeId: string, nextPath: string) {
+    setBucketContentPaths((previousBucketContentPaths) => ({
+      ...previousBucketContentPaths,
+      [bucketNodeId]: nextPath
+    }));
   }
 
   function updateBucketNode(
@@ -783,6 +1014,10 @@ export function ConnectionNavigator({
   }
 
   function handleSelectNode(node: ExplorerTreeNode) {
+    if (node.kind === "bucket") {
+      navigateBucketPath(node.id, "");
+    }
+
     setSelectedView("node");
     setSelectedNodeId(node.id);
     setOpenMenuConnectionId(null);
@@ -1014,11 +1249,51 @@ export function ConnectionNavigator({
         <section className={`content-panel${selectedView === "home" ? " content-panel-home" : ""}`}>
           {selectedView === "home" ? null : (
             <div className="content-toolbar">
-              <div>
+              <div className="content-toolbar-copy">
                 <p className="content-eyebrow">{t("content.eyebrow")}</p>
                 <h1 className="content-title">
-                  {selectedNode?.name ?? t("content.empty.title")}
+                  {displayedContentTitle}
                 </h1>
+
+                {selectedNode?.kind === "bucket" ? (
+                  <nav
+                    className="content-breadcrumb"
+                    aria-label={t("content.breadcrumb.aria_label")}
+                  >
+                    {selectedBreadcrumbs.map((breadcrumb, index) => {
+                      const isCurrent = index === selectedBreadcrumbs.length - 1;
+
+                      return (
+                        <span
+                          key={`${breadcrumb.path}:${index}`}
+                          className="content-breadcrumb-item"
+                        >
+                          {index > 0 ? (
+                            <ChevronRight
+                              size={14}
+                              strokeWidth={2}
+                              className="content-breadcrumb-separator"
+                            />
+                          ) : null}
+
+                          {isCurrent ? (
+                            <span className="content-breadcrumb-current">
+                              {breadcrumb.label}
+                            </span>
+                          ) : (
+                            <button
+                              type="button"
+                              className="content-breadcrumb-link"
+                              onClick={() => navigateBucketPath(selectedNode.id, breadcrumb.path)}
+                            >
+                              {breadcrumb.label}
+                            </button>
+                          )}
+                        </span>
+                      );
+                    })}
+                  </nav>
+                ) : null}
               </div>
 
               {selectedConnection ? (
@@ -1080,78 +1355,115 @@ export function ConnectionNavigator({
             </div>
           ) : selectedNode ? (
             <div className="content-card">
-              <div className="details-grid">
-                <article className="detail-card">
-                  <span className="detail-label">{t("content.detail.type")}</span>
-                  <strong>
-                    {t(
-                      selectedNode.kind === "bucket"
-                        ? "content.type.container"
-                        : `content.type.${selectedNode.kind}`
-                    )}
-                  </strong>
-                </article>
-
-                <article className="detail-card">
-                  <span className="detail-label">{t("content.detail.provider")}</span>
-                  <strong>{t(`content.provider.${selectedNode.provider}`)}</strong>
-                </article>
-
-                <article className="detail-card">
-                  <span className="detail-label">{t("content.detail.identifier")}</span>
-                  <strong>
-                    {selectedNode.kind === "connection"
-                      ? connectionProviderAccountIds[selectedNode.id] ??
-                        t("content.detail.identifier_unavailable")
-                      : selectedNode.kind === "bucket"
-                        ? selectedNode.bucketName
-                        : selectedNode.path ?? selectedNode.name}
-                  </strong>
-                </article>
-
-                {selectedNode.kind === "bucket" ? (
-                  <article className="detail-card">
-                    <span className="detail-label">{t("content.detail.region")}</span>
-                    <strong>{selectedNode.region ?? t("content.detail.identifier_unavailable")}</strong>
-                  </article>
-                ) : null}
-
-                {selectedNode.kind === "connection" ? (
-                  <article className="detail-card detail-card-wide">
-                    <span className="detail-label">{t("content.detail.cache_path")}</span>
-                    <strong>
-                      {selectedNode.localCacheDirectory ??
-                        t("content.local_cache.not_configured")}
-                    </strong>
-                  </article>
-                ) : (
-                  <article className="detail-card detail-card-wide">
-                    <span className="detail-label">{t("content.detail.path")}</span>
-                    <strong>{selectedNode.path || "/"}</strong>
-                  </article>
-                )}
-              </div>
-
               {selectedNode.kind === "connection" ? (
-                <div className="action-row">
-                  {getConnectionActions(
-                    t,
-                    connectionIndicators[selectedNode.id] ?? { status: "disconnected" }
-                  ).map((action) => (
-                    <button
-                      key={action.id}
-                      type="button"
-                      className={`secondary-button${action.variant === "danger" ? " secondary-button-danger" : ""}`}
-                      disabled={action.disabled}
-                      onClick={() => {
-                        void handleConnectionAction(action.id, selectedNode.id);
-                      }}
-                    >
-                      {action.label}
-                    </button>
-                  ))}
+                <>
+                  <div className="details-grid">
+                    <article className="detail-card">
+                      <span className="detail-label">{t("content.detail.type")}</span>
+                      <strong>{t(`content.type.${selectedNode.kind}`)}</strong>
+                    </article>
+
+                    <article className="detail-card">
+                      <span className="detail-label">{t("content.detail.provider")}</span>
+                      <strong>{t(`content.provider.${selectedNode.provider}`)}</strong>
+                    </article>
+
+                    <article className="detail-card">
+                      <span className="detail-label">{t("content.detail.identifier")}</span>
+                      <strong>
+                        {connectionProviderAccountIds[selectedNode.id] ??
+                          t("content.detail.identifier_unavailable")}
+                      </strong>
+                    </article>
+
+                    <article className="detail-card detail-card-wide">
+                      <span className="detail-label">{t("content.detail.cache_path")}</span>
+                      <strong>
+                        {selectedNode.localCacheDirectory ??
+                          t("content.local_cache.not_configured")}
+                      </strong>
+                    </article>
+                  </div>
+
+                  <div className="action-row">
+                    {getConnectionActions(
+                      t,
+                      connectionIndicators[selectedNode.id] ?? { status: "disconnected" }
+                    ).map((action) => (
+                      <button
+                        key={action.id}
+                        type="button"
+                        className={`secondary-button${action.variant === "danger" ? " secondary-button-danger" : ""}`}
+                        disabled={action.disabled}
+                        onClick={() => {
+                          void handleConnectionAction(action.id, selectedNode.id);
+                        }}
+                      >
+                        {action.label}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <div className="content-list-section">
+                  {isLoadingContent ? (
+                    <p className="content-list-state">{t("content.list.loading")}</p>
+                  ) : contentError ? (
+                    <p className="status-message-error">{contentError}</p>
+                  ) : contentItems.length === 0 ? (
+                    <p className="content-list-state">
+                      {selectedBucketPath
+                        ? t("content.list.empty_directory")
+                        : t("content.list.empty_container")}
+                    </p>
+                  ) : (
+                    <div className="content-list">
+                      {contentItems.map((item) =>
+                        item.kind === "directory" ? (
+                          <button
+                            key={item.id}
+                            type="button"
+                            className="content-list-item content-list-item-action"
+                            onClick={() => navigateBucketPath(selectedNode.id, item.path)}
+                          >
+                            <span className="content-list-item-main">
+                              <span className="content-list-item-icon content-list-item-icon-directory">
+                                <Folder size={18} strokeWidth={1.9} />
+                              </span>
+                              <span className="content-list-item-copy">
+                                <strong>{item.name}</strong>
+                                <span>{item.path}</span>
+                              </span>
+                            </span>
+
+                            <span className="content-list-item-meta">
+                              <span>{t("content.type.directory")}</span>
+                              <ChevronRight size={16} strokeWidth={2} />
+                            </span>
+                          </button>
+                        ) : (
+                          <div key={item.id} className="content-list-item">
+                            <span className="content-list-item-main">
+                              <span className="content-list-item-icon content-list-item-icon-file">
+                                <File size={18} strokeWidth={1.9} />
+                              </span>
+                              <span className="content-list-item-copy">
+                                <strong>{item.name}</strong>
+                                <span>{item.path}</span>
+                              </span>
+                            </span>
+
+                            <span className="content-list-item-meta content-list-item-meta-stack">
+                              <span>{formatBytes(item.size, locale)}</span>
+                              <span>{formatDateTime(item.lastModified, locale)}</span>
+                            </span>
+                          </div>
+                        )
+                      )}
+                    </div>
+                  )}
                 </div>
-              ) : null}
+              )}
 
               {submitError ? <p className="status-message-error">{submitError}</p> : null}
             </div>
