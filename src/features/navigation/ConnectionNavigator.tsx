@@ -34,7 +34,7 @@ type FormErrors = Partial<
   Record<"connectionName" | "accessKeyId" | "secretAccessKey", string>
 >;
 type NodeAction = {
-  id: "connect" | "disconnect" | "edit" | "remove";
+  id: "connect" | "cancelConnect" | "disconnect" | "edit" | "remove";
   label: string;
   variant?: "danger";
   disabled?: boolean;
@@ -175,12 +175,13 @@ function getConnectionActions(
   indicator: ConnectionIndicator
 ): NodeAction[] {
   return [
-    indicator.status === "connected"
+    indicator.status === "connecting"
+      ? { id: "cancelConnect", label: t("navigation.menu.cancel_connect") }
+      : indicator.status === "connected"
       ? { id: "disconnect", label: t("navigation.menu.disconnect") }
       : {
           id: "connect",
-          label: t("navigation.menu.connect"),
-          disabled: indicator.status === "connecting"
+          label: t("navigation.menu.connect")
         },
     { id: "edit", label: t("navigation.menu.edit_settings") },
     { id: "remove", label: t("navigation.menu.remove"), variant: "danger" }
@@ -222,6 +223,7 @@ export function ConnectionNavigator({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isLoadingConnections, setIsLoadingConnections] = useState(true);
   const [openMenuConnectionId, setOpenMenuConnectionId] = useState<string | null>(null);
+  const [pendingDeleteConnectionId, setPendingDeleteConnectionId] = useState<string | null>(null);
   const [connectionIndicators, setConnectionIndicators] = useState<
     Record<string, ConnectionIndicator>
   >({});
@@ -278,6 +280,12 @@ export function ConnectionNavigator({
     () =>
       connections.find((connection) => connection.id === selectedNode?.connectionId) ?? null,
     [connections, selectedNode]
+  );
+
+  const pendingDeleteConnection = useMemo(
+    () =>
+      connections.find((connection) => connection.id === pendingDeleteConnectionId) ?? null,
+    [connections, pendingDeleteConnectionId]
   );
 
   useEffect(() => {
@@ -686,6 +694,18 @@ export function ConnectionNavigator({
     updateConnectionIndicator(connectionId, { status: "disconnected" });
   }
 
+  async function cancelConnectionAttempt(connectionId: string) {
+    connectionRequestIdsRef.current[connectionId] =
+      (connectionRequestIdsRef.current[connectionId] ?? 0) + 1;
+    setConnectionProviderAccountIds((previousProviderAccountIds) => {
+      const nextProviderAccountIds = { ...previousProviderAccountIds };
+      delete nextProviderAccountIds[connectionId];
+      return nextProviderAccountIds;
+    });
+    clearConnectionBuckets(connectionId);
+    updateConnectionIndicator(connectionId, { status: "disconnected" });
+  }
+
   function validateConnectionTestFields(): FormErrors {
     const nextErrors: FormErrors = {};
 
@@ -819,32 +839,49 @@ export function ConnectionNavigator({
       setSelectedNodeId(savedConnection.id);
       setOpenMenuConnectionId(null);
       closeModal();
-      await connectConnection(savedConnection.id, savedConnection);
+      setIsSubmitting(false);
+      void connectConnection(savedConnection.id, savedConnection);
     } catch (error) {
       setSubmitError(error instanceof Error ? error.message : t("navigation.modal.save_error"));
-    } finally {
       setIsSubmitting(false);
     }
   }
 
   async function handleRemoveConnection(connectionId: string) {
+    setPendingDeleteConnectionId(connectionId);
+    setOpenMenuConnectionId(null);
+  }
+
+  async function confirmRemoveConnection() {
+    if (!pendingDeleteConnectionId) {
+      return;
+    }
+
     try {
+      const connectionId = pendingDeleteConnectionId;
+      setPendingDeleteConnectionId(null);
+
       await connectionService.deleteConnection(connectionId);
       const savedConnections = await connectionService.listConnections();
       setConnections(savedConnections);
-      setOpenMenuConnectionId(null);
     } catch (error) {
       setSubmitError(error instanceof Error ? error.message : t("navigation.connections.delete_error"));
     }
   }
 
   async function handleConnectionAction(
-    actionId: "connect" | "disconnect" | "edit" | "remove",
+    actionId: "connect" | "cancelConnect" | "disconnect" | "edit" | "remove",
     connectionId: string
   ) {
     if (actionId === "connect") {
       setOpenMenuConnectionId(null);
       await connectConnection(connectionId);
+      return;
+    }
+
+    if (actionId === "cancelConnect") {
+      await cancelConnectionAttempt(connectionId);
+      setOpenMenuConnectionId(null);
       return;
     }
 
@@ -1235,6 +1272,57 @@ export function ConnectionNavigator({
           </div>
         </div>
       ) : null}
+
+      {pendingDeleteConnection ? (
+        <div className="modal-backdrop" role="presentation">
+          <div
+            className="modal-card modal-card-compact"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-connection-modal-title"
+          >
+            <div className="modal-header">
+              <div>
+                <p className="modal-eyebrow">{t("navigation.connections.delete_title")}</p>
+                <h2 id="delete-connection-modal-title" className="modal-title">
+                  {t("navigation.connections.delete_confirm").replace(
+                    "{name}",
+                    pendingDeleteConnection.name
+                  )}
+                </h2>
+              </div>
+            </div>
+
+            <p className="modal-copy">
+              {t("navigation.connections.delete_description")
+                .replace("{name}", pendingDeleteConnection.name)
+                .replace(
+                  "{provider}",
+                  t(`content.provider.${pendingDeleteConnection.provider}`)
+                )}
+            </p>
+
+            <div className="modal-actions">
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() => setPendingDeleteConnectionId(null)}
+              >
+                {t("common.cancel")}
+              </button>
+              <button
+                type="button"
+                className="secondary-button secondary-button-danger"
+                onClick={() => {
+                  void confirmRemoveConnection();
+                }}
+              >
+                {t("navigation.menu.remove")}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </>
   );
 }
@@ -1381,7 +1469,7 @@ type TreeItemMenuProps = {
   isOpen: boolean;
   onToggle: (connectionId: string | null) => void;
   onAction: (
-    actionId: "connect" | "disconnect" | "edit" | "remove",
+    actionId: "connect" | "cancelConnect" | "disconnect" | "edit" | "remove",
     connectionId: string
   ) => void;
   t: (key: string) => string;

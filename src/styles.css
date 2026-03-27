@@ -687,6 +687,16 @@ body {
   box-shadow: var(--shadow);
 }
 
+.modal-card-compact {
+  width: min(440px, 100%);
+}
+
+.modal-copy {
+  margin: 18px 0 0;
+  line-height: 1.6;
+  color: var(--text-muted);
+}
+
 .field-group {
   display: grid;
   gap: 10px;
