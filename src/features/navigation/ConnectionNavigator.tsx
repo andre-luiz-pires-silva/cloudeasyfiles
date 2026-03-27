@@ -1,5 +1,13 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
-import { CircleAlert, Cloud, Ellipsis, Home, LoaderCircle, Plus } from "lucide-react";
+import {
+  CircleAlert,
+  Cloud,
+  Ellipsis,
+  Folder,
+  Home,
+  LoaderCircle,
+  Plus
+} from "lucide-react";
 import logoPrimary from "../../assets/logo-primary.svg";
 import { AwsConnectionFields } from "../connections/components/AwsConnectionFields";
 import { AzureConnectionPlaceholder } from "../connections/components/AzureConnectionPlaceholder";
@@ -10,7 +18,12 @@ import type {
   SavedConnectionSummary
 } from "../connections/models";
 import { connectionService } from "../connections/services/connectionService";
-import { testAwsConnection } from "../../lib/tauri/awsConnections";
+import {
+  type AwsBucketSummary,
+  getAwsBucketRegion,
+  listAwsBuckets,
+  testAwsConnection
+} from "../../lib/tauri/awsConnections";
 import type { Locale } from "../../lib/i18n/I18nProvider";
 import { useI18n } from "../../lib/i18n/useI18n";
 
@@ -18,7 +31,7 @@ type NavigatorView = "home" | "node";
 type ConnectionTestStatus = "idle" | "testing" | "success" | "error";
 type ConnectionIndicatorStatus = "disconnected" | "connecting" | "connected" | "error";
 type FormErrors = Partial<
-  Record<"connectionName" | "region" | "accessKeyId" | "secretAccessKey", string>
+  Record<"connectionName" | "accessKeyId" | "secretAccessKey", string>
 >;
 type NodeAction = {
   id: "connect" | "disconnect" | "edit" | "remove";
@@ -36,11 +49,92 @@ const MISSING_MINIMUM_S3_PERMISSION_ERROR = "AWS_S3_LIST_BUCKETS_PERMISSION_REQU
 const CONNECTING_CONNECTION_TITLE_KEY = "navigation.connection_status.connecting";
 const CONNECTED_CONNECTION_TITLE_KEY = "navigation.connection_status.connected";
 const DISCONNECTED_CONNECTION_TITLE_KEY = "navigation.connection_status.disconnected";
+const BUCKET_REGION_PLACEHOLDER = "...";
+const MAX_BUCKET_REGION_REQUESTS = 4;
 
 type ConnectionIndicator = {
   status: ConnectionIndicatorStatus;
   message?: string;
 };
+
+type TreeNodeKind = "connection" | "bucket";
+
+type ExplorerTreeNode = {
+  id: string;
+  kind: TreeNodeKind;
+  connectionId: string;
+  provider: ConnectionProvider;
+  name: string;
+  region?: string;
+  bucketName?: string;
+  path?: string;
+  localCacheDirectory?: string;
+  children?: ExplorerTreeNode[];
+};
+
+function sortTreeNodes(nodes: ExplorerTreeNode[]): ExplorerTreeNode[] {
+  return [...nodes]
+    .map((node) => ({
+      ...node,
+      children: node.children ? sortTreeNodes(node.children) : undefined
+    }))
+    .sort((left, right) => {
+      const kindOrder = (node: ExplorerTreeNode) => (node.kind === "bucket" ? 0 : 1);
+
+      const kindDifference = kindOrder(left) - kindOrder(right);
+
+      if (kindDifference !== 0) {
+        return kindDifference;
+      }
+
+      return left.name.localeCompare(right.name, undefined, {
+        sensitivity: "base",
+        numeric: true
+      });
+    });
+}
+
+function buildBucketNodes(
+  connection: SavedConnectionSummary,
+  buckets: AwsBucketSummary[]
+): ExplorerTreeNode[] {
+  return sortTreeNodes(
+    buckets.map((bucket) => ({
+      id: `${connection.id}:bucket:${bucket.name}`,
+      kind: "bucket",
+      connectionId: connection.id,
+      provider: connection.provider,
+      name: bucket.name,
+      region: BUCKET_REGION_PLACEHOLDER,
+      bucketName: bucket.name,
+      path: "",
+      children: []
+    }))
+  );
+}
+
+function findNodeById(
+  nodes: ExplorerTreeNode[],
+  nodeId: string | null
+): ExplorerTreeNode | null {
+  if (!nodeId) {
+    return null;
+  }
+
+  for (const node of nodes) {
+    if (node.id === nodeId) {
+      return node;
+    }
+
+    const match = findNodeById(node.children ?? [], nodeId);
+
+    if (match) {
+      return match;
+    }
+  }
+
+  return null;
+}
 
 function extractErrorMessage(error: unknown): string | null {
   if (typeof error === "string") {
@@ -105,20 +199,18 @@ export function ConnectionNavigator({
   const { t } = useI18n();
   const nameFieldId = useId();
   const providerFieldId = useId();
-  const regionFieldId = useId();
   const accessKeyFieldId = useId();
   const secretKeyFieldId = useId();
   const cacheDirectoryFieldId = useId();
   const localeFieldId = useId();
   const [connections, setConnections] = useState<SavedConnectionSummary[]>([]);
   const [selectedView, setSelectedView] = useState<NavigatorView>("home");
-  const [selectedConnectionId, setSelectedConnectionId] = useState<string | null>(null);
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState<ConnectionFormMode>("create");
   const [editingConnectionId, setEditingConnectionId] = useState<string | null>(null);
   const [connectionName, setConnectionName] = useState("");
   const [connectionProvider, setConnectionProvider] = useState<ConnectionProvider>("aws");
-  const [region, setRegion] = useState("");
   const [accessKeyId, setAccessKeyId] = useState("");
   const [secretAccessKey, setSecretAccessKey] = useState("");
   const [localCacheDirectory, setLocalCacheDirectory] = useState("");
@@ -135,6 +227,9 @@ export function ConnectionNavigator({
   >({});
   const [connectionProviderAccountIds, setConnectionProviderAccountIds] = useState<
     Record<string, string>
+  >({});
+  const [connectionBuckets, setConnectionBuckets] = useState<
+    Record<string, ExplorerTreeNode[]>
   >({});
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     if (typeof window === "undefined") {
@@ -160,9 +255,29 @@ export function ConnectionNavigator({
   const connectionTestRequestIdRef = useRef(0);
   const connectionRequestIdsRef = useRef<Record<string, number>>({});
 
+  const treeNodes = useMemo(
+    () =>
+      connections.map((connection) => ({
+        id: connection.id,
+        kind: "connection" as const,
+        connectionId: connection.id,
+        provider: connection.provider,
+        name: connection.name,
+        localCacheDirectory: connection.localCacheDirectory,
+        children: connectionBuckets[connection.id] ?? []
+      })),
+    [connections, connectionBuckets]
+  );
+
+  const selectedNode = useMemo(
+    () => findNodeById(treeNodes, selectedNodeId),
+    [treeNodes, selectedNodeId]
+  );
+
   const selectedConnection = useMemo(
-    () => connections.find((connection) => connection.id === selectedConnectionId) ?? null,
-    [connections, selectedConnectionId]
+    () =>
+      connections.find((connection) => connection.id === selectedNode?.connectionId) ?? null,
+    [connections, selectedNode]
   );
 
   useEffect(() => {
@@ -202,17 +317,19 @@ export function ConnectionNavigator({
   useEffect(() => {
     if (connections.length === 0) {
       setSelectedView("home");
-      setSelectedConnectionId(null);
+      setSelectedNodeId(null);
       return;
     }
 
-    const selectedStillExists = connections.some((connection) => connection.id === selectedConnectionId);
+    const selectedStillExists = selectedNodeId
+      ? findNodeById(treeNodes, selectedNodeId) !== null
+      : false;
 
     if (!selectedStillExists) {
       setSelectedView("home");
-      setSelectedConnectionId(null);
+      setSelectedNodeId(null);
     }
-  }, [connections, selectedConnectionId]);
+  }, [connections, selectedNodeId, treeNodes]);
 
   useEffect(() => {
     setConnectionIndicators((previousIndicators) => {
@@ -241,6 +358,20 @@ export function ConnectionNavigator({
       }
 
       return nextProviderAccountIds;
+    });
+  }, [connections]);
+
+  useEffect(() => {
+    setConnectionBuckets((previousConnectionBuckets) => {
+      const nextConnectionBuckets: Record<string, ExplorerTreeNode[]> = {};
+
+      for (const connection of connections) {
+        if (previousConnectionBuckets[connection.id]) {
+          nextConnectionBuckets[connection.id] = previousConnectionBuckets[connection.id];
+        }
+      }
+
+      return nextConnectionBuckets;
     });
   }, [connections]);
 
@@ -312,7 +443,6 @@ export function ConnectionNavigator({
     resetConnectionTestState();
     setConnectionName("");
     setConnectionProvider("aws");
-    setRegion("");
     setAccessKeyId("");
     setSecretAccessKey("");
     setLocalCacheDirectory("");
@@ -345,7 +475,6 @@ export function ConnectionNavigator({
       setEditingConnectionId(connectionId);
       setConnectionName(connection.name);
       setConnectionProvider(connection.provider);
-      setRegion(connection.region);
       setLocalCacheDirectory(connection.localCacheDirectory ?? "");
       setAccessKeyId("");
       setSecretAccessKey("");
@@ -382,6 +511,71 @@ export function ConnectionNavigator({
     }));
   }
 
+  function clearConnectionBuckets(connectionId: string) {
+    setConnectionBuckets((previousConnectionBuckets) => {
+      const nextConnectionBuckets = { ...previousConnectionBuckets };
+      delete nextConnectionBuckets[connectionId];
+      return nextConnectionBuckets;
+    });
+  }
+
+  function updateBucketNode(
+    connectionId: string,
+    bucketNodeId: string,
+    updater: (node: ExplorerTreeNode) => ExplorerTreeNode
+  ) {
+    setConnectionBuckets((previousConnectionBuckets) => ({
+      ...previousConnectionBuckets,
+      [connectionId]: (previousConnectionBuckets[connectionId] ?? []).map((bucket) =>
+        bucket.id === bucketNodeId ? updater(bucket) : bucket
+      )
+    }));
+  }
+
+  async function hydrateBucketRegions(
+    connectionId: string,
+    requestId: number,
+    accessKeyIdValue: string,
+    secretAccessKeyValue: string,
+    buckets: AwsBucketSummary[]
+  ) {
+    let nextBucketIndex = 0;
+
+    async function worker() {
+      while (nextBucketIndex < buckets.length) {
+        const bucketIndex = nextBucketIndex;
+        nextBucketIndex += 1;
+
+        const bucket = buckets[bucketIndex];
+
+        try {
+          const region = await getAwsBucketRegion(
+            accessKeyIdValue,
+            secretAccessKeyValue,
+            bucket.name
+          );
+
+          if (connectionRequestIdsRef.current[connectionId] !== requestId) {
+            return;
+          }
+
+          updateBucketNode(connectionId, `${connectionId}:bucket:${bucket.name}`, (node) => ({
+            ...node,
+            region
+          }));
+        } catch {
+          if (connectionRequestIdsRef.current[connectionId] !== requestId) {
+            return;
+          }
+        }
+      }
+    }
+
+    await Promise.all(
+      Array.from({ length: Math.min(MAX_BUCKET_REGION_REQUESTS, buckets.length) }, () => worker())
+    );
+  }
+
   async function connectConnection(
     connectionId: string,
     connectionOverride?: SavedConnectionSummary
@@ -401,6 +595,7 @@ export function ConnectionNavigator({
       delete nextProviderAccountIds[connectionId];
       return nextProviderAccountIds;
     });
+    clearConnectionBuckets(connectionId);
     updateConnectionIndicator(connectionId, { status: "connecting" });
 
     if (connection.provider !== "aws") {
@@ -418,7 +613,6 @@ export function ConnectionNavigator({
     try {
       const draft = await connectionService.getAwsConnectionDraft(connectionId);
       const result = await testAwsConnection(
-        draft.region.trim(),
         draft.accessKeyId.trim(),
         draft.secretAccessKey.trim()
       );
@@ -439,6 +633,27 @@ export function ConnectionNavigator({
         ...previousProviderAccountIds,
         [connectionId]: result.accountId
       }));
+      const buckets = await listAwsBuckets(
+        draft.accessKeyId.trim(),
+        draft.secretAccessKey.trim()
+      );
+
+      if (connectionRequestIdsRef.current[connectionId] !== requestId) {
+        return;
+      }
+
+      setConnectionBuckets((previousConnectionBuckets) => ({
+        ...previousConnectionBuckets,
+        [connectionId]: buildBucketNodes(connection, buckets)
+      }));
+
+      void hydrateBucketRegions(
+        connectionId,
+        requestId,
+        draft.accessKeyId.trim(),
+        draft.secretAccessKey.trim(),
+        buckets
+      );
 
       updateConnectionIndicator(connectionId, { status: "connected" });
     } catch (error) {
@@ -455,6 +670,7 @@ export function ConnectionNavigator({
         status: "error",
         message: buildConnectionFailureMessage(error, t)
       });
+      clearConnectionBuckets(connectionId);
     }
   }
 
@@ -466,15 +682,12 @@ export function ConnectionNavigator({
       delete nextProviderAccountIds[connectionId];
       return nextProviderAccountIds;
     });
+    clearConnectionBuckets(connectionId);
     updateConnectionIndicator(connectionId, { status: "disconnected" });
   }
 
   function validateConnectionTestFields(): FormErrors {
     const nextErrors: FormErrors = {};
-
-    if (!region.trim()) {
-      nextErrors.region = t("navigation.modal.validation.region_required");
-    }
 
     if (!accessKeyId.trim()) {
       nextErrors.accessKeyId = t("navigation.modal.validation.access_key_required");
@@ -505,7 +718,6 @@ export function ConnectionNavigator({
 
     try {
       const result = await testAwsConnection(
-        region.trim(),
         accessKeyId.trim(),
         secretAccessKey.trim()
       );
@@ -546,13 +758,13 @@ export function ConnectionNavigator({
 
   function handleSelectHome() {
     setSelectedView("home");
-    setSelectedConnectionId(null);
+    setSelectedNodeId(null);
     setOpenMenuConnectionId(null);
   }
 
-  function handleSelectConnection(connectionId: string) {
+  function handleSelectNode(node: ExplorerTreeNode) {
     setSelectedView("node");
-    setSelectedConnectionId(connectionId);
+    setSelectedNodeId(node.id);
     setOpenMenuConnectionId(null);
   }
 
@@ -564,10 +776,6 @@ export function ConnectionNavigator({
     }
 
     if (connectionProvider === "aws") {
-      if (!region.trim()) {
-        nextErrors.region = t("navigation.modal.validation.region_required");
-      }
-
       if (!accessKeyId.trim()) {
         nextErrors.accessKeyId = t("navigation.modal.validation.access_key_required");
       }
@@ -600,7 +808,6 @@ export function ConnectionNavigator({
         id: modalMode === "edit" ? editingConnectionId ?? undefined : undefined,
         name: connectionName,
         provider: "aws",
-        region,
         accessKeyId,
         secretAccessKey: secretAccessKey.trim(),
         localCacheDirectory
@@ -609,7 +816,7 @@ export function ConnectionNavigator({
       const savedConnections = await connectionService.listConnections();
       setConnections(savedConnections);
       setSelectedView("node");
-      setSelectedConnectionId(savedConnection.id);
+      setSelectedNodeId(savedConnection.id);
       setOpenMenuConnectionId(null);
       closeModal();
       await connectConnection(savedConnection.id, savedConnection);
@@ -724,36 +931,18 @@ export function ConnectionNavigator({
                 {connections.map((connection) => (
                   <li key={connection.id} className="tree-item">
                     <div
-                      className={`tree-node-row${selectedConnection?.id === connection.id ? " is-selected" : ""}`}
+                      className={`tree-node-row${selectedNode?.connectionId === connection.id ? " is-selected" : ""}`}
                     >
-                      <button
-                        type="button"
-                        className="tree-node-button"
-                        onClick={() => handleSelectConnection(connection.id)}
-                        onDoubleClick={() => {
-                          void handleDefaultConnectionAction(connection.id);
+                      <ConnectionTreeNodeItem
+                        node={treeNodes.find((node) => node.id === connection.id)!}
+                        selectedNodeId={selectedNodeId}
+                        connectionIndicators={connectionIndicators}
+                        onSelect={handleSelectNode}
+                        onConnectionDoubleClick={(connectionId) => {
+                          void handleDefaultConnectionAction(connectionId);
                         }}
-                      >
-                        <span className="tree-node-main">
-                          <ConnectionStatusIcon
-                            indicator={connectionIndicators[connection.id] ?? { status: "disconnected" }}
-                            connectingTitle={t(CONNECTING_CONNECTION_TITLE_KEY)}
-                            connectedTitle={t(CONNECTED_CONNECTION_TITLE_KEY)}
-                            disconnectedTitle={t(DISCONNECTED_CONNECTION_TITLE_KEY)}
-                          />
-
-                          <span className="tree-node-copy">
-                            <span>{connection.name}</span>
-                            <span className="tree-node-meta">{connection.region}</span>
-                          </span>
-                        </span>
-
-                        <span className="tree-node-trailing">
-                          <span className={`provider-badge provider-${connection.provider}`}>
-                            {connection.provider.toUpperCase()}
-                          </span>
-                        </span>
-                      </button>
+                        t={t}
+                      />
 
                       <TreeItemMenu
                         connectionId={connection.id}
@@ -791,7 +980,7 @@ export function ConnectionNavigator({
               <div>
                 <p className="content-eyebrow">{t("content.eyebrow")}</p>
                 <h1 className="content-title">
-                  {selectedConnection?.name ?? t("content.empty.title")}
+                  {selectedNode?.name ?? t("content.empty.title")}
                 </h1>
               </div>
 
@@ -852,54 +1041,80 @@ export function ConnectionNavigator({
 
               {submitError ? <p className="status-message-error">{submitError}</p> : null}
             </div>
-          ) : selectedConnection ? (
+          ) : selectedNode ? (
             <div className="content-card">
               <div className="details-grid">
                 <article className="detail-card">
                   <span className="detail-label">{t("content.detail.type")}</span>
-                  <strong>{t("content.type.connection")}</strong>
+                  <strong>
+                    {t(
+                      selectedNode.kind === "bucket"
+                        ? "content.type.container"
+                        : `content.type.${selectedNode.kind}`
+                    )}
+                  </strong>
                 </article>
 
                 <article className="detail-card">
                   <span className="detail-label">{t("content.detail.provider")}</span>
-                  <strong>{t(`content.provider.${selectedConnection.provider}`)}</strong>
+                  <strong>{t(`content.provider.${selectedNode.provider}`)}</strong>
                 </article>
 
                 <article className="detail-card">
                   <span className="detail-label">{t("content.detail.identifier")}</span>
                   <strong>
-                    {connectionProviderAccountIds[selectedConnection.id] ??
-                      t("content.detail.identifier_unavailable")}
+                    {selectedNode.kind === "connection"
+                      ? connectionProviderAccountIds[selectedNode.id] ??
+                        t("content.detail.identifier_unavailable")
+                      : selectedNode.kind === "bucket"
+                        ? selectedNode.bucketName
+                        : selectedNode.path ?? selectedNode.name}
                   </strong>
                 </article>
 
-                <article className="detail-card detail-card-wide">
-                  <span className="detail-label">{t("content.detail.cache_path")}</span>
-                  <strong>
-                    {selectedConnection.localCacheDirectory ??
-                      t("content.local_cache.not_configured")}
-                  </strong>
-                </article>
+                {selectedNode.kind === "bucket" ? (
+                  <article className="detail-card">
+                    <span className="detail-label">{t("content.detail.region")}</span>
+                    <strong>{selectedNode.region ?? t("content.detail.identifier_unavailable")}</strong>
+                  </article>
+                ) : null}
+
+                {selectedNode.kind === "connection" ? (
+                  <article className="detail-card detail-card-wide">
+                    <span className="detail-label">{t("content.detail.cache_path")}</span>
+                    <strong>
+                      {selectedNode.localCacheDirectory ??
+                        t("content.local_cache.not_configured")}
+                    </strong>
+                  </article>
+                ) : (
+                  <article className="detail-card detail-card-wide">
+                    <span className="detail-label">{t("content.detail.path")}</span>
+                    <strong>{selectedNode.path || "/"}</strong>
+                  </article>
+                )}
               </div>
 
-              <div className="action-row">
-                {getConnectionActions(
-                  t,
-                  connectionIndicators[selectedConnection.id] ?? { status: "disconnected" }
-                ).map((action) => (
-                  <button
-                    key={action.id}
-                    type="button"
-                    className={`secondary-button${action.variant === "danger" ? " secondary-button-danger" : ""}`}
-                    disabled={action.disabled}
-                    onClick={() => {
-                      void handleConnectionAction(action.id, selectedConnection.id);
-                    }}
-                  >
-                    {action.label}
-                  </button>
-                ))}
-              </div>
+              {selectedNode.kind === "connection" ? (
+                <div className="action-row">
+                  {getConnectionActions(
+                    t,
+                    connectionIndicators[selectedNode.id] ?? { status: "disconnected" }
+                  ).map((action) => (
+                    <button
+                      key={action.id}
+                      type="button"
+                      className={`secondary-button${action.variant === "danger" ? " secondary-button-danger" : ""}`}
+                      disabled={action.disabled}
+                      onClick={() => {
+                        void handleConnectionAction(action.id, selectedNode.id);
+                      }}
+                    >
+                      {action.label}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
 
               {submitError ? <p className="status-message-error">{submitError}</p> : null}
             </div>
@@ -970,26 +1185,19 @@ export function ConnectionNavigator({
 
               {connectionProvider === "aws" ? (
                 <AwsConnectionFields
-                  regionFieldId={regionFieldId}
                   accessKeyFieldId={accessKeyFieldId}
                   secretKeyFieldId={secretKeyFieldId}
                   cacheDirectoryFieldId={cacheDirectoryFieldId}
-                  region={region}
                   accessKeyId={accessKeyId}
                   secretAccessKey={secretAccessKey}
                   localCacheDirectory={localCacheDirectory}
                   errors={{
-                    region: formErrors.region,
                     accessKeyId: formErrors.accessKeyId,
                     secretAccessKey: formErrors.secretAccessKey
                   }}
                   connectionTestStatus={connectionTestStatus}
                   connectionTestMessage={connectionTestMessage}
                   isTestButtonDisabled={isSubmitting || connectionTestStatus === "testing"}
-                  onRegionChange={(value) => {
-                    setRegion(value);
-                    resetConnectionTestState();
-                  }}
                   onAccessKeyIdChange={(value) => {
                     setAccessKeyId(value);
                     resetConnectionTestState();
@@ -1028,6 +1236,93 @@ export function ConnectionNavigator({
         </div>
       ) : null}
     </>
+  );
+}
+
+type ConnectionTreeNodeItemProps = {
+  node: ExplorerTreeNode;
+  selectedNodeId: string | null;
+  connectionIndicators: Record<string, ConnectionIndicator>;
+  onSelect: (node: ExplorerTreeNode) => void;
+  onConnectionDoubleClick: (connectionId: string) => void;
+  t: (key: string) => string;
+};
+
+function ConnectionTreeNodeItem({
+  node,
+  selectedNodeId,
+  connectionIndicators,
+  onSelect,
+  onConnectionDoubleClick,
+  t
+}: ConnectionTreeNodeItemProps) {
+  const isSelected = selectedNodeId === node.id;
+  const isConnectionNode = node.kind === "connection";
+  const indicator = connectionIndicators[node.connectionId] ?? { status: "disconnected" };
+
+  return (
+    <div className="tree-node-branch">
+      <button
+        type="button"
+        className={`tree-node-button${!isConnectionNode ? " tree-node-nested" : ""}${isSelected ? " is-selected" : ""}`}
+        onClick={() => onSelect(node)}
+        onDoubleClick={() => {
+          if (isConnectionNode) {
+            onConnectionDoubleClick(node.connectionId);
+          }
+        }}
+      >
+        <span className="tree-node-main">
+          {isConnectionNode ? (
+            <ConnectionStatusIcon
+              indicator={indicator}
+              connectingTitle={t(CONNECTING_CONNECTION_TITLE_KEY)}
+              connectedTitle={t(CONNECTED_CONNECTION_TITLE_KEY)}
+              disconnectedTitle={t(DISCONNECTED_CONNECTION_TITLE_KEY)}
+            />
+          ) : (
+            <TreeNodeIcon />
+          )}
+
+          <span className="tree-node-copy">
+            <span>{node.name}</span>
+            {node.kind === "bucket" && node.region ? (
+              <span className="tree-node-meta">{node.region}</span>
+            ) : null}
+          </span>
+          {node.kind === "connection" ? (
+            <span className={`provider-badge provider-${node.provider}`}>
+              {node.provider.toUpperCase()}
+            </span>
+          ) : null}
+        </span>
+      </button>
+
+      {node.children && node.children.length > 0 ? (
+        <ul className="tree-children">
+          {node.children.map((childNode) => (
+            <li key={childNode.id} className="tree-item">
+              <ConnectionTreeNodeItem
+                node={childNode}
+                selectedNodeId={selectedNodeId}
+                connectionIndicators={connectionIndicators}
+                onSelect={onSelect}
+                onConnectionDoubleClick={onConnectionDoubleClick}
+                t={t}
+              />
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
+
+function TreeNodeIcon() {
+  return (
+    <span className="tree-node-glyph tree-node-glyph-folder" aria-hidden="true">
+      <Folder size={16} strokeWidth={1.9} />
+    </span>
   );
 }
 
@@ -1100,8 +1395,28 @@ function TreeItemMenu({
   onAction,
   t
 }: TreeItemMenuProps) {
+  const menuRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!isOpen) {
+      return undefined;
+    }
+
+    function handlePointerDown(event: PointerEvent) {
+      if (!menuRef.current?.contains(event.target as Node)) {
+        onToggle(null);
+      }
+    }
+
+    window.addEventListener("pointerdown", handlePointerDown);
+
+    return () => {
+      window.removeEventListener("pointerdown", handlePointerDown);
+    };
+  }, [isOpen, onToggle]);
+
   return (
-    <div className="tree-item-menu">
+    <div ref={menuRef} className="tree-item-menu">
       <button
         type="button"
         className="tree-menu-trigger"

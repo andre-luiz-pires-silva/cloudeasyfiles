@@ -270,10 +270,15 @@ body {
   margin-top: 8px;
 }
 
+.tree-item {
+  width: 100%;
+}
+
 .tree-node-row {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 6px;
+  width: 100%;
   border-radius: 14px;
   position: relative;
 }
@@ -281,6 +286,10 @@ body {
 .tree-node-row.is-selected {
   background: rgba(15, 118, 110, 0.14);
   color: #0c4a45;
+}
+
+.tree-node-button.is-selected {
+  background: rgba(15, 118, 110, 0.08);
 }
 
 .tree-toggle-button,
@@ -312,8 +321,8 @@ body {
 .tree-node-button {
   flex: 1;
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  align-items: flex-start;
+  justify-content: flex-start;
   gap: 12px;
   padding: 11px 12px;
   border: 0;
@@ -325,8 +334,17 @@ body {
   cursor: pointer;
 }
 
+.tree-node-branch {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  width: 100%;
+}
+
 .tree-item-menu {
   position: relative;
+  align-self: flex-start;
+  margin-left: auto;
 }
 
 .tree-menu-trigger {
@@ -392,14 +410,17 @@ body {
 
 .tree-node-main {
   display: inline-flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 10px;
   min-width: 0;
+  flex: 1;
+  flex-wrap: wrap;
 }
 
 .tree-node-copy {
   display: grid;
   min-width: 0;
+  flex: 1;
 }
 
 .tree-node-trailing {
@@ -411,6 +432,22 @@ body {
 .tree-node-meta {
   font-size: 0.82rem;
   color: var(--text-muted);
+}
+
+.tree-node-glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  color: var(--text-muted);
+}
+
+.tree-node-glyph-folder {
+  color: #1d4ed8;
+}
+
+.tree-node-glyph-file {
+  color: #475569;
 }
 
 .tree-node-button:hover {
@@ -427,6 +464,7 @@ body {
   justify-content: center;
   min-width: 56px;
   padding: 5px 8px;
+  margin-top: 1px;
   border-radius: 999px;
   font-size: 0.74rem;
   font-weight: 700;

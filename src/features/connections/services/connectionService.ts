@@ -42,7 +42,6 @@ export class ConnectionService {
       id: metadata.id,
       name: metadata.name,
       provider: "aws",
-      region: metadata.region,
       accessKeyId: secrets.accessKeyId,
       secretAccessKey: secrets.secretAccessKey,
       localCacheDirectory: metadata.localCacheDirectory ?? ""
@@ -56,7 +55,6 @@ export class ConnectionService {
       id: connectionId,
       name: draft.name.trim(),
       provider: "aws",
-      region: draft.region.trim(),
       localCacheDirectory: draft.localCacheDirectory.trim() || undefined
     };
 
