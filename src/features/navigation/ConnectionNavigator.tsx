@@ -1394,6 +1394,7 @@ export function ConnectionNavigator({
             </div>
           )}
 
+          <div className="content-panel-body">
           {selectedView === "home" ? (
             <div className="home-card">
               <div className="home-header">
@@ -1613,6 +1614,7 @@ export function ConnectionNavigator({
               <p className="content-description">{t("content.empty.description")}</p>
             </div>
           )}
+          </div>
         </section>
       </div>
 

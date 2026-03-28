@@ -23,16 +23,18 @@ body {
     radial-gradient(circle at top left, rgba(15, 118, 110, 0.14), transparent 32%),
     linear-gradient(180deg, var(--bg-top), var(--bg-bottom));
   color: var(--text-primary);
+  overflow: hidden;
 }
 
 .app-shell {
-  min-height: 100vh;
+  height: 100vh;
   padding: 16px;
+  overflow: hidden;
 }
 
 .app-frame {
   width: 100%;
-  min-height: calc(100vh - 32px);
+  height: calc(100vh - 32px);
   display: flex;
   flex-direction: column;
   padding: 24px;
@@ -77,7 +79,11 @@ body {
 }
 
 .content-panel {
+  display: flex;
+  flex-direction: column;
   margin-left: 10px;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .sidebar-resizer {
@@ -513,9 +519,15 @@ body {
 }
 
 .content-panel {
-  min-height: 0;
   padding: 24px;
   width: 100%;
+}
+
+.content-panel-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding-top: 22px;
 }
 
 .content-toolbar {
@@ -555,6 +567,10 @@ body {
   background: transparent;
 }
 
+.content-panel-home .content-panel-body {
+  padding-top: 0;
+}
+
 @keyframes connection-status-spin {
   from {
     transform: rotate(0deg);
@@ -566,7 +582,7 @@ body {
 }
 
 .content-card {
-  margin-top: 22px;
+  margin-top: 0;
   padding: 22px;
   border-radius: 22px;
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(235, 244, 255, 0.86));
@@ -1092,12 +1108,20 @@ body {
 }
 
 @media (max-width: 720px) {
+  body {
+    overflow: auto;
+  }
+
   .app-shell {
+    height: auto;
+    min-height: 100vh;
     padding: 16px;
+    overflow: visible;
   }
 
   .app-frame {
     padding: 18px;
+    height: auto;
     min-height: calc(100vh - 32px);
   }
 
@@ -1109,10 +1133,16 @@ body {
   .sidebar-panel,
   .content-panel {
     margin: 0;
+    overflow: visible;
   }
 
   .sidebar-resizer {
     display: none;
+  }
+
+  .tree-panel,
+  .content-panel-body {
+    overflow: visible;
   }
 
   .home-header {
