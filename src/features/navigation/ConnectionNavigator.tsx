@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useDeferredValue, useEffect, useId, useMemo, useRef, useState } from "react";
 import {
   ChevronRight,
   CircleAlert,
@@ -10,7 +10,9 @@ import {
   LayoutGrid,
   List,
   LoaderCircle,
-  Plus
+  Plus,
+  Search,
+  X
 } from "lucide-react";
 import logoPrimary from "../../assets/logo-primary.svg";
 import { AwsConnectionFields } from "../connections/components/AwsConnectionFields";
@@ -211,6 +213,48 @@ function buildContentItems(result: AwsBucketItemsResult): ContentExplorerItem[] 
   return [...directories, ...files];
 }
 
+function normalizeFilterText(value: string): string {
+  return value.trim().toLocaleLowerCase();
+}
+
+function matchesFilter(parts: Array<string | null | undefined>, normalizedFilter: string): boolean {
+  if (!normalizedFilter) {
+    return true;
+  }
+
+  return parts.some((part) => part?.toLocaleLowerCase().includes(normalizedFilter));
+}
+
+function filterTreeNodes(
+  nodes: ExplorerTreeNode[],
+  normalizedFilter: string
+): ExplorerTreeNode[] {
+  if (!normalizedFilter) {
+    return nodes;
+  }
+
+  return nodes.reduce<ExplorerTreeNode[]>((filteredNodes, node) => {
+    const filteredChildren = node.children
+      ? filterTreeNodes(node.children, normalizedFilter)
+      : undefined;
+    const nodeMatches = matchesFilter(
+      [node.name, node.provider, node.region, node.bucketName, node.path],
+      normalizedFilter
+    );
+
+    if (!nodeMatches && (!filteredChildren || filteredChildren.length === 0)) {
+      return filteredNodes;
+    }
+
+    filteredNodes.push({
+      ...node,
+      children: filteredChildren
+    });
+
+    return filteredNodes;
+  }, []);
+}
+
 function getPathTitle(path: string, fallback: string): string {
   if (!path) {
     return fallback;
@@ -316,6 +360,21 @@ function getConnectionActions(
   ];
 }
 
+function buildContentCounterLabel(
+  t: (key: string) => string,
+  isFilterActive: boolean,
+  displayedCount: number,
+  loadedCount: number
+): string {
+  if (isFilterActive) {
+    return t("content.list.count_filtered")
+      .replace("{filtered}", String(displayedCount))
+      .replace("{loaded}", String(loadedCount));
+  }
+
+  return t("content.list.count_loaded").replace("{loaded}", String(loadedCount));
+}
+
 type ConnectionNavigatorProps = {
   locale: Locale;
   onLocaleChange: (locale: string) => Promise<void>;
@@ -365,6 +424,8 @@ export function ConnectionNavigator({
   const [contentItems, setContentItems] = useState<ContentExplorerItem[]>([]);
   const [isLoadingContent, setIsLoadingContent] = useState(false);
   const [contentError, setContentError] = useState<string | null>(null);
+  const [sidebarFilterText, setSidebarFilterText] = useState("");
+  const [contentFilterText, setContentFilterText] = useState("");
   const [contentViewMode, setContentViewMode] = useState<ContentViewMode>(() => {
     if (typeof window === "undefined") {
       return "list";
@@ -397,6 +458,8 @@ export function ConnectionNavigator({
   const connectionTestRequestIdRef = useRef(0);
   const connectionRequestIdsRef = useRef<Record<string, number>>({});
   const contentRequestIdRef = useRef(0);
+  const deferredSidebarFilterText = useDeferredValue(sidebarFilterText);
+  const deferredContentFilterText = useDeferredValue(contentFilterText);
 
   const treeNodes = useMemo(
     () =>
@@ -415,6 +478,14 @@ export function ConnectionNavigator({
   const selectedNode = useMemo(
     () => findNodeById(treeNodes, selectedNodeId),
     [treeNodes, selectedNodeId]
+  );
+  const normalizedSidebarFilter = useMemo(
+    () => normalizeFilterText(deferredSidebarFilterText),
+    [deferredSidebarFilterText]
+  );
+  const filteredTreeNodes = useMemo(
+    () => filterTreeNodes(treeNodes, normalizedSidebarFilter),
+    [treeNodes, normalizedSidebarFilter]
   );
 
   const selectedConnection = useMemo(
@@ -454,6 +525,50 @@ export function ConnectionNavigator({
           selectedBucketPath
         )
       : [];
+  const normalizedContentFilter = useMemo(
+    () => normalizeFilterText(deferredContentFilterText),
+    [deferredContentFilterText]
+  );
+  const filteredConnectionBuckets = useMemo(() => {
+    const bucketNodes =
+      selectedNode?.kind === "connection" ? (connectionBuckets[selectedNode.id] ?? []) : [];
+
+    if (!normalizedContentFilter) {
+      return bucketNodes;
+    }
+
+    return bucketNodes.filter((bucketNode) =>
+      matchesFilter([bucketNode.name, bucketNode.region, bucketNode.bucketName], normalizedContentFilter)
+    );
+  }, [connectionBuckets, normalizedContentFilter, selectedNode]);
+  const filteredContentItems = useMemo(() => {
+    if (!normalizedContentFilter) {
+      return contentItems;
+    }
+
+    return contentItems.filter((item) =>
+      matchesFilter([item.name, item.path, item.storageClass, item.kind], normalizedContentFilter)
+    );
+  }, [contentItems, normalizedContentFilter]);
+  const isContentFilterActive = normalizedContentFilter.length > 0;
+  const loadedContentCount =
+    selectedNode?.kind === "connection"
+      ? (connectionBuckets[selectedNode.id] ?? []).length
+      : selectedNode?.kind === "bucket"
+      ? contentItems.length
+      : 0;
+  const displayedContentCount =
+    selectedNode?.kind === "connection"
+      ? filteredConnectionBuckets.length
+      : selectedNode?.kind === "bucket"
+      ? filteredContentItems.length
+      : 0;
+  const contentCounterLabel = buildContentCounterLabel(
+    t,
+    isContentFilterActive,
+    displayedContentCount,
+    loadedContentCount
+  );
 
   useEffect(() => {
     let isActive = true;
@@ -603,6 +718,10 @@ export function ConnectionNavigator({
       contentRequestIdRef.current += 1;
     };
   }, []);
+
+  useEffect(() => {
+    setContentFilterText("");
+  }, [selectedNodeId]);
 
   useEffect(() => {
     async function loadContentItems() {
@@ -1222,6 +1341,32 @@ export function ConnectionNavigator({
             </div>
           </div>
 
+          <div className="panel-filter">
+            <label className="filter-field" htmlFor="sidebar-filter">
+              <Search size={16} strokeWidth={2} className="filter-field-icon" />
+              <input
+                id="sidebar-filter"
+                type="text"
+                className="filter-field-input"
+                value={sidebarFilterText}
+                onChange={(event) => setSidebarFilterText(event.target.value)}
+                placeholder={t("navigation.filter.placeholder")}
+                aria-label={t("navigation.filter.label")}
+              />
+              {sidebarFilterText ? (
+                <button
+                  type="button"
+                  className="filter-field-clear"
+                  aria-label={t("common.clear")}
+                  title={t("common.clear")}
+                  onClick={() => setSidebarFilterText("")}
+                >
+                  <X size={14} strokeWidth={2.2} />
+                </button>
+              ) : null}
+            </label>
+          </div>
+
           {connections.length === 0 && !isLoadingConnections ? (
             <div className="empty-tree-state">
               <p className="empty-tree-title">{t("navigation.empty.title")}</p>
@@ -1232,14 +1377,17 @@ export function ConnectionNavigator({
             </div>
           ) : (
             <div className="tree-panel">
+              {filteredTreeNodes.length === 0 ? (
+                <p className="panel-filter-empty">{t("navigation.filter.empty")}</p>
+              ) : (
               <ul className="tree-root">
-                {connections.map((connection) => (
+                {filteredTreeNodes.map((connection) => (
                   <li key={connection.id} className="tree-item">
                     <div
                       className={`tree-node-row${selectedNode?.connectionId === connection.id ? " is-selected" : ""}`}
                     >
                       <ConnectionTreeNodeItem
-                        node={treeNodes.find((node) => node.id === connection.id)!}
+                        node={connection}
                         selectedNodeId={selectedNodeId}
                         connectionIndicators={connectionIndicators}
                         onSelect={handleSelectNode}
@@ -1265,6 +1413,7 @@ export function ConnectionNavigator({
                   </li>
                 ))}
               </ul>
+              )}
             </div>
           )}
         </aside>
@@ -1364,29 +1513,55 @@ export function ConnectionNavigator({
                   </div>
 
                   {selectedNode && (selectedNode.kind === "bucket" || selectedNode.kind === "connection") ? (
-                    <div
-                      className="content-view-switcher"
-                      role="group"
-                      aria-label={t("content.view_mode.label")}
-                    >
-                      <button
-                        type="button"
-                        className={`content-view-button${contentViewMode === "list" ? " is-active" : ""}`}
-                        aria-label={t("content.view_mode.list")}
-                        title={t("content.view_mode.list")}
-                        onClick={() => setContentViewMode("list")}
+                    <div className="content-toolbar-controls">
+                      <label className="filter-field content-toolbar-filter" htmlFor="content-filter">
+                        <Search size={16} strokeWidth={2} className="filter-field-icon" />
+                        <input
+                          id="content-filter"
+                          type="text"
+                          className="filter-field-input"
+                          value={contentFilterText}
+                          onChange={(event) => setContentFilterText(event.target.value)}
+                          placeholder={t("content.filter.placeholder")}
+                          aria-label={t("content.filter.label")}
+                        />
+                        {contentFilterText ? (
+                          <button
+                            type="button"
+                            className="filter-field-clear"
+                            aria-label={t("common.clear")}
+                            title={t("common.clear")}
+                            onClick={() => setContentFilterText("")}
+                          >
+                            <X size={14} strokeWidth={2.2} />
+                          </button>
+                        ) : null}
+                      </label>
+
+                      <div
+                        className="content-view-switcher"
+                        role="group"
+                        aria-label={t("content.view_mode.label")}
                       >
-                        <List size={16} strokeWidth={2} />
-                      </button>
-                      <button
-                        type="button"
-                        className={`content-view-button${contentViewMode === "compact" ? " is-active" : ""}`}
-                        aria-label={t("content.view_mode.compact")}
-                        title={t("content.view_mode.compact")}
-                        onClick={() => setContentViewMode("compact")}
-                      >
-                        <LayoutGrid size={16} strokeWidth={2} />
-                      </button>
+                        <button
+                          type="button"
+                          className={`content-view-button${contentViewMode === "list" ? " is-active" : ""}`}
+                          aria-label={t("content.view_mode.list")}
+                          title={t("content.view_mode.list")}
+                          onClick={() => setContentViewMode("list")}
+                        >
+                          <List size={16} strokeWidth={2} />
+                        </button>
+                        <button
+                          type="button"
+                          className={`content-view-button${contentViewMode === "compact" ? " is-active" : ""}`}
+                          aria-label={t("content.view_mode.compact")}
+                          title={t("content.view_mode.compact")}
+                          onClick={() => setContentViewMode("compact")}
+                        >
+                          <LayoutGrid size={16} strokeWidth={2} />
+                        </button>
+                      </div>
                     </div>
                   ) : null}
                 </div>
@@ -1394,6 +1569,7 @@ export function ConnectionNavigator({
             </div>
           )}
 
+          <div className="content-panel-scroll-viewport">
           <div className="content-panel-body">
           {selectedView === "home" ? (
             <div className="home-card">
@@ -1493,11 +1669,13 @@ export function ConnectionNavigator({
                       <p className="content-list-state">{t("content.list.connect_to_load")}</p>
                     ) : (connectionBuckets[selectedNode.id] ?? []).length === 0 ? (
                       <p className="content-list-state">{t("content.list.empty_connection")}</p>
+                    ) : filteredConnectionBuckets.length === 0 ? (
+                      <p className="content-list-state">{t("content.filter.empty")}</p>
                     ) : (
                       <div
                         className={`content-list${contentViewMode === "compact" ? " is-compact" : ""}`}
                       >
-                        {(connectionBuckets[selectedNode.id] ?? []).map((bucketNode) => (
+                        {filteredConnectionBuckets.map((bucketNode) => (
                           <button
                             key={bucketNode.id}
                             type="button"
@@ -1544,11 +1722,13 @@ export function ConnectionNavigator({
                         ? t("content.list.empty_directory")
                         : t("content.list.empty_container")}
                     </p>
+                  ) : filteredContentItems.length === 0 ? (
+                    <p className="content-list-state">{t("content.filter.empty")}</p>
                   ) : (
                     <div
                       className={`content-list${contentViewMode === "compact" ? " is-compact" : ""}`}
                     >
-                      {contentItems.map((item) =>
+                      {filteredContentItems.map((item) =>
                         item.kind === "directory" ? (
                           <button
                             key={item.id}
@@ -1615,6 +1795,16 @@ export function ConnectionNavigator({
             </div>
           )}
           </div>
+          </div>
+
+          {selectedView === "home" || !selectedNode ? null : (
+            <div className="content-panel-footer">
+              {selectedNode.kind === "connection" &&
+              selectedConnectionIndicator.status !== "connected" ? null : (
+                <p className="content-list-counter">{contentCounterLabel}</p>
+              )}
+            </div>
+          )}
         </section>
       </div>
 

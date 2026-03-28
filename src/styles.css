@@ -252,11 +252,80 @@ body {
   line-height: 1.65;
 }
 
+.panel-filter {
+  margin-top: 18px;
+}
+
+.filter-field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 12px;
+  border: 1px solid rgba(15, 23, 42, 0.1);
+  border-radius: 16px;
+  background: rgba(247, 249, 252, 0.9);
+  min-height: 46px;
+}
+
+.filter-field-icon {
+  flex: 0 0 auto;
+  color: var(--text-muted);
+}
+
+.filter-field-input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  padding: 12px 0;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+}
+
+.filter-field-input::placeholder {
+  color: #7b879c;
+}
+
+.filter-field-input:focus {
+  outline: none;
+}
+
+.filter-field:focus-within {
+  border-color: rgba(15, 118, 110, 0.36);
+  box-shadow: 0 0 0 4px rgba(15, 118, 110, 0.08);
+}
+
+.filter-field-clear {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.filter-field-clear:hover {
+  background: rgba(15, 118, 110, 0.08);
+  color: var(--accent);
+}
+
+.panel-filter-empty {
+  margin: 0;
+  padding: 4px 2px;
+  color: var(--text-muted);
+  line-height: 1.6;
+}
+
 .tree-panel {
   flex: 1;
   margin-top: 18px;
   min-height: 0;
   overflow: auto;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 .tree-root,
@@ -336,8 +405,14 @@ body {
   background: transparent;
   color: var(--text-primary);
   font: inherit;
+  font-weight: 400;
   text-align: left;
   cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+  text-rendering: geometricPrecision;
+  -webkit-font-smoothing: antialiased;
+  backface-visibility: hidden;
 }
 
 .tree-node-branch {
@@ -427,6 +502,8 @@ body {
   display: grid;
   min-width: 0;
   flex: 1;
+  font-weight: 400;
+  text-rendering: geometricPrecision;
 }
 
 .tree-node-trailing {
@@ -523,11 +600,30 @@ body {
   width: 100%;
 }
 
-.content-panel-body {
+.content-panel-scroll-viewport {
   flex: 1;
   min-height: 0;
-  overflow: auto;
+  overflow: hidden;
+  border-radius: 22px;
+}
+
+.content-panel-body {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
   padding-top: 22px;
+}
+
+.content-panel-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-height: 40px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(15, 23, 42, 0.08);
+  background: inherit;
 }
 
 .content-toolbar {
@@ -538,6 +634,7 @@ body {
 }
 
 .content-toolbar-copy {
+  flex: 1 1 auto;
   min-width: 0;
 }
 
@@ -545,7 +642,21 @@ body {
   display: grid;
   justify-items: end;
   gap: 10px;
-  flex-shrink: 0;
+  flex: 0 1 380px;
+  min-width: 0;
+  width: min(380px, 100%);
+}
+
+.content-toolbar-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+
+.content-toolbar-filter {
+  flex: 1;
+  min-width: 160px;
 }
 
 .content-toolbar-status {
@@ -582,20 +693,29 @@ body {
 }
 
 .content-card {
+  flex: 1;
+  min-height: 0;
   margin-top: 0;
   padding: 22px;
   border-radius: 22px;
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(235, 244, 255, 0.86));
   border: 1px solid rgba(15, 23, 42, 0.06);
+  overflow: auto;
+  scrollbar-gutter: stable;
+  background-clip: padding-box;
 }
 
 .home-card {
-  min-height: 100%;
+  flex: 1;
+  min-height: 0;
   width: 100%;
   padding: 28px;
   border-radius: 24px;
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(235, 244, 255, 0.86));
   border: 1px solid rgba(15, 23, 42, 0.06);
+  overflow: auto;
+  scrollbar-gutter: stable;
+  background-clip: padding-box;
 }
 
 .home-header {
@@ -785,6 +905,15 @@ body {
   margin: 0;
   color: var(--text-muted);
   line-height: 1.6;
+}
+
+.content-list-counter {
+  margin: 0;
+  color: var(--text-muted);
+  line-height: 1.25;
+  font-size: 0.92rem;
+  font-weight: 600;
+  white-space: nowrap;
 }
 
 .content-list {
@@ -1154,8 +1283,22 @@ body {
     align-items: stretch;
   }
 
+  .content-toolbar-controls {
+    width: 100%;
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .content-list-counter {
+    white-space: normal;
+  }
+
   .content-toolbar-side {
     justify-items: stretch;
+  }
+
+  .content-panel-footer {
+    justify-content: flex-start;
   }
 
   .content-toolbar-status,
