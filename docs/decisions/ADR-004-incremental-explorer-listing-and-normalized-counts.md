@@ -43,6 +43,6 @@ CloudEasyFiles adopts the following explorer-listing rules for V1:
 - The explorer UX matches the continuation-based reality of S3, Azure Blob Storage, and likely future object-storage providers
 - The UI stays transparent by exposing only what is reliable for the current loaded dataset
 - Provider adapters must normalize raw listing responses into navigable explorer entries before rendering or counting
-- Explorer counters may differ from raw provider object counts because of prefix grouping, virtual folders, folder markers, and deduplication
+- Explorer counters may differ from raw provider object counts because of prefix grouping, hybrid folder representation, folder markers, and deduplication
 - Testing must distinguish raw provider responses, normalized loaded entries, and filtered displayed entries
 - Future providers can implement their own continuation mechanics behind the same internal contract without forcing numbered pages into the UX

@@ -13,12 +13,12 @@ Rendering files directly in the sidebar would increase UI complexity, blur the d
 
 The left navigation tree will display only higher-level structural items such as saved connections and cloud containers.
 
-Files and virtual directories will be displayed in the main content area.
+Files and folders will be displayed in the main content area.
 
 ## Alternatives Considered
 
 - Show the full object hierarchy in the tree
-- Show connections, containers, and virtual directories in the tree
+- Show connections, containers, and folders in the tree
 - Use the tree as the primary explorer for all levels
 
 ## Consequences

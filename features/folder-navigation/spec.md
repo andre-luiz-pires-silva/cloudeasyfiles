@@ -2,11 +2,11 @@
 
 ## Objective
 
-Define how users navigate cloud structure across connections, containers, and virtual directories.
+Define how users navigate cloud structure across connections, containers, and folders.
 
 ## Context
 
-Cloud object storage does not expose real directories. The product must provide a familiar navigation experience while staying faithful to prefix-based storage behavior.
+Cloud object storage does not expose real directories. The product must still provide a familiar folder navigation experience while staying faithful to flat namespace and prefix-based storage behavior.
 
 ## Functional Requirements
 
@@ -14,7 +14,7 @@ Cloud object storage does not expose real directories. The product must provide 
 - The sidebar must display containers for connected connections.
 - The sidebar must not display file objects.
 - The selected context must determine what the main panel shows.
-- Virtual directories must be resolved dynamically from object key prefixes.
+- Folder navigation must work even when the provider only exposes flat object data.
 
 ## Non-Functional Requirements
 
@@ -25,9 +25,8 @@ Cloud object storage does not expose real directories. The product must provide 
 ## Business Rules
 
 - The tree defines context, not full object exploration.
-- Virtual directories are synthetic.
 - Path resolution must be deterministic and provider-agnostic.
-- Navigable folder entries may come from normalization of flat provider responses rather than real directory resources.
+- Users should be shown folders as the navigable concept without exposing storage-model jargon.
 
 ## UX Expectations
 
@@ -41,8 +40,8 @@ Cloud object storage does not expose real directories. The product must provide 
 - Connections and containers are visible in the tree.
 - Files are not rendered in the tree.
 - Selecting a connection updates the main panel context with connection-level information and the currently loaded containers.
-- Selecting a container or virtual directory updates the main panel context correctly.
-- Virtual directories are derived from prefixes rather than assumed as real resources.
+- Selecting a container or folder updates the main panel context correctly.
+- Folders remain navigable whether they were inferred from descendants or created explicitly in the provider representation.
 - The navigation model does not depend on provider-native directory entities existing.
 
 ## Out of Scope

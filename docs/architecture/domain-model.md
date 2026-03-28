@@ -35,7 +35,7 @@ Representative fields:
 It may be:
 
 - a concrete file/object/blob
-- a virtual directory derived from prefixes
+- a navigable folder entry derived from normalized object-storage data
 
 Purpose:
 
@@ -59,11 +59,12 @@ Representative fields:
 ## Interpretation Rules
 
 - `path` is always logical and relative to the container
-- `VirtualDirectory` means synthetic, prefix-derived navigation
+- `Folder` means a navigable domain entity over flat object storage
 - `File` means a concrete provider object or blob
 - `storage_class` may preserve the provider-native label for transparency in the UI
 - `availability_status` is the preferred normalized cross-provider state
 - provider-specific metadata may still be retained when needed
+- a folder may be explicit, implicit, or both in provider data, but is exposed as a single folder entry in the UI
 
 ## Explorer Listing Model
 
@@ -79,6 +80,7 @@ AWS S3 and Azure Blob Storage may return provider-native listing payloads that i
 
 - objects or blobs
 - prefix-grouping structures such as `CommonPrefixes`
+- explicit folder sentinel objects whose keys end with `/`
 - continuation markers or cursor-like tokens
 - provider-specific pagination metadata
 
@@ -91,13 +93,15 @@ The application must normalize provider responses into navigable explorer entrie
 Explorer entries are the user-facing units of navigation:
 
 - `File`
-- `VirtualDirectory`
+- `Folder`
 
 Normalization may include:
 
-- converting flat object namespaces into virtual directories
-- turning provider prefix-grouping responses into directory entries
-- ignoring or consolidating folder markers
+- converting flat object namespaces into folder entries
+- turning provider prefix-grouping responses into folder entries
+- recognizing explicit folder sentinels whose keys end with `/`
+- inferring folders from descendant object prefixes even when no explicit sentinel exists
+- consolidating explicit and implicit representations of the same folder
 - deduplicating visually equivalent entries
 
 The explorer counter must use this normalized collection rather than the raw provider object count.

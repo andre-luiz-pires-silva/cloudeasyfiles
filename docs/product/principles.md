@@ -21,7 +21,8 @@
 
 - The left tree defines context.
 - The main area is the primary place for object exploration.
-- Virtual directories are resolved dynamically from provider listings.
+- The product presents folders as the navigable concept in the explorer.
+- Folder existence may come from provider prefixes and from explicit trailing-slash entries created by the app.
 - Navigation should proceed one level at a time.
 - Listing continuation should use incremental loading with `Carregar mais`, not numbered pages.
 

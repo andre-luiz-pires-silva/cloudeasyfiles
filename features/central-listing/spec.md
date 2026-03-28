@@ -11,8 +11,8 @@ The sidebar is intentionally simplified, so the main panel must handle object ex
 ## Functional Requirements
 
 - When a connection is selected, the main panel may show the currently loaded containers for that connection below the connection details.
-- When a container is selected, the main panel lists immediate virtual subdirectories and immediate files.
-- When a virtual directory is selected, the main panel lists immediate virtual subdirectories and immediate files for that path.
+- When a container is selected, the main panel lists immediate folders and immediate files.
+- When a folder is selected, the main panel lists immediate folders and immediate files for that path.
 - Navigation must proceed level by level.
 - File availability and relevant status information should be visible in the list.
 - The main panel must support both list view and compact view for the same visible dataset.
@@ -31,8 +31,10 @@ The sidebar is intentionally simplified, so the main panel must handle object ex
 
 - Listing is always resolved from the cloud provider.
 - Local cache only enriches file state and never becomes the listing source.
-- Virtual directories are resolved dynamically from prefixes.
 - Provider-native listing payloads must be normalized into navigable explorer entries before rendering.
+- The UI must present folder entries simply as folders.
+- Folder entries may come from prefix inference, explicit trailing-slash sentinels, or both.
+- The visible listing must deduplicate equivalent folder representations.
 - `Carregar mais` is the primary continuation action for the current context.
 - `Carregar mais` becomes disabled when the current context has no more data to load.
 - The UI must not expose provider cursor/token details directly to the user.
@@ -47,6 +49,7 @@ The sidebar is intentionally simplified, so the main panel must handle object ex
 - Restore progress should be shown directly in the file list.
 - The user should be able to switch view mode without losing the current path.
 - The current browsing path should be explicit through a breadcrumb that starts at the selected connection.
+- A folder created in the app should appear as a normal folder, not as a special technical item.
 - The counter should read `X itens carregados` when no local filter is active.
 - The counter should read `X itens filtrados de Y carregados` when a local filter is active.
 - `Carregar mais` should remain available even when a local filter is active, as long as the provider still has more data.
@@ -56,7 +59,9 @@ The sidebar is intentionally simplified, so the main panel must handle object ex
 
 - Selecting a connection can show the currently loaded containers for that connection in the main panel.
 - Selecting a container shows its immediate contents in the main panel.
-- Selecting a virtual directory shows the immediate contents for that path.
+- Selecting a folder shows the immediate contents for that path.
+- A folder with both descendant objects and an explicit trailing-slash sentinel appears only once in the listing.
+- A folder may appear in the listing even when no explicit trailing-slash sentinel exists, if descendant objects imply that folder path.
 - Archived and restoring states are visible in the list.
 - The sidebar is not required for deep object browsing.
 - Switching between list and compact view updates the current listing immediately.

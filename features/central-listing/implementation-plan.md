@@ -24,6 +24,9 @@
 - retain provider continuation tokens only in internal state
 - expose a UI-facing `has more` or end-of-listing state to drive `Carregar mais`
 - derive counter values from normalized loaded entries and filtered displayed entries
+- normalize folder entries from both prefix-grouping data and explicit trailing-slash sentinels
+- deduplicate folder entries that are simultaneously implicit and explicit
+- preserve enough metadata to support future folder operations consistently across AWS and Azure
 
 ## Data / State Considerations
 
@@ -38,11 +41,13 @@
 - loaded containers for the selected connection
 - breadcrumb segments derived from connection plus current logical path
 - end-of-listing state for `Carregar mais`
+- normalized folder identity for deduplication across provider response shapes
 
 ## Edge Cases
 
 - empty directories
 - prefix-only structures with no immediate files
+- explicit folder sentinels with no descendants
 - archived objects that become available after restore polling
 - provider responses that include folder markers or prefix-grouping data
 - duplicate-looking entries that must collapse into one navigable explorer item
@@ -63,3 +68,4 @@
 - verify `Carregar mais` becomes disabled at the end of the available listing
 - verify counter values use normalized explorer entries rather than raw provider response lengths
 - verify local filter affects only displayed entries and does not reset continuation state
+- verify one visible folder entry when both prefix inference and sentinel object exist

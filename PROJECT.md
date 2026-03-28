@@ -9,7 +9,7 @@ Current initial focus:
 - AWS S3
 - Azure Blob Storage
 - structural navigation by connection and container
-- central object browsing with virtual directories
+- central object browsing with navigable folders over object storage
 - archival storage awareness and restore workflows
 - optional local cache for tracked downloads
 
@@ -22,7 +22,7 @@ The project is in active architecture and feature-definition mode with AWS integ
 - saved cloud connections
 - structural sidebar navigation
 - central content listing
-- virtual directory navigation
+- folder navigation over flat object storage
 - simple local filtering
 - provider-aware advanced search direction
 - archival restore workflows
@@ -51,6 +51,7 @@ The project is in active architecture and feature-definition mode with AWS integ
 - [ADR-002: Separate Local Filter from Advanced Search](./docs/decisions/ADR-002-local-filter-and-advanced-search.md)
 - [ADR-003: Provider Abstraction with Real Limitations](./docs/decisions/ADR-003-provider-abstraction-with-real-limitations.md)
 - [ADR-004: Incremental Explorer Listing and Normalized Counts](./docs/decisions/ADR-004-incremental-explorer-listing-and-normalized-counts.md)
+- [ADR-005: Hybrid Folder Representation for Object Storage](./docs/decisions/ADR-005-hybrid-folder-representation-for-object-storage.md)
 
 ### Feature Specs
 

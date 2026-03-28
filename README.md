@@ -8,7 +8,7 @@ For the project documentation map, architecture references, ADRs, and feature sp
 
 The project initially targets AWS S3 and Azure Blob Storage, including archival storage workflows such as AWS Glacier restores and Azure Archive tier rehydration.
 
-Although the interface looks folder-oriented, CloudEasyFiles works on top of object storage. AWS S3 and Azure Blob Storage do not provide real directories in the traditional file system sense. Instead, the application interprets object key prefixes as folders so users can browse cloud content through a familiar hierarchical view.
+Although the interface looks folder-oriented, CloudEasyFiles works on top of object storage. AWS S3 and Azure Blob Storage use a flat namespace rather than real directories in the traditional file system sense. CloudEasyFiles presents folders as a navigable product abstraction backed by object-key prefixes and, when a folder is created explicitly in the app, an empty sentinel object whose key ends with `/`.
 
 ## Why Archival Storage Matters
 
@@ -47,7 +47,7 @@ The repository currently includes SVG placeholders that can later be replaced by
 - Browse cloud resources through a familiar interface inspired primarily by VSCode, with pgAdmin and DBeaver as secondary references
 - Update the main content area based on the selected tree node, showing relevant details and contextual actions
 - Keep the sidebar intentionally simplified, showing only saved connections and cloud containers
-- Explore files and virtual directories in the main content area, where object browsing happens level by level
+- Explore files and folders in the main content area, where object browsing happens level by level
 - Upload, download, delete, copy, and move files
 - Track operations with progress bars and status indicators
 - Use a unified interface across supported providers
@@ -79,7 +79,7 @@ At a high level, the system is structured around a small set of clearly separate
 - `Infrastructure`
   - Handles HTTP, SDK integrations, serialization, local persistence, and platform-specific concerns
 
-The core browsing model is intentionally provider-agnostic. Buckets and blob containers are treated as cloud containers, while files and folder-like entries are presented as cloud items in the main panel. This allows the UI to offer a consistent experience even though each provider exposes its data differently.
+The core browsing model is intentionally provider-agnostic. Buckets and blob containers are treated as cloud containers, while files and folders are presented as cloud items in the main panel. This allows the UI to offer a consistent experience even though each provider exposes its data differently.
 
 ### Architectural Goals
 
@@ -164,7 +164,7 @@ Typical workflow:
 3. Save those connections in the left navigation tree for future access
 4. Select a connection or bucket/container from the tree
 5. Review the selected node details and available actions in the main panel
-6. Browse immediate virtual directories and files in the main panel, one level at a time
+6. Browse immediate folders and files in the main panel, one level at a time
 7. Use `Filter` to quickly refine the items currently visible on screen
 8. Use `Advanced Search` when you need more powerful search options
 9. Perform file operations such as upload, download, copy, move, or delete
@@ -175,8 +175,11 @@ Typical workflow:
 
 - The sidebar shows only higher-level structure such as saved connections and buckets or containers
 - Selecting a saved connection can also show its loaded containers in the main content area
-- Files and virtual directories are browsed in the main content area
-- Virtual directories are derived dynamically from object key prefixes
+- Files and folders are browsed in the main content area
+- Folders are backed by a hybrid object-storage model:
+  - a folder may exist implicitly when descendant objects share its prefix
+  - a folder created explicitly in the app creates an empty sentinel object whose key ends with `/`
+- Listing consolidates prefix-derived folders and explicit folder sentinels into one visible folder entry
 - The app resolves and lists only the immediate level for the current path
 - The explorer uses incremental loading with `Carregar mais` instead of numbered pages
 - Provider continuation tokens remain internal and are not exposed as primary UX terminology
@@ -185,7 +188,7 @@ Typical workflow:
 - The local cache does not replace cloud listing and does not act as a sync engine
 - Local information only affects status indicators such as whether a file is downloaded or outdated
 
-Explorer counts are based on normalized navigable entries in the current listing, not on the raw number of objects or blobs returned by the provider. This matters because flat object-storage responses may be adapted into folder-like entries, grouped prefixes, or deduplicated visual items before they are rendered.
+Explorer counts are based on normalized navigable entries in the current listing, not on the raw number of objects or blobs returned by the provider. This matters because flat object-storage responses may be adapted into folders, grouped prefixes, explicit folder sentinels, or deduplicated visual items before they are rendered.
 
 This keeps the sidebar simple, avoids overcrowding, and makes object browsing easier to follow in the main panel.
 

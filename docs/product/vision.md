@@ -53,7 +53,7 @@ The current product scope includes:
 - structural navigation by connection and container
 - cloud-first listing behavior
 - incremental explorer listing with `Carregar mais`
-- virtual directory navigation derived from object key prefixes
+- folder navigation over flat object storage, backed by prefixes and explicit folder sentinels when created in the app
 - simplified storage availability states
 - optional local cache for tracked downloads
 - separation between quick local filtering and future advanced search

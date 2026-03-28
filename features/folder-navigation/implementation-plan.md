@@ -5,15 +5,16 @@
 - sidebar navigation components
 - main content context handling
 - provider listing adapters
-- virtual directory derivation logic
+- folder normalization logic
 
 ## Proposed Changes
 
 - keep the sidebar limited to structural nodes
 - derive container-level navigation from provider listing calls
-- resolve virtual directories dynamically from prefix-based listing results
+- resolve folders from normalized provider listing results
 - keep path navigation logic in shared application/domain flows where possible
 - normalize flat provider responses into explorer folder/file entries before driving navigation state
+- ensure explicit trailing-slash folder sentinels and implicit prefix-derived folders collapse into one navigable folder
 
 ## Data / State Considerations
 
@@ -27,7 +28,7 @@
 - empty containers
 - keys with unusual prefix structures
 - provider differences in listing APIs
-- folder markers that should not become duplicate visible directories
+- folder markers that should not become duplicate visible folders
 
 ## Testing Notes
 

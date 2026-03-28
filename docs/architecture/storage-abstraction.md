@@ -12,7 +12,7 @@ AWS S3 and Azure Blob Storage may expose listing data in forms that are not dire
 
 Examples:
 
-- flat object namespaces that must be interpreted as virtual folders
+- flat object namespaces that must be interpreted as folders
 - provider prefix-grouping structures
 - folder-marker objects or blobs
 - continuation tokens or markers instead of page numbers
@@ -21,10 +21,13 @@ The application must normalize these responses into navigable explorer entries b
 
 Shared expectations:
 
-- the explorer works with `File` and `VirtualDirectory` entries
+- the explorer works with `File` and `Folder` entries
 - the normalized explorer dataset is the source for UI rendering and counters
 - raw provider item counts must not be reused as the displayed explorer count
 - provider continuation details may be mapped into a uniform internal contract, but must not be exposed to the end user as UX terminology
+- folder creation uses an explicit empty object/blob whose key ends with `/` when the provider model supports that representation
+- listing normalization must merge prefix-derived folders and explicit trailing-slash sentinels into one explorer folder entry
+- the hybrid folder model must remain valid for AWS S3 and Azure Blob Storage
 
 ## Listing Contract Expectations
 
