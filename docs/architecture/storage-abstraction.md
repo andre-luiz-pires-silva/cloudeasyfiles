@@ -4,6 +4,44 @@
 
 Provider-specific storage tiers and availability behavior are normalized where that improves usability, while preserving provider-specific details where they matter operationally.
 
+The same principle applies to listing and navigation: provider-native listing payloads are adapted into a shared explorer model, but the abstraction must stay honest about provider limitations such as continuation-based listing and flat namespaces.
+
+## Provider Listing Normalization
+
+AWS S3 and Azure Blob Storage may expose listing data in forms that are not directly suitable for the explorer UX.
+
+Examples:
+
+- flat object namespaces that must be interpreted as virtual folders
+- provider prefix-grouping structures
+- folder-marker objects or blobs
+- continuation tokens or markers instead of page numbers
+
+The application must normalize these responses into navigable explorer entries before the UI consumes them.
+
+Shared expectations:
+
+- the explorer works with `File` and `VirtualDirectory` entries
+- the normalized explorer dataset is the source for UI rendering and counters
+- raw provider item counts must not be reused as the displayed explorer count
+- provider continuation details may be mapped into a uniform internal contract, but must not be exposed to the end user as UX terminology
+
+## Listing Contract Expectations
+
+The listing abstraction should support:
+
+- current context identity: connection, container, logical path
+- normalized loaded entries for the current context
+- continuation state for requesting additional data
+- an internal provider cursor or equivalent token when more data exists
+- a reliable `has_more` style signal for the UI
+
+The listing abstraction should not require:
+
+- numbered pages
+- exact global totals for the current directory
+- user-configurable page size as part of V1 explorer UX
+
 ## StorageClass
 
 `StorageClass` should retain the provider-native label when that is more operationally useful to the user.

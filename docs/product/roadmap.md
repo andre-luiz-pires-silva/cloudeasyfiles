@@ -16,6 +16,7 @@ Current emphasis:
 ## Near-Term Priorities
 
 - central listing of immediate virtual directories and files
+- incremental listing continuation with `Carregar mais`
 - simple local filtering in sidebar and main content area
 - advanced search entry point with provider-aware behavior
 - continued AWS integration for object listing and archival workflows

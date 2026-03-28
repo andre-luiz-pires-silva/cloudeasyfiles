@@ -52,6 +52,7 @@ The current product scope includes:
 - saved cloud connections
 - structural navigation by connection and container
 - cloud-first listing behavior
+- incremental explorer listing with `Carregar mais`
 - virtual directory navigation derived from object key prefixes
 - simplified storage availability states
 - optional local cache for tracked downloads

@@ -15,6 +15,7 @@
 - The selected context should be obvious.
 - Status should be visible where the user is already looking.
 - Long-running workflows should provide direct in-place feedback.
+- Explorer list UX should communicate loaded items transparently without promising unreliable global totals.
 
 ## Navigation Principles
 
@@ -22,12 +23,14 @@
 - The main area is the primary place for object exploration.
 - Virtual directories are resolved dynamically from provider listings.
 - Navigation should proceed one level at a time.
+- Listing continuation should use incremental loading with `Carregar mais`, not numbered pages.
 
 ## Search and Filtering Principles
 
 - `Filter` is a lightweight local refinement of what is already visible.
 - `Advanced Search` is a separate, more powerful provider-aware workflow.
 - The product should not blur these two concepts.
+- Local filter must not change the already loaded explorer universe or its continuation state.
 
 ## Storage and Availability Principles
 

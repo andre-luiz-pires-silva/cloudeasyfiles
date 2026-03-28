@@ -17,17 +17,28 @@ The sidebar is intentionally simplified, so the main panel must handle object ex
 - File availability and relevant status information should be visible in the list.
 - The main panel must support both list view and compact view for the same visible dataset.
 - View mode selection must be persisted globally in the app.
+- Listing must use incremental loading with a `Carregar mais` action.
+- V1 must not expose numbered pagination.
+- The explorer counter must reflect normalized navigable entries for the active context.
 
 ## Non-Functional Requirements
 
 - The main panel should handle larger object sets more gracefully than the tree.
 - Listing behavior should remain cloud-first.
+- The UI should expose only listing information that is reliable for the currently loaded context.
 
 ## Business Rules
 
 - Listing is always resolved from the cloud provider.
 - Local cache only enriches file state and never becomes the listing source.
 - Virtual directories are resolved dynamically from prefixes.
+- Provider-native listing payloads must be normalized into navigable explorer entries before rendering.
+- `Carregar mais` is the primary continuation action for the current context.
+- `Carregar mais` becomes disabled when the current context has no more data to load.
+- The UI must not expose provider cursor/token details directly to the user.
+- The UI must not expose page size as a user-controlled option in V1.
+- The displayed loaded count must use normalized navigable entries rather than raw provider response counts.
+- The UI must not assume an exact global total of items exists for the current directory or container.
 
 ## UX Expectations
 
@@ -36,6 +47,10 @@ The sidebar is intentionally simplified, so the main panel must handle object ex
 - Restore progress should be shown directly in the file list.
 - The user should be able to switch view mode without losing the current path.
 - The current browsing path should be explicit through a breadcrumb that starts at the selected connection.
+- The counter should read `X itens carregados` when no local filter is active.
+- The counter should read `X itens filtrados de Y carregados` when a local filter is active.
+- `Carregar mais` should remain available even when a local filter is active, as long as the provider still has more data.
+- The disabled `Carregar mais` state should clearly represent that the available listing for the current context has ended.
 
 ## Acceptance Criteria
 
@@ -47,8 +62,16 @@ The sidebar is intentionally simplified, so the main panel must handle object ex
 - Switching between list and compact view updates the current listing immediately.
 - The selected view mode persists across app restarts.
 - The breadcrumb allows navigation back to the connection level and intermediate path levels.
+- The main content area uses `Carregar mais` instead of numbered pagination.
+- `Carregar mais` becomes disabled when no more data exists for the current context.
+- Without local filter, the explorer counter uses `X itens carregados`.
+- With local filter, the explorer counter uses `X itens filtrados de Y carregados`.
+- The loaded count is derived from normalized navigable entries rather than raw provider payload counts.
+- Local filter does not invalidate the ability to request more results when more provider data exists.
 
 ## Out of Scope
 
 - Separate dashboard for restore monitoring
 - Using the sidebar as the primary object explorer
+- Classic numbered pagination
+- User-configurable page size in the explorer UI

@@ -13,6 +13,7 @@
 - derive container-level navigation from provider listing calls
 - resolve virtual directories dynamically from prefix-based listing results
 - keep path navigation logic in shared application/domain flows where possible
+- normalize flat provider responses into explorer folder/file entries before driving navigation state
 
 ## Data / State Considerations
 
@@ -26,6 +27,7 @@
 - empty containers
 - keys with unusual prefix structures
 - provider differences in listing APIs
+- folder markers that should not become duplicate visible directories
 
 ## Testing Notes
 

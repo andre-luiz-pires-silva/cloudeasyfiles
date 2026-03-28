@@ -31,6 +31,8 @@ CloudEasyFiles is structured to keep product behavior coherent while isolating p
 - Navigation context is defined structurally in the sidebar.
 - Object exploration happens in the main content area.
 - Filtering and advanced search are distinct architectural concepts.
+- Explorer listing uses incremental loading rather than numbered pages.
+- Provider-native listing responses must be normalized before they drive explorer UI counts or rows.
 
 ## Related Documents
 

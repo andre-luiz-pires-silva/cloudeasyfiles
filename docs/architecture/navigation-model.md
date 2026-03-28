@@ -38,7 +38,23 @@ When a container or virtual directory is selected, the main panel lists:
 
 Navigation happens one level at a time in the main panel.
 
+Listing follows an incremental loading model rather than numbered pagination.
+
 The current browsing path is represented with a breadcrumb that starts at the selected connection and continues through the active container and virtual directory path.
+
+## Listing Continuation Model
+
+Object storage providers such as AWS S3 and Azure Blob Storage expose continuation-based listing rather than classic page numbers.
+
+Rules:
+
+- V1 uses incremental loading with a `Carregar mais` action
+- V1 does not use numbered pagination
+- provider continuation tokens remain an internal implementation detail
+- the UI exposes only whether more results can be requested in the current context
+- when no more results are available, `Carregar mais` remains visible but disabled to represent the end of the available listing for that context
+
+This keeps the UX honest without exposing provider-specific pagination jargon.
 
 ## Virtual Directories
 
@@ -49,6 +65,23 @@ Rules:
 - no real directory objects are assumed
 - intermediate prefix segments become synthetic directory entries
 - only the immediate level for the current path should be listed
+- the visible listing is based on normalized navigable entries, not the raw provider payload
+
+## Counting and Transparency
+
+The explorer communicates only counts that are reliable for the current loaded dataset.
+
+Rules:
+
+- the UI reports loaded navigable entries, not a global total for the directory or container
+- the UI must not promise total pages or total items based only on native provider listing
+- counters are derived from normalized explorer entries after prefix grouping, virtual-folder creation, and deduplication
+- the displayed loaded count may differ from the number of raw provider objects returned in one or more provider responses
+
+Counter language:
+
+- without local filter: `X itens carregados`
+- with local filter: `X itens filtrados de Y carregados`
 
 ## Context Model
 

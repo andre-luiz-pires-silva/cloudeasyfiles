@@ -65,6 +65,53 @@ Representative fields:
 - `availability_status` is the preferred normalized cross-provider state
 - provider-specific metadata may still be retained when needed
 
+## Explorer Listing Model
+
+The explorer must distinguish three different datasets:
+
+- raw provider listing response
+- normalized explorer entries
+- filtered UI entries
+
+### Raw Provider Listing Response
+
+AWS S3 and Azure Blob Storage may return provider-native listing payloads that include:
+
+- objects or blobs
+- prefix-grouping structures such as `CommonPrefixes`
+- continuation markers or cursor-like tokens
+- provider-specific pagination metadata
+
+This dataset is not a UI contract.
+
+### Normalized Explorer Entries
+
+The application must normalize provider responses into navigable explorer entries before rendering the main listing.
+
+Explorer entries are the user-facing units of navigation:
+
+- `File`
+- `VirtualDirectory`
+
+Normalization may include:
+
+- converting flat object namespaces into virtual directories
+- turning provider prefix-grouping responses into directory entries
+- ignoring or consolidating folder markers
+- deduplicating visually equivalent entries
+
+The explorer counter must use this normalized collection rather than the raw provider object count.
+
+### Filtered UI Entries
+
+When a local filter is active, the UI renders a filtered subset of the normalized loaded entries.
+
+Implications:
+
+- filtering does not redefine the loaded universe
+- filtering does not change provider cursor state
+- filtered counts and loaded counts are intentionally different concepts
+
 ## Local Cache Concepts
 
 The local cache is a separate concern from cloud listing.

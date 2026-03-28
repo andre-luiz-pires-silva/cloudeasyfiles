@@ -27,12 +27,14 @@ Cloud object storage does not expose real directories. The product must provide 
 - The tree defines context, not full object exploration.
 - Virtual directories are synthetic.
 - Path resolution must be deterministic and provider-agnostic.
+- Navigable folder entries may come from normalization of flat provider responses rather than real directory resources.
 
 ## UX Expectations
 
 - Sidebar navigation should feel familiar and easy to scan.
 - The user should always understand the current container or directory context.
 - Object browsing should continue in the main content area rather than inside the tree.
+- The explorer should present folders and files as navigable entries even when the provider uses a flat object namespace.
 
 ## Acceptance Criteria
 
@@ -41,6 +43,7 @@ Cloud object storage does not expose real directories. The product must provide 
 - Selecting a connection updates the main panel context with connection-level information and the currently loaded containers.
 - Selecting a container or virtual directory updates the main panel context correctly.
 - Virtual directories are derived from prefixes rather than assumed as real resources.
+- The navigation model does not depend on provider-native directory entities existing.
 
 ## Out of Scope
 

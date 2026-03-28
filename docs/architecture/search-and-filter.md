@@ -17,11 +17,27 @@ Rules:
 
 - available in the sidebar and in the main content area
 - client-side only
-- operates only on currently visible items
+- operates only on already loaded items for that area
 - does not trigger provider calls
 - does not perform global search
+- does not reset or redefine the loaded universe
+- does not change continuation cursor state or listing pagination logic
 
-For the main content area, the filter applies only to the items currently visible for the active path.
+For the main content area, the filter applies only to the normalized loaded explorer entries for the active path.
+
+## Main Explorer Counter Semantics
+
+In the main content area, filter state changes the displayed subset but not the loaded dataset.
+
+Rules:
+
+- without local filter, the counter uses `X itens carregados`
+- with local filter, the counter uses `X itens filtrados de Y carregados`
+- `Y` is the number of normalized navigable entries already loaded for the current context
+- `X` is the subset currently shown after local filtering
+- the counter does not claim a global total of items in the provider directory or container
+
+Even with a local filter active, `Carregar mais` remains valid whenever the provider still has more data for the current context.
 
 ## Advanced Search
 

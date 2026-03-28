@@ -8,6 +8,8 @@
 - path navigation state
 - connection-level container listing
 - breadcrumb navigation state
+- incremental listing state and continuation controls
+- explorer counter state
 
 ## Proposed Changes
 
@@ -18,23 +20,34 @@
 - support in-place restore status updates while the view is open
 - add a globally persisted view mode for the central listing
 - expose list and compact toggles in the content header near the current context controls
+- model a normalized explorer listing result separate from the raw provider response
+- retain provider continuation tokens only in internal state
+- expose a UI-facing `has more` or end-of-listing state to drive `Carregar mais`
+- derive counter values from normalized loaded entries and filtered displayed entries
 
 ## Data / State Considerations
 
 - active connection
 - active container
 - active logical path
-- visible items dataset
+- raw provider continuation state for the active context
+- normalized loaded explorer entries for the active context
+- displayed filtered entries for the active context
 - current filter state
 - persisted global content view mode
 - loaded containers for the selected connection
 - breadcrumb segments derived from connection plus current logical path
+- end-of-listing state for `Carregar mais`
 
 ## Edge Cases
 
 - empty directories
 - prefix-only structures with no immediate files
 - archived objects that become available after restore polling
+- provider responses that include folder markers or prefix-grouping data
+- duplicate-looking entries that must collapse into one navigable explorer item
+- local filter active while additional provider pages are loaded
+- no reliable global total available from provider listing
 
 ## Testing Notes
 
@@ -46,3 +59,7 @@
 - verify restore-state updates in the current view
 - verify list and compact rendering for the same dataset
 - verify persisted mode after app restart
+- verify `Carregar mais` loads additional data for the same context without numbered pages
+- verify `Carregar mais` becomes disabled at the end of the available listing
+- verify counter values use normalized explorer entries rather than raw provider response lengths
+- verify local filter affects only displayed entries and does not reset continuation state

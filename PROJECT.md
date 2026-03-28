@@ -50,6 +50,7 @@ The project is in active architecture and feature-definition mode with AWS integ
 - [ADR-001: No Objects in the Navigation Tree](./docs/decisions/ADR-001-no-objects-in-tree.md)
 - [ADR-002: Separate Local Filter from Advanced Search](./docs/decisions/ADR-002-local-filter-and-advanced-search.md)
 - [ADR-003: Provider Abstraction with Real Limitations](./docs/decisions/ADR-003-provider-abstraction-with-real-limitations.md)
+- [ADR-004: Incremental Explorer Listing and Normalized Counts](./docs/decisions/ADR-004-incremental-explorer-listing-and-normalized-counts.md)
 
 ### Feature Specs
 
@@ -71,5 +72,7 @@ The project is in active architecture and feature-definition mode with AWS integ
 - Object browsing belongs in the main content area.
 - `Filter` and `Advanced Search` are separate concepts.
 - Provider abstraction must simplify usage without hiding real provider differences.
+- Explorer listing uses incremental loading with `Carregar mais`, not numbered pages.
+- Explorer counters reflect normalized navigable entries, not raw provider payload counts.
 
 For strategic detail, architecture rules, decisions, and feature behavior, use the linked documents above instead of expanding this file again.

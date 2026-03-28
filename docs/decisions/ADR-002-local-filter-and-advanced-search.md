@@ -30,3 +30,4 @@ CloudEasyFiles adopts two distinct concepts:
 - Advanced search can grow independently
 - The UI can expose a shared search entry point without pretending provider capabilities are identical
 - Documentation and implementation can treat the two behaviors separately
+- Local filter semantics stay compatible with incremental explorer loading because filter state does not change the loaded dataset or the continuation cursor

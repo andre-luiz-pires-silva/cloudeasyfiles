@@ -178,10 +178,14 @@ Typical workflow:
 - Files and virtual directories are browsed in the main content area
 - Virtual directories are derived dynamically from object key prefixes
 - The app resolves and lists only the immediate level for the current path
+- The explorer uses incremental loading with `Carregar mais` instead of numbered pages
+- Provider continuation tokens remain internal and are not exposed as primary UX terminology
 - The current path is shown through a breadcrumb that starts at the selected connection
 - Files and folders are always listed from the cloud provider
 - The local cache does not replace cloud listing and does not act as a sync engine
 - Local information only affects status indicators such as whether a file is downloaded or outdated
+
+Explorer counts are based on normalized navigable entries in the current listing, not on the raw number of objects or blobs returned by the provider. This matters because flat object-storage responses may be adapted into folder-like entries, grouped prefixes, or deduplicated visual items before they are rendered.
 
 This keeps the sidebar simple, avoids overcrowding, and makes object browsing easier to follow in the main panel.
 
@@ -191,14 +195,22 @@ CloudEasyFiles supports two different ways to narrow what you are looking at:
 
 - `Filter`
   - Available in the sidebar and in the main content area
-  - Works only on the items currently visible
+  - Works only on items already loaded in that area
   - Does not trigger new provider calls
+  - Does not change the loaded dataset or continuation state
 - `Advanced Search`
   - Uses a dedicated modal dialog
   - Designed for more powerful search options in the future
   - May use provider-specific capabilities when needed
 
 In practice, `Filter` is for quick on-screen refinement, while `Advanced Search` is for deeper cloud searches.
+
+In the main explorer, the counter language is:
+
+- without local filter: `X itens carregados`
+- with local filter: `X itens filtrados de Y carregados`
+
+The UI does not promise a total number of pages or a reliable global total of items for the directory based only on native provider listing.
 
 ### Storage Availability
 
