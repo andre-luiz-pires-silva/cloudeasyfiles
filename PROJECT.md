@@ -57,6 +57,7 @@ The project is in active architecture and feature-definition mode with AWS integ
 
 - [Folder Navigation](./features/folder-navigation/spec.md)
 - [Central Listing](./features/central-listing/spec.md)
+- [Download Management](./features/download-management/spec.md)
 - [Simple Filter](./features/simple-filter/spec.md)
 - [Advanced Search](./features/advanced-search/spec.md)
 
@@ -75,5 +76,6 @@ The project is in active architecture and feature-definition mode with AWS integ
 - Provider abstraction must simplify usage without hiding real provider differences.
 - Explorer listing uses incremental loading with `Carregar mais`, not numbered pages.
 - Explorer counters reflect normalized navigable entries, not raw provider payload counts.
+- Refresh is manual by default, with polling only during active restore or tracked download monitoring.
 
 For strategic detail, architecture rules, decisions, and feature behavior, use the linked documents above instead of expanding this file again.

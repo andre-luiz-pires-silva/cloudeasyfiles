@@ -127,3 +127,28 @@ Relevant concepts:
 - file state resolution using cloud metadata plus cache metadata
 
 The cache enriches UI state but never becomes the listing source.
+
+## Download State Concepts
+
+Tracked download behavior needs a user-facing state model that combines cloud availability with local cache presence.
+
+Representative concept:
+
+- `DownloadState`
+
+Normalized states:
+
+- `NotDownloaded`
+- `Restoring`
+- `AvailableToDownload`
+- `Downloaded`
+
+Interpretation rules:
+
+- `NotDownloaded` means the app does not currently have a tracked local copy for that file and the file is not in an active restore workflow.
+- `Restoring` means the provider reports that the file is being restored or rehydrated and cannot be treated as ready for tracked download yet.
+- `AvailableToDownload` means the file does not have a current tracked local copy and is immediately eligible for the tracked `Download` action.
+- `Downloaded` means the tracked local cache contains the current file version associated with the cloud item.
+- `DownloadState` is a UX-oriented state distinct from raw provider storage tier labels.
+- `DownloadState` may be resolved from provider availability data plus cache metadata rather than stored as an independent cloud field.
+- Direct export flows such as `Download As` do not create or update tracked local cache state after the export flow completes.

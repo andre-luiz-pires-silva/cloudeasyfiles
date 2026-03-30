@@ -85,6 +85,26 @@ Examples:
 
 This is the preferred layer for cross-provider normalization in the file list.
 
+## DownloadState
+
+`DownloadState` represents the user-facing tracked download lifecycle for a file.
+
+Normalized states:
+
+- `NotDownloaded`
+- `Restoring`
+- `AvailableToDownload`
+- `Downloaded`
+
+Rules:
+
+- `DownloadState` is resolved from provider availability plus tracked cache information.
+- `Restoring` in `DownloadState` is driven by provider restore or rehydration status, regardless of provider terminology.
+- `AvailableToDownload` means the file is eligible for the tracked `Download` action and has no current tracked local copy.
+- `Downloaded` means the tracked cache already contains the current file version.
+- `NotDownloaded` is the fallback state when no tracked local copy exists and the file is not currently in restore.
+- The UI may show provider-native storage class and normalized availability alongside `DownloadState` when that adds operational clarity.
+
 ## Restore Options
 
 Restore options are provider-specific and must not be flattened into a fake universal abstraction.
@@ -107,7 +127,8 @@ The UI should provide a shared restore entry point while adapting the available 
 - restore is triggered through the provider API
 - restore is a single-file action
 - restore status is tracked through polling
-- polling occurs only while the relevant view is open
+- polling is enabled only while at least one restore or tracked download is actively being monitored
+- polling is not a permanent background listing behavior
 - manual refresh is also available
 - status is shown directly in the file list
 
@@ -119,3 +140,14 @@ Once available, the existing download modes still apply:
 
 - `CacheDownload`
 - `DirectDownload`
+
+Rules:
+
+- `CacheDownload` is the product meaning of `Download`.
+- `CacheDownload` stores the file in the configured local cache and participates in tracked progress monitoring.
+- `DirectDownload` is the product meaning of `Download As`.
+- `DirectDownload` exports the file to a user-chosen destination and is not tracked after the export flow completes.
+- Canceling a tracked download discards partial progress rather than preserving resumable local state in V1.
+- Pause and resume are out of scope for V1 tracked downloads.
+- The number of simultaneous tracked downloads is constrained by the active provider adapter rather than by a single hardcoded cross-provider limit.
+- When the provider limit is reached, the UI should not imply that additional downloads are running in parallel.

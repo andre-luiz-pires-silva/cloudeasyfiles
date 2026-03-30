@@ -34,6 +34,8 @@ CloudEasyFiles is structured to keep product behavior coherent while isolating p
 - Explorer listing uses incremental loading rather than numbered pages.
 - Provider-native listing responses must be normalized before they drive explorer UI counts or rows.
 - The explorer folder model is a domain abstraction over flat object storage, using prefix inference plus explicit trailing-slash sentinels when the app creates folders.
+- Automatic refresh is activity-driven rather than continuous.
+- Outside active restore or tracked download workflows, the UI refreshes cloud state only on explicit user action.
 
 ## Related Documents
 
