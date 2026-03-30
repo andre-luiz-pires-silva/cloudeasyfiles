@@ -27,6 +27,8 @@ export type AwsBucketItemsResult = {
   bucketRegion: string;
   directories: AwsVirtualDirectorySummary[];
   files: AwsObjectSummary[];
+  continuationToken?: string | null;
+  hasMore: boolean;
 };
 
 export async function testAwsConnection(
@@ -66,13 +68,15 @@ export async function listAwsBucketItems(
   secretAccessKey: string,
   bucketName: string,
   prefix?: string,
-  bucketRegion?: string
+  bucketRegion?: string,
+  continuationToken?: string
 ): Promise<AwsBucketItemsResult> {
   return invoke<AwsBucketItemsResult>("list_aws_bucket_items", {
     accessKeyId,
     secretAccessKey,
     bucketName,
     prefix,
-    bucketRegion
+    bucketRegion,
+    continuationToken
   });
 }

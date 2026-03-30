@@ -111,6 +111,8 @@
   "content.list.count_loaded": "{loaded} items loaded",
   "content.list.count_filtered": "{filtered} items filtered from {loaded} loaded",
   "content.list.loading": "Loading items from the selected container...",
+  "content.list.load_more": "Load more",
+  "content.list.loading_more": "Loading more...",
   "content.list.loading_containers": "Loading containers for the selected connection...",
   "content.list.connect_to_load": "Connect this provider to load its containers.",
   "content.list.empty_connection": "This connection does not have containers available in the current session.",

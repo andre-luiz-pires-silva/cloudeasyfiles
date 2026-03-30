@@ -156,6 +156,7 @@ pub async fn list_aws_bucket_items(
     bucket_name: String,
     prefix: Option<String>,
     bucket_region: Option<String>,
+    continuation_token: Option<String>,
 ) -> Result<AwsBucketItemsResult, String> {
     eprintln!(
         "[commands] list_aws_bucket_items called for bucket_name={} prefix={}",
@@ -171,6 +172,7 @@ pub async fn list_aws_bucket_items(
         bucket_name,
         prefix,
         bucket_region,
+        continuation_token,
     )
     .await;
 

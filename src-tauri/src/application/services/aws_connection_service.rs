@@ -14,6 +14,7 @@ use crate::domain::aws_connection::{
 
 pub struct AwsConnectionService;
 const MISSING_MINIMUM_S3_PERMISSION_ERROR: &str = "AWS_S3_LIST_BUCKETS_PERMISSION_REQUIRED";
+const S3_LISTING_PAGE_SIZE: i32 = 200;
 const GLOBAL_AWS_REGION_FALLBACKS: &[&str] = &[
     "us-east-1",
     "us-east-2",
@@ -335,6 +336,7 @@ impl AwsConnectionService {
         bucket_name: String,
         prefix: Option<String>,
         bucket_region: Option<String>,
+        continuation_token: Option<String>,
     ) -> Result<AwsBucketItemsResult, String> {
         let access_key_id = input.access_key_id.trim().to_string();
         let secret_access_key = input.secret_access_key.trim().to_string();
@@ -361,90 +363,80 @@ impl AwsConnectionService {
         )
         .await;
 
-        let mut continuation_token: Option<String> = None;
         let mut seen_directories = HashSet::new();
         let mut seen_files = HashSet::new();
         let mut directories = Vec::new();
         let mut files = Vec::new();
+        let response = s3_client
+            .list_objects_v2()
+            .bucket(bucket_name.clone())
+            .delimiter("/")
+            .max_keys(S3_LISTING_PAGE_SIZE)
+            .set_prefix((!prefix.is_empty()).then_some(prefix.clone()))
+            .set_continuation_token(continuation_token)
+            .send()
+            .await
+            .map_err(|error| {
+                let error_message = error
+                    .as_service_error()
+                    .map(format_provider_service_error)
+                    .unwrap_or_else(|| error.to_string());
 
-        loop {
-            let response = s3_client
-                .list_objects_v2()
-                .bucket(bucket_name.clone())
-                .delimiter("/")
-                .set_prefix((!prefix.is_empty()).then_some(prefix.clone()))
-                .set_continuation_token(continuation_token.clone())
-                .send()
-                .await
-                .map_err(|error| {
-                    let error_message = error
-                        .as_service_error()
-                        .map(format_provider_service_error)
-                        .unwrap_or_else(|| error.to_string());
+                eprintln!(
+                    "[aws_connection_service] failed to list S3 objects for bucket={} prefix={} error={}",
+                    bucket_name, prefix, error_message
+                );
 
-                    eprintln!(
-                        "[aws_connection_service] failed to list S3 objects for bucket={} prefix={} error={}",
-                        bucket_name, prefix, error_message
-                    );
+                error_message
+            })?;
 
-                    error_message
-                })?;
-
-            for directory_path in response
-                .common_prefixes()
-                .iter()
-                .filter_map(|common_prefix| common_prefix.prefix())
-            {
-                if seen_directories.insert(directory_path.to_string()) {
-                    directories.push(AwsVirtualDirectorySummary {
-                        name: build_directory_name(directory_path),
-                        path: directory_path.to_string(),
-                    });
-                }
-            }
-
-            for object in response.contents().iter() {
-                let Some(key) = object.key() else {
-                    continue;
-                };
-
-                if key == prefix || key.ends_with('/') {
-                    continue;
-                }
-
-                if seen_files.insert(key.to_string()) {
-                    files.push(AwsObjectSummary {
-                        key: key.to_string(),
-                        size: object.size().unwrap_or_default(),
-                        e_tag: object.e_tag().map(ToString::to_string),
-                        last_modified: object.last_modified().map(ToString::to_string),
-                        storage_class: Some(
-                            object
-                                .storage_class()
-                                .map(|storage_class| storage_class.as_str().to_string())
-                                .unwrap_or_else(|| "STANDARD".to_string()),
-                        ),
-                    });
-                }
-            }
-
-            if !response.is_truncated().unwrap_or(false) {
-                break;
-            }
-
-            continuation_token = response
-                .next_continuation_token()
-                .map(ToString::to_string);
-
-            if continuation_token.is_none() {
-                break;
+        for directory_path in response
+            .common_prefixes()
+            .iter()
+            .filter_map(|common_prefix| common_prefix.prefix())
+        {
+            if seen_directories.insert(directory_path.to_string()) {
+                directories.push(AwsVirtualDirectorySummary {
+                    name: build_directory_name(directory_path),
+                    path: directory_path.to_string(),
+                });
             }
         }
+
+        for object in response.contents().iter() {
+            let Some(key) = object.key() else {
+                continue;
+            };
+
+            if key == prefix || key.ends_with('/') {
+                continue;
+            }
+
+            if seen_files.insert(key.to_string()) {
+                files.push(AwsObjectSummary {
+                    key: key.to_string(),
+                    size: object.size().unwrap_or_default(),
+                    e_tag: object.e_tag().map(ToString::to_string),
+                    last_modified: object.last_modified().map(ToString::to_string),
+                    storage_class: Some(
+                        object
+                            .storage_class()
+                            .map(|storage_class| storage_class.as_str().to_string())
+                            .unwrap_or_else(|| "STANDARD".to_string()),
+                    ),
+                });
+            }
+        }
+
+        let next_continuation_token = response.next_continuation_token().map(ToString::to_string);
+        let has_more = response.is_truncated().unwrap_or(false) && next_continuation_token.is_some();
 
         Ok(AwsBucketItemsResult {
             bucket_region: resolved_bucket_region,
             directories,
             files,
+            continuation_token: next_continuation_token,
+            has_more,
         })
     }
 }

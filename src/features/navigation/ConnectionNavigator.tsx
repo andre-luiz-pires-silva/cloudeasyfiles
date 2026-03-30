@@ -213,6 +213,32 @@ function buildContentItems(result: AwsBucketItemsResult): ContentExplorerItem[] 
   return [...directories, ...files];
 }
 
+function mergeContentItems(
+  currentItems: ContentExplorerItem[],
+  nextItems: ContentExplorerItem[]
+): ContentExplorerItem[] {
+  const mergedItems = new Map<string, ContentExplorerItem>();
+
+  for (const item of currentItems) {
+    mergedItems.set(item.id, item);
+  }
+
+  for (const item of nextItems) {
+    mergedItems.set(item.id, item);
+  }
+
+  return [...mergedItems.values()].sort((left, right) => {
+    if (left.kind !== right.kind) {
+      return left.kind === "directory" ? -1 : 1;
+    }
+
+    return left.name.localeCompare(right.name, undefined, {
+      sensitivity: "base",
+      numeric: true
+    });
+  });
+}
+
 function normalizeFilterText(value: string): string {
   return value.trim().toLocaleLowerCase();
 }
@@ -422,8 +448,12 @@ export function ConnectionNavigator({
   >({});
   const [bucketContentPaths, setBucketContentPaths] = useState<Record<string, string>>({});
   const [contentItems, setContentItems] = useState<ContentExplorerItem[]>([]);
+  const [contentContinuationToken, setContentContinuationToken] = useState<string | null>(null);
+  const [contentHasMore, setContentHasMore] = useState(false);
   const [isLoadingContent, setIsLoadingContent] = useState(false);
+  const [isLoadingMoreContent, setIsLoadingMoreContent] = useState(false);
   const [contentError, setContentError] = useState<string | null>(null);
+  const [loadMoreContentError, setLoadMoreContentError] = useState<string | null>(null);
   const [sidebarFilterText, setSidebarFilterText] = useState("");
   const [contentFilterText, setContentFilterText] = useState("");
   const [contentViewMode, setContentViewMode] = useState<ContentViewMode>(() => {
@@ -569,6 +599,8 @@ export function ConnectionNavigator({
     displayedContentCount,
     loadedContentCount
   );
+
+  const shouldRenderLoadMoreButton = selectedNode?.kind === "bucket";
 
   useEffect(() => {
     let isActive = true;
@@ -728,15 +760,23 @@ export function ConnectionNavigator({
       if (!selectedBucketId || !selectedBucketConnectionId || !selectedBucketName) {
         contentRequestIdRef.current += 1;
         setContentItems([]);
+        setContentContinuationToken(null);
+        setContentHasMore(false);
         setContentError(null);
+        setLoadMoreContentError(null);
         setIsLoadingContent(false);
+        setIsLoadingMoreContent(false);
         return;
       }
 
       const requestId = contentRequestIdRef.current + 1;
       contentRequestIdRef.current = requestId;
       setIsLoadingContent(true);
+      setIsLoadingMoreContent(false);
       setContentError(null);
+      setLoadMoreContentError(null);
+      setContentContinuationToken(null);
+      setContentHasMore(false);
 
       try {
         if (selectedBucketProvider !== "aws") {
@@ -751,7 +791,8 @@ export function ConnectionNavigator({
           selectedBucketPath || undefined,
           selectedBucketRegion && selectedBucketRegion !== BUCKET_REGION_PLACEHOLDER
             ? selectedBucketRegion
-            : undefined
+            : undefined,
+          undefined
         );
 
         if (contentRequestIdRef.current !== requestId) {
@@ -759,7 +800,10 @@ export function ConnectionNavigator({
         }
 
         setContentItems(buildContentItems(result));
+        setContentContinuationToken(result.continuationToken ?? null);
+        setContentHasMore(result.hasMore);
         setIsLoadingContent(false);
+        setLoadMoreContentError(null);
 
         if (result.bucketRegion && result.bucketRegion !== selectedBucketRegion) {
           updateBucketNode(selectedBucketConnectionId, selectedBucketId, (node) => ({
@@ -774,7 +818,10 @@ export function ConnectionNavigator({
 
         const message = extractErrorMessage(error) ?? t("content.list.load_error");
         setContentItems([]);
+        setContentContinuationToken(null);
+        setContentHasMore(false);
         setContentError(message);
+        setLoadMoreContentError(null);
         setIsLoadingContent(false);
       }
     }
@@ -908,6 +955,66 @@ export function ConnectionNavigator({
       ...previousBucketContentPaths,
       [bucketNodeId]: nextPath
     }));
+  }
+
+  async function handleLoadMoreContent() {
+    if (
+      !selectedBucketConnectionId ||
+      !selectedBucketName ||
+      !contentContinuationToken ||
+      isLoadingContent ||
+      isLoadingMoreContent
+    ) {
+      return;
+    }
+
+    const requestId = contentRequestIdRef.current;
+    setIsLoadingMoreContent(true);
+    setLoadMoreContentError(null);
+
+    try {
+      if (selectedBucketProvider !== "aws") {
+        throw new Error(t("navigation.connection_status.unsupported_provider"));
+      }
+
+      const draft = await connectionService.getAwsConnectionDraft(selectedBucketConnectionId);
+      const result = await listAwsBucketItems(
+        draft.accessKeyId.trim(),
+        draft.secretAccessKey.trim(),
+        selectedBucketName,
+        selectedBucketPath || undefined,
+        selectedBucketRegion && selectedBucketRegion !== BUCKET_REGION_PLACEHOLDER
+          ? selectedBucketRegion
+          : undefined,
+        contentContinuationToken
+      );
+
+      if (contentRequestIdRef.current !== requestId) {
+        return;
+      }
+
+      setContentItems((previousItems) =>
+        mergeContentItems(previousItems, buildContentItems(result))
+      );
+      setContentContinuationToken(result.continuationToken ?? null);
+      setContentHasMore(result.hasMore);
+      setIsLoadingMoreContent(false);
+      setLoadMoreContentError(null);
+
+      if (result.bucketRegion && result.bucketRegion !== selectedBucketRegion && selectedBucketId) {
+        updateBucketNode(selectedBucketConnectionId, selectedBucketId, (node) => ({
+          ...node,
+          region: result.bucketRegion
+        }));
+      }
+    } catch (error) {
+      if (contentRequestIdRef.current !== requestId) {
+        return;
+      }
+
+      setLoadMoreContentError(extractErrorMessage(error) ?? t("content.list.load_error"));
+      setIsLoadingMoreContent(false);
+    }
   }
 
   function updateBucketNode(
@@ -1801,7 +1908,28 @@ export function ConnectionNavigator({
             <div className="content-panel-footer">
               {selectedNode.kind === "connection" &&
               selectedConnectionIndicator.status !== "connected" ? null : (
-                <p className="content-list-counter">{contentCounterLabel}</p>
+                <>
+                  <p className="content-list-counter">{contentCounterLabel}</p>
+                  {shouldRenderLoadMoreButton ? (
+                    <button
+                      type="button"
+                      className="content-load-more-button"
+                      onClick={() => void handleLoadMoreContent()}
+                      disabled={
+                        !contentHasMore ||
+                        isLoadingContent ||
+                        isLoadingMoreContent
+                      }
+                    >
+                      {isLoadingMoreContent
+                        ? t("content.list.loading_more")
+                        : t("content.list.load_more")}
+                    </button>
+                  ) : null}
+                  {loadMoreContentError ? (
+                    <p className="status-message-error">{loadMoreContentError}</p>
+                  ) : null}
+                </>
               )}
             </div>
           )}

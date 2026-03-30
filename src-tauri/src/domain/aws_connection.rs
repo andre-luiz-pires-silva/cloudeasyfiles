@@ -44,4 +44,6 @@ pub struct AwsBucketItemsResult {
     pub bucket_region: String,
     pub directories: Vec<AwsVirtualDirectorySummary>,
     pub files: Vec<AwsObjectSummary>,
+    pub continuation_token: Option<String>,
+    pub has_more: bool,
 }
