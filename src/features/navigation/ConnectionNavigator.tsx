@@ -599,6 +599,7 @@ export function ConnectionNavigator({
     displayedContentCount,
     loadedContentCount
   );
+  const shouldRenderListHeaders = contentViewMode === "list";
 
   const shouldRenderLoadMoreButton = selectedNode?.kind === "bucket";
 
@@ -1779,41 +1780,55 @@ export function ConnectionNavigator({
                     ) : filteredConnectionBuckets.length === 0 ? (
                       <p className="content-list-state">{t("content.filter.empty")}</p>
                     ) : (
-                      <div
-                        className={`content-list${contentViewMode === "compact" ? " is-compact" : ""}`}
-                      >
-                        {filteredConnectionBuckets.map((bucketNode) => (
-                          <button
-                            key={bucketNode.id}
-                            type="button"
-                            className={`content-list-item content-list-item-action${contentViewMode === "compact" ? " is-compact" : ""}`}
-                            onClick={() => handleSelectNode(bucketNode)}
-                          >
-                            <span className="content-list-item-main">
-                              <span className="content-list-item-icon content-list-item-icon-directory">
-                                <Folder size={18} strokeWidth={1.9} />
-                              </span>
-                              <span className="content-list-item-copy">
-                                <strong>{bucketNode.name}</strong>
-                                {contentViewMode === "list" ? (
-                                  <span>{bucketNode.region ?? BUCKET_REGION_PLACEHOLDER}</span>
-                                ) : null}
-                              </span>
-                            </span>
+                      <>
+                        {shouldRenderListHeaders ? (
+                          <div className="content-list-header content-list-header-buckets" aria-hidden="true">
+                            <span>{t("navigation.modal.name_label")}</span>
+                            <span>{t("content.detail.region")}</span>
+                            <span>{t("content.detail.type")}</span>
+                          </div>
+                        ) : null}
 
-                            {contentViewMode === "compact" ? (
-                              <span className="content-list-item-meta is-compact">
-                                <ChevronRight size={16} strokeWidth={2} />
+                        <div
+                          className={`content-list${contentViewMode === "compact" ? " is-compact" : ""}`}
+                        >
+                          {filteredConnectionBuckets.map((bucketNode) => (
+                            <button
+                              key={bucketNode.id}
+                              type="button"
+                              className={`content-list-item content-list-item-action content-list-item-bucket${contentViewMode === "compact" ? " is-compact" : ""}`}
+                              onClick={() => handleSelectNode(bucketNode)}
+                            >
+                              <span className="content-list-item-main">
+                                <span className="content-list-item-icon content-list-item-icon-directory">
+                                  <Folder size={18} strokeWidth={1.9} />
+                                </span>
+                                <span className="content-list-item-copy">
+                                  <strong>{bucketNode.name}</strong>
+                                  {contentViewMode === "compact" ? (
+                                    <span>{bucketNode.region ?? BUCKET_REGION_PLACEHOLDER}</span>
+                                  ) : null}
+                                </span>
                               </span>
-                            ) : (
-                              <span className="content-list-item-meta">
-                                <span>{t("content.type.container")}</span>
-                                <ChevronRight size={16} strokeWidth={2} />
-                              </span>
-                            )}
-                          </button>
-                        ))}
-                      </div>
+
+                              {contentViewMode === "compact" ? (
+                                <span className="content-list-item-meta is-compact">
+                                  <ChevronRight size={16} strokeWidth={2} />
+                                </span>
+                              ) : (
+                                <>
+                                  <span className="content-list-item-column">
+                                    {bucketNode.region ?? BUCKET_REGION_PLACEHOLDER}
+                                  </span>
+                                  <span className="content-list-item-column content-list-item-column-end">
+                                    {t("content.type.container")}
+                                  </span>
+                                </>
+                              )}
+                            </button>
+                          ))}
+                        </div>
+                      </>
                     )}
                   </div>
                 </>
@@ -1832,64 +1847,85 @@ export function ConnectionNavigator({
                   ) : filteredContentItems.length === 0 ? (
                     <p className="content-list-state">{t("content.filter.empty")}</p>
                   ) : (
-                    <div
-                      className={`content-list${contentViewMode === "compact" ? " is-compact" : ""}`}
-                    >
-                      {filteredContentItems.map((item) =>
-                        item.kind === "directory" ? (
-                          <button
-                            key={item.id}
-                            type="button"
-                            className={`content-list-item content-list-item-action${contentViewMode === "compact" ? " is-compact" : ""}`}
-                            onClick={() => navigateBucketPath(selectedNode.id, item.path)}
-                          >
-                            <span className="content-list-item-main">
-                              <span className="content-list-item-icon content-list-item-icon-directory">
-                                <Folder size={18} strokeWidth={1.9} />
-                              </span>
-                              <span className="content-list-item-copy content-list-item-copy-directory">
-                                <strong>{item.name}</strong>
-                              </span>
-                            </span>
+                    <>
+                      {shouldRenderListHeaders ? (
+                        <div className="content-list-header content-list-header-files" aria-hidden="true">
+                          <span>{t("navigation.modal.name_label")}</span>
+                          <span>{t("content.detail.type")}</span>
+                          <span>{t("content.detail.size")}</span>
+                          <span>{t("content.detail.last_modified")}</span>
+                        </div>
+                      ) : null}
 
-                            {contentViewMode === "compact" ? (
-                              <span className="content-list-item-meta is-compact">
-                                <ChevronRight size={16} strokeWidth={2} />
+                      <div
+                        className={`content-list${contentViewMode === "compact" ? " is-compact" : ""}`}
+                      >
+                        {filteredContentItems.map((item) =>
+                          item.kind === "directory" ? (
+                            <button
+                              key={item.id}
+                              type="button"
+                              className={`content-list-item content-list-item-action content-list-item-file-row${contentViewMode === "compact" ? " is-compact" : ""}`}
+                              onClick={() => navigateBucketPath(selectedNode.id, item.path)}
+                            >
+                              <span className="content-list-item-main">
+                                <span className="content-list-item-icon content-list-item-icon-directory">
+                                  <Folder size={18} strokeWidth={1.9} />
+                                </span>
+                                <span className="content-list-item-copy content-list-item-copy-directory">
+                                  <strong>{item.name}</strong>
+                                </span>
                               </span>
-                            ) : (
-                              <span className="content-list-item-meta">
-                                <span>{t("content.type.directory")}</span>
-                                <ChevronRight size={16} strokeWidth={2} />
-                              </span>
-                            )}
-                          </button>
-                        ) : (
-                          <div
-                            key={item.id}
-                            className={`content-list-item${contentViewMode === "compact" ? " is-compact" : ""}`}
-                          >
-                            <span className="content-list-item-main">
-                              <span className="content-list-item-icon content-list-item-icon-file">
-                                <File size={18} strokeWidth={1.9} />
-                              </span>
-                              <span className="content-list-item-copy content-list-item-copy-file">
-                                <strong>{item.name}</strong>
-                                {item.storageClass ? (
-                                  <span>{item.storageClass}</span>
-                                ) : null}
-                              </span>
-                            </span>
 
-                            {contentViewMode === "compact" ? null : (
-                              <span className="content-list-item-meta content-list-item-meta-stack">
-                                <span>{formatBytes(item.size, locale)}</span>
-                                <span>{formatDateTime(item.lastModified, locale)}</span>
+                              {contentViewMode === "compact" ? (
+                                <span className="content-list-item-meta is-compact">
+                                  <ChevronRight size={16} strokeWidth={2} />
+                                </span>
+                              ) : (
+                                <>
+                                  <span className="content-list-item-column">
+                                    {t("content.type.directory")}
+                                  </span>
+                                  <span className="content-list-item-column">-</span>
+                                  <span className="content-list-item-column content-list-item-column-end">-</span>
+                                </>
+                              )}
+                            </button>
+                          ) : (
+                            <div
+                              key={item.id}
+                              className={`content-list-item content-list-item-file-row${contentViewMode === "compact" ? " is-compact" : ""}`}
+                            >
+                              <span className="content-list-item-main">
+                                <span className="content-list-item-icon content-list-item-icon-file">
+                                  <File size={18} strokeWidth={1.9} />
+                                </span>
+                                <span className="content-list-item-copy content-list-item-copy-file">
+                                  <strong>{item.name}</strong>
+                                  {contentViewMode === "compact" && item.storageClass ? (
+                                    <span>{item.storageClass}</span>
+                                  ) : null}
+                                </span>
                               </span>
-                            )}
-                          </div>
-                        )
-                      )}
-                    </div>
+
+                              {contentViewMode === "compact" ? null : (
+                                <>
+                                  <span className="content-list-item-column">
+                                    {t("content.type.file")}
+                                  </span>
+                                  <span className="content-list-item-column">
+                                    {formatBytes(item.size, locale)}
+                                  </span>
+                                  <span className="content-list-item-column content-list-item-column-end">
+                                    {formatDateTime(item.lastModified, locale)}
+                                  </span>
+                                </>
+                              )}
+                            </div>
+                          )
+                        )}
+                      </div>
+                    </>
                   )}
                 </div>
               )}
