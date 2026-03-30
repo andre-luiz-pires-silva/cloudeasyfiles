@@ -993,12 +993,12 @@ body {
 }
 
 .content-list.is-compact {
-  gap: 12px;
+  gap: 8px;
   border: 0;
   border-radius: 0;
   overflow: visible;
   background: transparent;
-  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(116px, 1fr));
 }
 
 .content-list-header {
@@ -1043,14 +1043,14 @@ body {
 }
 
 .content-list-item.is-compact {
-  min-height: 124px;
+  min-height: 82px;
   align-items: stretch;
   flex-direction: column;
   justify-content: flex-start;
-  gap: 12px;
-  padding: 14px;
+  gap: 6px;
+  padding: 8px 9px;
   border: 1px solid var(--panel-border);
-  border-radius: 10px;
+  border-radius: 8px;
   background: #fff;
 }
 
@@ -1076,7 +1076,7 @@ body {
 .content-list-item.is-compact .content-list-item-main {
   display: grid;
   justify-items: start;
-  gap: 12px;
+  gap: 6px;
 }
 
 .content-list-item.is-compact .content-list-item-copy-directory span {
@@ -1121,21 +1121,37 @@ body {
   overflow: hidden;
   white-space: normal;
   overflow-wrap: anywhere;
-  line-height: 1.35;
+  line-height: 1.2;
+  font-size: 0.83rem;
 }
 
 .content-list-item.is-compact .content-list-item-copy-file span {
   display: block;
+  font-size: 0.74rem;
+  line-height: 1.15;
+  max-height: 1.15em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .content-list-item.is-compact .content-list-item-icon {
-  width: 28px;
-  height: 28px;
+  width: 18px;
+  height: 18px;
 }
 
 .content-list-item.is-compact .content-list-item-icon svg {
-  width: 24px;
-  height: 24px;
+  width: 17px;
+  height: 17px;
+}
+
+.content-list-item.is-compact .content-list-item-copy {
+  gap: 2px;
+}
+
+.content-list-item.is-compact .content-list-item-main,
+.content-list-item-meta.is-compact {
+  width: 100%;
 }
 
 .content-list-item-copy span {
@@ -1184,6 +1200,29 @@ body {
   width: 100%;
   justify-content: end;
   margin-top: auto;
+  min-height: 14px;
+  font-size: 0.74rem;
+  gap: 4px;
+}
+
+.content-list-item.is-compact .content-list-item-meta svg {
+  width: 13px;
+  height: 13px;
+}
+
+.content-list-item-bucket.is-compact .content-list-item-meta,
+.content-list-item-file-row.is-compact .content-list-item-meta {
+  color: var(--accent);
+}
+
+.content-list-item-file-row.is-compact:not(.content-list-item-action) {
+  min-height: 76px;
+}
+
+@media (min-width: 1400px) {
+  .content-list.is-compact {
+    grid-template-columns: repeat(auto-fill, minmax(108px, 1fr));
+  }
 }
 
 .content-list-item-meta-stack {
