@@ -12,9 +12,7 @@ function isSavedConnectionSummary(value: unknown): value is SavedConnectionSumma
   return (
     typeof candidate.id === "string" &&
     typeof candidate.name === "string" &&
-    (candidate.provider === "aws" || candidate.provider === "azure") &&
-    (typeof candidate.localCacheDirectory === "string" ||
-      typeof candidate.localCacheDirectory === "undefined")
+    (candidate.provider === "aws" || candidate.provider === "azure")
   );
 }
 

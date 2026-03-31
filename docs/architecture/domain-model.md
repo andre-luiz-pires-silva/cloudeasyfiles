@@ -122,9 +122,9 @@ The local cache is a separate concern from cloud listing.
 
 Relevant concepts:
 
-- optional `LocalCacheConfig`
-- cache index mapping cloud paths to local paths
-- file state resolution using cloud metadata plus cache metadata
+- optional global `LocalCacheConfig`
+- deterministic cache path mapping from cloud identity to local path
+- file state resolution using cloud availability plus cached-file presence
 
 The cache enriches UI state but never becomes the listing source.
 
@@ -150,5 +150,7 @@ Interpretation rules:
 - `AvailableToDownload` means the file does not have a current tracked local copy and is immediately eligible for the tracked `Download` action.
 - `Downloaded` means the tracked local cache contains the current file version associated with the cloud item.
 - `DownloadState` is a UX-oriented state distinct from raw provider storage tier labels.
-- `DownloadState` may be resolved from provider availability data plus cache metadata rather than stored as an independent cloud field.
+- In the current AWS implementation, `DownloadState` is resolved from provider availability data plus whether the expected cached file exists locally.
+- In the current AWS implementation, the tracked local path is rooted under a globally configured cache directory and a stable per-connection folder derived from `connection_id`.
 - Direct export flows such as `Download As` do not create or update tracked local cache state after the export flow completes.
+- A freshness or `Outdated` state is not part of the current tracked-download implementation.

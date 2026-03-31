@@ -1,8 +1,14 @@
-import { useDeferredValue, useEffect, useId, useMemo, useRef, useState } from "react";
+import { type ReactNode, useDeferredValue, useEffect, useId, useMemo, useRef, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
+import { open, save } from "@tauri-apps/plugin-dialog";
+import { isTauri } from "@tauri-apps/api/core";
 import {
+  Archive,
+  Check,
   ChevronRight,
   CircleAlert,
   Cloud,
+  Download,
   Ellipsis,
   File,
   Folder,
@@ -11,12 +17,15 @@ import {
   List,
   LoaderCircle,
   Plus,
+  RefreshCw,
   Search,
+  Upload,
   X
 } from "lucide-react";
 import logoPrimary from "../../assets/logo-primary.svg";
 import { AwsConnectionFields } from "../connections/components/AwsConnectionFields";
 import { AzureConnectionPlaceholder } from "../connections/components/AzureConnectionPlaceholder";
+import { appSettingsStore } from "../settings/persistence/appSettingsStore";
 import type {
   AwsConnectionDraft,
   ConnectionFormMode,
@@ -25,10 +34,16 @@ import type {
 } from "../connections/models";
 import { connectionService } from "../connections/services/connectionService";
 import {
+  type AwsDownloadProgressEvent,
   type AwsBucketSummary,
+  cancelAwsDownload,
+  downloadAwsObjectToPath,
+  findAwsCachedObjects,
   getAwsBucketRegion,
   listAwsBucketItems,
   listAwsBuckets,
+  openAwsCachedObjectParent,
+  startAwsCacheDownload,
   testAwsConnection
 } from "../../lib/tauri/awsConnections";
 import type { AwsBucketItemsResult } from "../../lib/tauri/awsConnections";
@@ -60,6 +75,7 @@ const DISCONNECTED_CONNECTION_TITLE_KEY = "navigation.connection_status.disconne
 const BUCKET_REGION_PLACEHOLDER = "...";
 const MAX_BUCKET_REGION_REQUESTS = 4;
 const CONTENT_VIEW_MODE_STORAGE_KEY = "cloudeasyfiles.content-view-mode";
+const CONNECTION_METADATA_STORAGE_KEY = "cloudeasyfiles.connection-metadata";
 
 type ConnectionIndicator = {
   status: ConnectionIndicatorStatus;
@@ -67,6 +83,15 @@ type ConnectionIndicator = {
 };
 
 type ContentViewMode = "list" | "compact";
+type FileAvailabilityStatus = "available" | "archived" | "restoring";
+type FileDownloadState = "not_downloaded" | "restoring" | "available_to_download" | "downloaded";
+type FileActionId = "download" | "downloadAs" | "openInExplorer" | "cancelDownload";
+type DownloadTransferState = "progress" | "completed" | "failed" | "cancelled";
+type ContentMenuAnchor = {
+  itemId: string;
+  x: number;
+  y: number;
+};
 
 type ContentExplorerItem = {
   id: string;
@@ -76,6 +101,8 @@ type ContentExplorerItem = {
   size?: number;
   lastModified?: string | null;
   storageClass?: string | null;
+  availabilityStatus?: FileAvailabilityStatus;
+  downloadState?: FileDownloadState;
 };
 
 type TreeNodeKind = "connection" | "bucket";
@@ -89,7 +116,6 @@ type ExplorerTreeNode = {
   region?: string;
   bucketName?: string;
   path?: string;
-  localCacheDirectory?: string;
   children?: ExplorerTreeNode[];
 };
 
@@ -178,6 +204,30 @@ function extractErrorMessage(error: unknown): string | null {
   return null;
 }
 
+function isCancelledTransferError(error: unknown): boolean {
+  return extractErrorMessage(error) === "DOWNLOAD_CANCELLED";
+}
+
+function buildPreviewFileState(
+  storageClass: string | null | undefined
+): Pick<ContentExplorerItem, "availabilityStatus" | "downloadState"> {
+  const normalizedStorageClass = storageClass?.toLocaleLowerCase() ?? "";
+  const isArchivedTier =
+    normalizedStorageClass.includes("archive") || normalizedStorageClass.includes("glacier");
+
+  if (isArchivedTier) {
+    return {
+      availabilityStatus: "archived",
+      downloadState: "not_downloaded"
+    };
+  }
+
+  return {
+    availabilityStatus: "available",
+    downloadState: "not_downloaded"
+  };
+}
+
 function buildContentItems(result: AwsBucketItemsResult): ContentExplorerItem[] {
   const directories: ContentExplorerItem[] = result.directories
     .map((directory) => ({
@@ -195,6 +245,7 @@ function buildContentItems(result: AwsBucketItemsResult): ContentExplorerItem[] 
 
   const files: ContentExplorerItem[] = result.files
     .map((file) => ({
+      ...buildPreviewFileState(file.storageClass),
       id: `file:${file.key}`,
       kind: "file" as const,
       name: file.key.split("/").pop() || file.key,
@@ -401,6 +452,240 @@ function buildContentCounterLabel(
   return t("content.list.count_loaded").replace("{loaded}", String(loadedCount));
 }
 
+function getAvailabilityLabel(status: FileAvailabilityStatus, t: (key: string) => string): string {
+  return t(`content.availability.${status}`);
+}
+
+function getDownloadStateLabel(state: FileDownloadState, t: (key: string) => string): string {
+  return t(`content.download_state.${state}`);
+}
+
+function resolveDownloadState(
+  item: ContentExplorerItem,
+  downloadedPaths: Set<string>,
+  connectionId: string | null,
+  bucketName: string | null,
+  hasLocalCacheDirectory: boolean
+): FileDownloadState | undefined {
+  if (item.kind !== "file") {
+    return item.downloadState;
+  }
+
+  if (item.availabilityStatus === "restoring") {
+    return "restoring";
+  }
+
+  if (
+    connectionId &&
+    bucketName &&
+    downloadedPaths.has(buildFileIdentity(connectionId, bucketName, item.path))
+  ) {
+    return "downloaded";
+  }
+
+  if (item.availabilityStatus === "available") {
+    return hasLocalCacheDirectory ? "available_to_download" : "not_downloaded";
+  }
+
+  if (item.availabilityStatus === "archived") {
+    return "not_downloaded";
+  }
+
+  return item.downloadState;
+}
+
+function applyDownloadedFileState(
+  items: ContentExplorerItem[],
+  downloadedPaths: Set<string>,
+  connectionId: string | null,
+  bucketName: string | null,
+  hasLocalCacheDirectory: boolean
+): ContentExplorerItem[] {
+  let hasChanges = false;
+  const nextItems = items.map((item) => {
+    const nextDownloadState = resolveDownloadState(
+      item,
+      downloadedPaths,
+      connectionId,
+      bucketName,
+      hasLocalCacheDirectory
+    );
+
+    if (item.downloadState === nextDownloadState) {
+      return item;
+    }
+
+    hasChanges = true;
+
+    return {
+      ...item,
+      downloadState: nextDownloadState
+    };
+  });
+
+  return hasChanges ? nextItems : items;
+}
+
+function buildFileIdentity(connectionId: string, bucketName: string, objectKey: string): string {
+  return `${connectionId}:${bucketName}:${objectKey}`;
+}
+
+function buildConnectionCacheDirectory(
+  globalLocalCacheDirectory: string,
+  connectionId: string
+): string | null {
+  const normalizedRoot = globalLocalCacheDirectory.trim().replace(/[\\/]+$/, "");
+  const normalizedConnectionId = connectionId.trim();
+
+  if (!normalizedRoot || !normalizedConnectionId) {
+    return null;
+  }
+
+  return `${normalizedRoot}/${normalizedConnectionId}`;
+}
+
+function isFileIdentityInContext(
+  fileIdentity: string,
+  connectionId: string,
+  bucketName: string,
+  items: ContentExplorerItem[]
+): boolean {
+  return items.some(
+    (item) =>
+      item.kind === "file" &&
+      buildFileIdentity(connectionId, bucketName, item.path) === fileIdentity
+  );
+}
+
+async function resolveCachedFileIdentities(
+  connectionId: string,
+  connectionName: string,
+  bucketName: string,
+  globalLocalCacheDirectory: string | undefined,
+  items: ContentExplorerItem[]
+): Promise<Set<string>> {
+  if (!globalLocalCacheDirectory) {
+    return new Set();
+  }
+
+  const objectKeys = items
+    .filter((item) => item.kind === "file")
+    .map((item) => item.path);
+
+  if (objectKeys.length === 0) {
+    return new Set();
+  }
+
+  const cachedObjectKeys = await findAwsCachedObjects(
+    connectionId,
+    connectionName,
+    bucketName,
+    globalLocalCacheDirectory,
+    objectKeys
+  );
+
+  return new Set(
+    cachedObjectKeys.map((objectKey) => buildFileIdentity(connectionId, bucketName, objectKey))
+  );
+}
+
+function reconcileDownloadedFilePathsForContext(
+  currentPaths: string[],
+  cachedPaths: Set<string>,
+  connectionId: string,
+  bucketName: string,
+  items: ContentExplorerItem[]
+): string[] {
+  const nextPaths = currentPaths.filter(
+    (path) => !isFileIdentityInContext(path, connectionId, bucketName, items)
+  );
+
+  for (const path of cachedPaths) {
+    nextPaths.push(path);
+  }
+
+  const uniqueNextPaths = [...new Set(nextPaths)];
+
+  if (
+    uniqueNextPaths.length === currentPaths.length &&
+    uniqueNextPaths.every((path, index) => path === currentPaths[index])
+  ) {
+    return currentPaths;
+  }
+
+  return uniqueNextPaths;
+}
+
+function loadLegacyGlobalCacheDirectoryCandidate(): string | undefined {
+  if (typeof window === "undefined") {
+    return undefined;
+  }
+
+  const rawValue = window.localStorage.getItem(CONNECTION_METADATA_STORAGE_KEY);
+
+  if (!rawValue) {
+    return undefined;
+  }
+
+  try {
+    const parsedValue = JSON.parse(rawValue);
+
+    if (!Array.isArray(parsedValue)) {
+      return undefined;
+    }
+
+    for (const candidate of parsedValue) {
+      if (
+        candidate &&
+        typeof candidate === "object" &&
+        "localCacheDirectory" in candidate &&
+        typeof candidate.localCacheDirectory === "string"
+      ) {
+        const normalizedPath = candidate.localCacheDirectory.trim();
+
+        if (normalizedPath) {
+          return normalizedPath;
+        }
+      }
+    }
+  } catch {
+    return undefined;
+  }
+
+  return undefined;
+}
+
+function loadInitialGlobalCacheDirectory(): string {
+  const appSettings = appSettingsStore.load();
+
+  if (appSettings.globalLocalCacheDirectory?.trim()) {
+    return appSettings.globalLocalCacheDirectory.trim();
+  }
+
+  return loadLegacyGlobalCacheDirectoryCandidate() ?? "";
+}
+
+type ActiveDownload = {
+  operationId: string;
+  itemId: string;
+  fileIdentity: string;
+  fileName: string;
+  bucketName: string;
+  transferKind: "cache" | "direct";
+  progressPercent: number;
+  bytesReceived: number;
+  totalBytes: number;
+  state: DownloadTransferState;
+  targetPath?: string | null;
+  error?: string | null;
+};
+
+type CompletionToast = {
+  id: string;
+  title: string;
+  description: string;
+};
+
 type ConnectionNavigatorProps = {
   locale: Locale;
   onLocaleChange: (locale: string) => Promise<void>;
@@ -415,8 +700,8 @@ export function ConnectionNavigator({
   const providerFieldId = useId();
   const accessKeyFieldId = useId();
   const secretKeyFieldId = useId();
-  const cacheDirectoryFieldId = useId();
   const localeFieldId = useId();
+  const globalCacheDirectoryFieldId = useId();
   const [connections, setConnections] = useState<SavedConnectionSummary[]>([]);
   const [selectedView, setSelectedView] = useState<NavigatorView>("home");
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
@@ -427,7 +712,9 @@ export function ConnectionNavigator({
   const [connectionProvider, setConnectionProvider] = useState<ConnectionProvider>("aws");
   const [accessKeyId, setAccessKeyId] = useState("");
   const [secretAccessKey, setSecretAccessKey] = useState("");
-  const [localCacheDirectory, setLocalCacheDirectory] = useState("");
+  const [globalLocalCacheDirectory, setGlobalLocalCacheDirectory] = useState(
+    loadInitialGlobalCacheDirectory
+  );
   const [connectionTestStatus, setConnectionTestStatus] =
     useState<ConnectionTestStatus>("idle");
   const [connectionTestMessage, setConnectionTestMessage] = useState<string | null>(null);
@@ -454,8 +741,17 @@ export function ConnectionNavigator({
   const [isLoadingMoreContent, setIsLoadingMoreContent] = useState(false);
   const [contentError, setContentError] = useState<string | null>(null);
   const [loadMoreContentError, setLoadMoreContentError] = useState<string | null>(null);
+  const [contentActionError, setContentActionError] = useState<string | null>(null);
   const [sidebarFilterText, setSidebarFilterText] = useState("");
   const [contentFilterText, setContentFilterText] = useState("");
+  const [downloadedFilePaths, setDownloadedFilePaths] = useState<string[]>([]);
+  const [activeDownloads, setActiveDownloads] = useState<Record<string, ActiveDownload>>({});
+  const [activeDirectDownloadItemIds, setActiveDirectDownloadItemIds] = useState<string[]>([]);
+  const [completionToast, setCompletionToast] = useState<CompletionToast | null>(null);
+  const [openContentMenuItemId, setOpenContentMenuItemId] = useState<string | null>(null);
+  const [contentMenuAnchor, setContentMenuAnchor] = useState<ContentMenuAnchor | null>(null);
+  const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
+  const [contentRefreshNonce, setContentRefreshNonce] = useState(0);
   const [contentViewMode, setContentViewMode] = useState<ContentViewMode>(() => {
     if (typeof window === "undefined") {
       return "list";
@@ -499,7 +795,6 @@ export function ConnectionNavigator({
         connectionId: connection.id,
         provider: connection.provider,
         name: connection.name,
-        localCacheDirectory: connection.localCacheDirectory,
         children: connectionBuckets[connection.id] ?? []
       })),
     [connections, connectionBuckets]
@@ -600,8 +895,484 @@ export function ConnectionNavigator({
     loadedContentCount
   );
   const shouldRenderListHeaders = contentViewMode === "list";
+  const activeDownloadList = Object.values(activeDownloads).filter(
+    (download) => download.state === "progress"
+  );
+  const activeTrackedDownloadList = useMemo(
+    () => activeDownloadList.filter((download) => download.transferKind === "cache"),
+    [activeDownloadList]
+  );
+  const activeTrackedDownloadIdentityMap = useMemo(
+    () =>
+      new Map(
+        activeTrackedDownloadList.map((download) => [download.fileIdentity, download] as const)
+      ),
+    [activeTrackedDownloadList]
+  );
+  const activeTransferIdentityMap = useMemo(
+    () =>
+      new Map(activeDownloadList.map((download) => [download.fileIdentity, download] as const)),
+    [activeDownloadList]
+  );
+  const activeDownloadPreviewCount = activeDownloadList.length;
+  const isDownloadTransferActive = activeDownloadPreviewCount > 0;
+  const downloadedFilePathSet = useMemo(
+    () => new Set(downloadedFilePaths),
+    [downloadedFilePaths]
+  );
+  const hasConfiguredGlobalCacheDirectory = Boolean(globalLocalCacheDirectory.trim());
 
   const shouldRenderLoadMoreButton = selectedNode?.kind === "bucket";
+
+  function handlePickGlobalCacheDirectory() {
+    if (!isTauri()) {
+      return;
+    }
+
+    void (async () => {
+      try {
+        setSubmitError(null);
+
+        const selectedPath = await open({
+          directory: true,
+          multiple: false,
+          defaultPath: globalLocalCacheDirectory.trim() || undefined
+        });
+
+        if (!selectedPath || Array.isArray(selectedPath)) {
+          return;
+        }
+
+        setGlobalLocalCacheDirectory(selectedPath);
+      } catch (error) {
+        setSubmitError(
+          extractErrorMessage(error) ?? t("settings.download_directory_pick_failed")
+        );
+      }
+    })();
+  }
+
+  function handleCancelActiveDownload(operationId: string) {
+    void (async () => {
+      try {
+        await cancelAwsDownload(operationId);
+      } catch (error) {
+        if (isCancelledTransferError(error)) {
+          return;
+        }
+
+        setContentActionError(
+          extractErrorMessage(error) ?? t("content.transfer.cancel_failed")
+        );
+      }
+    })();
+  }
+
+  function handlePreviewFileAction(actionId: FileActionId, item: ContentExplorerItem) {
+    setOpenContentMenuItemId(null);
+    setContentMenuAnchor(null);
+    setContentActionError(null);
+
+    if (
+      actionId === "cancelDownload" &&
+      item.kind === "file" &&
+      selectedBucketConnectionId &&
+      selectedBucketName
+    ) {
+      const activeDownload = activeTransferIdentityMap.get(
+        buildFileIdentity(selectedBucketConnectionId, selectedBucketName, item.path)
+      );
+
+      if (activeDownload) {
+        handleCancelActiveDownload(activeDownload.operationId);
+      }
+
+      return;
+    }
+
+    if (
+      actionId === "openInExplorer" &&
+      item.kind === "file" &&
+      selectedBucketConnectionId &&
+      selectedBucketName &&
+      selectedConnection &&
+      hasConfiguredGlobalCacheDirectory
+    ) {
+      void openAwsCachedObjectParent(
+        selectedBucketConnectionId,
+        selectedConnection.name,
+        selectedBucketName,
+        globalLocalCacheDirectory,
+        item.path
+      );
+      return;
+    }
+
+    if (
+      item.kind === "file" &&
+      actionId === "downloadAs" &&
+      selectedBucketProvider === "aws" &&
+      selectedBucketConnectionId &&
+      selectedBucketName &&
+      item.availabilityStatus === "available"
+    ) {
+      const activeTransfer = activeTransferIdentityMap.get(
+        buildFileIdentity(selectedBucketConnectionId, selectedBucketName, item.path)
+      );
+
+      if (activeTransfer) {
+        return;
+      }
+
+      if (activeDirectDownloadItemIds.includes(item.id)) {
+        return;
+      }
+
+      void (async () => {
+        const destinationPath = await save({
+          defaultPath: item.name
+        });
+
+        if (!destinationPath) {
+          return;
+        }
+
+        const operationId =
+          typeof globalThis.crypto !== "undefined" && "randomUUID" in globalThis.crypto
+            ? globalThis.crypto.randomUUID()
+            : `download-as-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+
+        setActiveDirectDownloadItemIds((currentItemIds) =>
+          currentItemIds.includes(item.id) ? currentItemIds : [...currentItemIds, item.id]
+        );
+        setActiveDownloads((currentDownloads) => ({
+          ...currentDownloads,
+          [operationId]: {
+            operationId,
+            itemId: item.id,
+            fileIdentity: buildFileIdentity(
+              selectedBucketConnectionId,
+              selectedBucketName,
+              item.path
+            ),
+            fileName: item.name,
+            bucketName: selectedBucketName,
+            transferKind: "direct",
+            progressPercent: 0,
+            bytesReceived: 0,
+            totalBytes: item.size ?? 0,
+            state: "progress",
+            targetPath: destinationPath
+          }
+        }));
+
+        try {
+          const draft = await connectionService.getAwsConnectionDraft(selectedBucketConnectionId);
+
+          await downloadAwsObjectToPath(
+            operationId,
+            draft.accessKeyId.trim(),
+            draft.secretAccessKey.trim(),
+            selectedBucketConnectionId,
+            selectedBucketName,
+            item.path,
+            destinationPath,
+            selectedBucketRegion && selectedBucketRegion !== BUCKET_REGION_PLACEHOLDER
+              ? selectedBucketRegion
+              : undefined
+          );
+        } catch (error) {
+          if (isCancelledTransferError(error)) {
+            return;
+          }
+
+          setContentActionError(
+            extractErrorMessage(error) ?? t("content.transfer.download_as_failed")
+          );
+        } finally {
+          setActiveDirectDownloadItemIds((currentItemIds) =>
+            currentItemIds.filter((currentItemId) => currentItemId !== item.id)
+          );
+        }
+      })();
+
+      return;
+    }
+
+    if (
+      item.kind !== "file" ||
+      actionId !== "download" ||
+      selectedBucketProvider !== "aws" ||
+      !selectedBucketConnectionId ||
+      !selectedBucketName ||
+      !selectedConnection ||
+      !hasConfiguredGlobalCacheDirectory ||
+      item.availabilityStatus !== "available"
+    ) {
+      return;
+    }
+
+    const activeTransfer = activeTransferIdentityMap.get(
+      buildFileIdentity(selectedBucketConnectionId, selectedBucketName, item.path)
+    );
+
+    if (activeTransfer) {
+      return;
+    }
+
+    const operationId =
+      typeof globalThis.crypto !== "undefined" && "randomUUID" in globalThis.crypto
+        ? globalThis.crypto.randomUUID()
+        : `download-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+
+    setActiveDownloads((currentDownloads) => ({
+      ...currentDownloads,
+      [operationId]: {
+        operationId,
+        itemId: item.id,
+        fileIdentity: buildFileIdentity(
+          selectedBucketConnectionId,
+          selectedBucketName,
+          item.path
+        ),
+        fileName: item.name,
+        bucketName: selectedBucketName,
+        transferKind: "cache",
+        progressPercent: 0,
+        bytesReceived: 0,
+        totalBytes: item.size ?? 0,
+        state: "progress"
+      }
+    }));
+
+    void (async () => {
+      try {
+        const draft = await connectionService.getAwsConnectionDraft(selectedBucketConnectionId);
+
+        await startAwsCacheDownload(
+          operationId,
+          draft.accessKeyId.trim(),
+          draft.secretAccessKey.trim(),
+          selectedBucketConnectionId,
+          selectedConnection.name,
+          selectedBucketName,
+          item.path,
+          globalLocalCacheDirectory,
+          selectedBucketRegion && selectedBucketRegion !== BUCKET_REGION_PLACEHOLDER
+            ? selectedBucketRegion
+            : undefined
+        );
+      } catch (error) {
+        if (isCancelledTransferError(error)) {
+          return;
+        }
+
+        const message = extractErrorMessage(error) ?? t("content.transfer.download_failed");
+
+        setActiveDownloads((currentDownloads) => {
+          const currentDownload = currentDownloads[operationId];
+
+          if (!currentDownload) {
+            return currentDownloads;
+          }
+
+          return {
+            ...currentDownloads,
+            [operationId]: {
+              ...currentDownload,
+              state: "failed",
+              error: message
+            }
+          };
+        });
+      }
+    })();
+  }
+
+  useEffect(() => {
+    let isActive = true;
+    let cleanup: (() => void) | null = null;
+
+    if (!isTauri()) {
+      return undefined;
+    }
+
+    void (async () => {
+      try {
+        const unlisten = await listen<AwsDownloadProgressEvent>(
+          "aws-download-progress",
+          (event) => {
+            if (!isActive) {
+              return;
+            }
+
+            const payload = event.payload;
+
+            setActiveDownloads((currentDownloads) => {
+              const existingDownload = currentDownloads[payload.operationId];
+
+              if (!existingDownload) {
+                return currentDownloads;
+              }
+
+              return {
+                ...currentDownloads,
+                [payload.operationId]: {
+                  ...existingDownload,
+                  progressPercent: payload.progressPercent,
+                  bytesReceived: payload.bytesReceived,
+                  totalBytes: payload.totalBytes,
+                  state: payload.state,
+                  transferKind: payload.transferKind,
+                  targetPath: payload.targetPath,
+                  error: payload.error
+                }
+              };
+            });
+
+            if (payload.state === "completed" && payload.transferKind === "cache") {
+              const fileIdentity = buildFileIdentity(
+                payload.connectionId,
+                payload.bucketName,
+                payload.objectKey
+              );
+
+              setDownloadedFilePaths((currentPaths) =>
+                currentPaths.includes(fileIdentity)
+                  ? currentPaths
+                  : [...currentPaths, fileIdentity]
+              );
+              setContentItems((currentItems) =>
+                currentItems.map((currentItem) =>
+                  currentItem.kind === "file" && currentItem.path === payload.objectKey
+                    ? { ...currentItem, downloadState: "downloaded" }
+                    : currentItem
+                )
+              );
+            }
+
+            if (payload.state === "completed" && payload.transferKind === "direct") {
+              setCompletionToast({
+                id: payload.operationId,
+                title: t("content.transfer.download_as_completed"),
+                description:
+                  payload.targetPath ?? t("content.transfer.download_as_completed_fallback")
+              });
+            }
+          }
+        );
+
+        if (!isActive) {
+          void unlisten();
+          return;
+        }
+
+        cleanup = () => {
+          void unlisten();
+        };
+      } catch (error) {
+        console.warn("[ui] failed to register aws download listener", error);
+      }
+    })();
+
+    return () => {
+      isActive = false;
+      cleanup?.();
+    };
+  }, [t]);
+
+  useEffect(() => {
+    if (!completionToast) {
+      return undefined;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setCompletionToast((currentToast) =>
+        currentToast?.id === completionToast.id ? null : currentToast
+      );
+    }, 4200);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [completionToast]);
+
+  useEffect(() => {
+    if (
+      selectedBucketProvider !== "aws" ||
+      !selectedBucketConnectionId ||
+      !selectedBucketName ||
+      !selectedConnection ||
+      !hasConfiguredGlobalCacheDirectory ||
+      contentItems.length === 0
+    ) {
+      return;
+    }
+
+    let isActive = true;
+
+    void (async () => {
+      try {
+        const cachedFileIdentities = await resolveCachedFileIdentities(
+          selectedBucketConnectionId,
+          selectedConnection.name,
+          selectedBucketName,
+          globalLocalCacheDirectory,
+          contentItems
+        );
+
+        if (!isActive) {
+          return;
+        }
+
+        setDownloadedFilePaths((currentPaths) =>
+          reconcileDownloadedFilePathsForContext(
+            currentPaths,
+            cachedFileIdentities,
+            selectedBucketConnectionId,
+            selectedBucketName,
+            contentItems
+          )
+        );
+      } catch {
+        // Cache hydration must not block or destabilize provider-driven listing.
+      }
+    })();
+
+    return () => {
+      isActive = false;
+    };
+  }, [
+    contentItems,
+    globalLocalCacheDirectory,
+    hasConfiguredGlobalCacheDirectory,
+    selectedBucketConnectionId,
+    selectedConnection,
+    selectedBucketName,
+    selectedBucketProvider
+  ]);
+
+  useEffect(() => {
+    if (!selectedBucketConnectionId || !selectedBucketName || contentItems.length === 0) {
+      return;
+    }
+
+    setContentItems((currentItems) =>
+      applyDownloadedFileState(
+        currentItems,
+        downloadedFilePathSet,
+        selectedBucketConnectionId,
+        selectedBucketName,
+        hasConfiguredGlobalCacheDirectory
+      )
+    );
+  }, [
+    downloadedFilePathSet,
+    contentItems.length,
+    hasConfiguredGlobalCacheDirectory,
+    selectedBucketConnectionId,
+    selectedBucketName
+  ]);
 
   useEffect(() => {
     let isActive = true;
@@ -764,6 +1535,7 @@ export function ConnectionNavigator({
         setContentContinuationToken(null);
         setContentHasMore(false);
         setContentError(null);
+        setContentActionError(null);
         setLoadMoreContentError(null);
         setIsLoadingContent(false);
         setIsLoadingMoreContent(false);
@@ -775,6 +1547,7 @@ export function ConnectionNavigator({
       setIsLoadingContent(true);
       setIsLoadingMoreContent(false);
       setContentError(null);
+      setContentActionError(null);
       setLoadMoreContentError(null);
       setContentContinuationToken(null);
       setContentHasMore(false);
@@ -795,12 +1568,21 @@ export function ConnectionNavigator({
             : undefined,
           undefined
         );
+        const nextItems = buildContentItems(result);
 
         if (contentRequestIdRef.current !== requestId) {
           return;
         }
 
-        setContentItems(buildContentItems(result));
+        setContentItems(
+          applyDownloadedFileState(
+            nextItems,
+            downloadedFilePathSet,
+            selectedBucketConnectionId,
+            selectedBucketName,
+            hasConfiguredGlobalCacheDirectory
+          )
+        );
         setContentContinuationToken(result.continuationToken ?? null);
         setContentHasMore(result.hasMore);
         setIsLoadingContent(false);
@@ -835,6 +1617,8 @@ export function ConnectionNavigator({
     selectedBucketPath,
     selectedBucketProvider,
     selectedBucketRegion,
+    hasConfiguredGlobalCacheDirectory,
+    contentRefreshNonce,
     t
   ]);
 
@@ -853,6 +1637,12 @@ export function ConnectionNavigator({
 
     window.localStorage.setItem(CONTENT_VIEW_MODE_STORAGE_KEY, contentViewMode);
   }, [contentViewMode]);
+
+  useEffect(() => {
+    appSettingsStore.save({
+      globalLocalCacheDirectory: globalLocalCacheDirectory.trim() || undefined
+    });
+  }, [globalLocalCacheDirectory]);
 
   useEffect(() => {
     if (!isResizingSidebar) {
@@ -877,7 +1667,6 @@ export function ConnectionNavigator({
     setConnectionProvider("aws");
     setAccessKeyId("");
     setSecretAccessKey("");
-    setLocalCacheDirectory("");
     setFormErrors({});
     setSubmitError(null);
   }
@@ -907,7 +1696,6 @@ export function ConnectionNavigator({
       setEditingConnectionId(connectionId);
       setConnectionName(connection.name);
       setConnectionProvider(connection.provider);
-      setLocalCacheDirectory(connection.localCacheDirectory ?? "");
       setAccessKeyId("");
       setSecretAccessKey("");
       resetConnectionTestState();
@@ -989,13 +1777,20 @@ export function ConnectionNavigator({
           : undefined,
         contentContinuationToken
       );
+      const nextItems = buildContentItems(result);
 
       if (contentRequestIdRef.current !== requestId) {
         return;
       }
 
       setContentItems((previousItems) =>
-        mergeContentItems(previousItems, buildContentItems(result))
+        applyDownloadedFileState(
+          mergeContentItems(previousItems, nextItems),
+          downloadedFilePathSet,
+          selectedBucketConnectionId,
+          selectedBucketName,
+          hasConfiguredGlobalCacheDirectory
+        )
       );
       setContentContinuationToken(result.continuationToken ?? null);
       setContentHasMore(result.hasMore);
@@ -1016,6 +1811,26 @@ export function ConnectionNavigator({
       setLoadMoreContentError(extractErrorMessage(error) ?? t("content.list.load_error"));
       setIsLoadingMoreContent(false);
     }
+  }
+
+  async function handleRefreshCurrentView() {
+    if (!selectedNode) {
+      return;
+    }
+
+    if (selectedNode.kind === "connection") {
+      if (selectedConnectionIndicator.status === "connected") {
+        await connectConnection(selectedNode.id);
+      }
+
+      return;
+    }
+
+    if (isLoadingContent || isLoadingMoreContent) {
+      return;
+    }
+
+    setContentRefreshNonce((currentValue) => currentValue + 1);
   }
 
   function updateBucketNode(
@@ -1324,8 +2139,7 @@ export function ConnectionNavigator({
         name: connectionName,
         provider: "aws",
         accessKeyId,
-        secretAccessKey: secretAccessKey.trim(),
-        localCacheDirectory
+        secretAccessKey: secretAccessKey.trim()
       } satisfies AwsConnectionDraft);
 
       const savedConnections = await connectionService.listConnections();
@@ -1712,6 +2526,36 @@ export function ConnectionNavigator({
 
               <p className="content-description">{t("hero.subtitle")}</p>
 
+              <label className="field-group" htmlFor={globalCacheDirectoryFieldId}>
+                <span>{t("settings.download_directory")}</span>
+                <div className="path-picker-row">
+                  <input
+                    id={globalCacheDirectoryFieldId}
+                    type="text"
+                    value={globalLocalCacheDirectory}
+                    placeholder={t("settings.download_directory_placeholder")}
+                    readOnly
+                  />
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    onClick={handlePickGlobalCacheDirectory}
+                    disabled={!isTauri()}
+                  >
+                    {t("settings.download_directory_pick")}
+                  </button>
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    onClick={() => setGlobalLocalCacheDirectory("")}
+                    disabled={!globalLocalCacheDirectory.trim()}
+                  >
+                    {t("common.clear")}
+                  </button>
+                </div>
+                <span className="field-helper">{t("settings.download_directory_helper")}</span>
+              </label>
+
               {submitError ? <p className="status-message-error">{submitError}</p> : null}
             </div>
           ) : selectedNode ? (
@@ -1740,7 +2584,7 @@ export function ConnectionNavigator({
                     <article className="detail-card detail-card-wide">
                       <span className="detail-label">{t("content.detail.cache_path")}</span>
                       <strong>
-                        {selectedNode.localCacheDirectory ??
+                        {buildConnectionCacheDirectory(globalLocalCacheDirectory, selectedNode.id) ??
                           t("content.local_cache.not_configured")}
                       </strong>
                     </article>
@@ -1854,6 +2698,7 @@ export function ConnectionNavigator({
                           <span>{t("content.detail.type")}</span>
                           <span>{t("content.detail.size")}</span>
                           <span>{t("content.detail.last_modified")}</span>
+                          <span />
                         </div>
                       ) : null}
 
@@ -1894,14 +2739,103 @@ export function ConnectionNavigator({
                           ) : (
                             <div
                               key={item.id}
-                              className={`content-list-item content-list-item-file-row${contentViewMode === "compact" ? " is-compact" : ""}`}
+                              className={`content-list-item content-list-item-action content-list-item-file-row${contentViewMode === "compact" ? " is-compact" : ""}`}
+                              onClick={(event) => {
+                                const nextIsOpen = openContentMenuItemId !== item.id;
+                                setOpenContentMenuItemId(nextIsOpen ? item.id : null);
+                                setContentMenuAnchor(
+                                  nextIsOpen
+                                    ? {
+                                        itemId: item.id,
+                                        x: event.clientX,
+                                        y: event.clientY
+                                      }
+                                    : null
+                                );
+                              }}
                             >
                               <span className="content-list-item-main">
-                                <span className="content-list-item-icon content-list-item-icon-file">
-                                  <File size={18} strokeWidth={1.9} />
-                                </span>
+                                {contentViewMode === "compact" ? (
+                                  <span className="content-list-item-topline">
+                                    <span className="content-list-item-icon content-list-item-icon-file">
+                                      <File size={18} strokeWidth={1.9} />
+                                    </span>
+                                    {item.availabilityStatus && item.downloadState ? (
+                                      <CompactFileStatusIcons
+                                        availabilityStatus={item.availabilityStatus}
+                                        downloadState={item.downloadState}
+                                        t={t}
+                                      />
+                                    ) : null}
+                                  </span>
+                                ) : (
+                                  <span className="content-list-item-icon content-list-item-icon-file">
+                                    <File size={18} strokeWidth={1.9} />
+                                  </span>
+                                )}
                                 <span className="content-list-item-copy content-list-item-copy-file">
                                   <strong>{item.name}</strong>
+                                  {item.availabilityStatus && item.downloadState ? (
+                                    contentViewMode === "compact" ? null : (
+                                      <span className="content-file-status-row">
+                                        <FileStatusBadge
+                                          kind="availability"
+                                          label={getAvailabilityLabel(item.availabilityStatus, t)}
+                                          status={item.availabilityStatus}
+                                        />
+                                        {!(
+                                          item.availabilityStatus === "restoring" &&
+                                          item.downloadState === "restoring"
+                                        ) ? (
+                                          <FileStatusBadge
+                                            kind="download"
+                                            label={getDownloadStateLabel(item.downloadState, t)}
+                                            status={item.downloadState}
+                                          />
+                                        ) : null}
+                                      </span>
+                                    )
+                                  ) : null}
+                                  {selectedBucketConnectionId && selectedBucketName ? (
+                                    (() => {
+                                      const fileIdentity = buildFileIdentity(
+                                        selectedBucketConnectionId,
+                                        selectedBucketName,
+                                        item.path
+                                      );
+                                      const activeDownload =
+                                        activeTrackedDownloadIdentityMap.get(fileIdentity);
+
+                                      return activeDownload ? (
+                                        <span className="content-file-download-progress">
+                                          <span className="content-file-download-progress-copy">
+                                            {Math.max(
+                                              0,
+                                              Math.min(
+                                                100,
+                                                Math.round(activeDownload.progressPercent)
+                                              )
+                                            )}
+                                            %
+                                          </span>
+                                          <span className="content-file-download-progress-track">
+                                            <span
+                                              className="content-file-download-progress-bar"
+                                              style={{
+                                                width: `${Math.max(
+                                                  4,
+                                                  Math.min(
+                                                    100,
+                                                    activeDownload.progressPercent || 4
+                                                  )
+                                                )}%`
+                                              }}
+                                            />
+                                          </span>
+                                        </span>
+                                      ) : null;
+                                    })()
+                                  ) : null}
                                   {contentViewMode === "compact" && item.storageClass ? (
                                     <span>{item.storageClass}</span>
                                   ) : null}
@@ -1921,6 +2855,76 @@ export function ConnectionNavigator({
                                   </span>
                                 </>
                               )}
+
+                              <span className="content-list-item-actions">
+                                <ContentItemMenu
+                                  item={item}
+                                  canDownload={
+                                    hasConfiguredGlobalCacheDirectory &&
+                                    item.availabilityStatus === "available" &&
+                                    item.downloadState !== "downloaded" &&
+                                    !(
+                                      selectedBucketConnectionId &&
+                                      selectedBucketName &&
+                                      activeTransferIdentityMap.has(
+                                        buildFileIdentity(
+                                          selectedBucketConnectionId,
+                                          selectedBucketName,
+                                          item.path
+                                        )
+                                      )
+                                    )
+                                  }
+                                  canDownloadAs={
+                                    item.availabilityStatus === "available" &&
+                                    !(
+                                      selectedBucketConnectionId &&
+                                      selectedBucketName &&
+                                      activeTransferIdentityMap.has(
+                                        buildFileIdentity(
+                                          selectedBucketConnectionId,
+                                          selectedBucketName,
+                                          item.path
+                                        )
+                                      )
+                                    ) &&
+                                    !activeDirectDownloadItemIds.includes(item.id)
+                                  }
+                                  canCancelDownload={
+                                    selectedBucketConnectionId &&
+                                    selectedBucketName
+                                      ? activeTransferIdentityMap.has(
+                                          buildFileIdentity(
+                                            selectedBucketConnectionId,
+                                            selectedBucketName,
+                                            item.path
+                                          )
+                                        )
+                                      : false
+                                  }
+                                  canOpenInExplorer={
+                                    hasConfiguredGlobalCacheDirectory &&
+                                    item.downloadState === "downloaded"
+                                  }
+                                  isOpen={openContentMenuItemId === item.id}
+                                  showTrigger={contentViewMode !== "compact"}
+                                  anchorPosition={
+                                    contentMenuAnchor?.itemId === item.id
+                                      ? { x: contentMenuAnchor.x, y: contentMenuAnchor.y }
+                                      : null
+                                  }
+                                  onToggle={(itemId, anchorPosition) => {
+                                    setOpenContentMenuItemId(itemId);
+                                    setContentMenuAnchor(
+                                      itemId && anchorPosition
+                                        ? { itemId, x: anchorPosition.x, y: anchorPosition.y }
+                                        : null
+                                    );
+                                  }}
+                                  onAction={handlePreviewFileAction}
+                                  t={t}
+                                />
+                              </span>
                             </div>
                           )
                         )}
@@ -1931,6 +2935,7 @@ export function ConnectionNavigator({
               )}
 
               {submitError ? <p className="status-message-error">{submitError}</p> : null}
+              {contentActionError ? <p className="status-message-error">{contentActionError}</p> : null}
             </div>
           ) : (
             <div className="content-card content-empty">
@@ -1942,9 +2947,44 @@ export function ConnectionNavigator({
 
           {selectedView === "home" || !selectedNode ? null : (
             <div className="content-panel-footer">
-              {selectedNode.kind === "connection" &&
-              selectedConnectionIndicator.status !== "connected" ? null : (
-                <>
+              <div className="content-panel-footer-transfers">
+                <button
+                  type="button"
+                  className={`transfer-status-button${isDownloadTransferActive ? " is-active is-blinking" : ""}`}
+                  onClick={() => {
+                    if (isDownloadTransferActive) {
+                      setIsTransferModalOpen(true);
+                    }
+                  }}
+                  title={
+                    isDownloadTransferActive
+                      ? t("content.transfer.download_active").replace(
+                          "{count}",
+                          String(activeDownloadPreviewCount)
+                        )
+                      : t("content.transfer.download_inactive")
+                  }
+                >
+                  <Download size={16} strokeWidth={2} />
+                  <span>{t("content.transfer.download_label")}</span>
+                  <strong>{activeDownloadPreviewCount}</strong>
+                </button>
+
+                <button
+                  type="button"
+                  className="transfer-status-button"
+                  title={t("content.transfer.upload_inactive")}
+                >
+                  <Upload size={16} strokeWidth={2} />
+                  <span>{t("content.transfer.upload_label")}</span>
+                  <strong>0</strong>
+                </button>
+              </div>
+
+              <div className="content-panel-footer-meta">
+                {selectedNode.kind === "connection" &&
+                selectedConnectionIndicator.status !== "connected" ? null : (
+                  <>
                   <p className="content-list-counter">{contentCounterLabel}</p>
                   {shouldRenderLoadMoreButton ? (
                     <button
@@ -1965,12 +3005,126 @@ export function ConnectionNavigator({
                   {loadMoreContentError ? (
                     <p className="status-message-error">{loadMoreContentError}</p>
                   ) : null}
-                </>
-              )}
+                  <button
+                    type="button"
+                    className="content-load-more-button"
+                    onClick={() => void handleRefreshCurrentView()}
+                    disabled={
+                      selectedNode.kind === "connection"
+                        ? selectedConnectionIndicator.status === "connecting"
+                        : isLoadingContent || isLoadingMoreContent
+                    }
+                    title={t("content.list.refresh")}
+                  >
+                    <RefreshCw size={15} strokeWidth={2} />
+                    <span>{t("content.list.refresh")}</span>
+                  </button>
+                  </>
+                )}
+              </div>
             </div>
           )}
         </section>
       </div>
+
+      {isTransferModalOpen ? (
+        <div className="modal-backdrop" role="presentation">
+          <div
+            className="modal-card"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="transfer-summary-modal-title"
+          >
+            <div className="modal-header">
+              <div>
+                <p className="modal-eyebrow">{t("content.transfer.modal_eyebrow")}</p>
+                <h2 id="transfer-summary-modal-title" className="modal-title">
+                  {t("content.transfer.modal_title")}
+                </h2>
+              </div>
+            </div>
+
+            <div className="transfer-modal-list">
+              {activeDownloadList.length === 0 ? (
+                <p className="modal-copy">{t("content.transfer.modal_empty")}</p>
+              ) : (
+                activeDownloadList.map((download) => (
+                  <article key={download.operationId} className="transfer-modal-item">
+                    <div className="transfer-modal-item-header">
+                      <strong>{download.fileName}</strong>
+                      <span>{Math.max(0, Math.min(100, Math.round(download.progressPercent)))}%</span>
+                    </div>
+                    <p className="transfer-modal-item-copy">
+                      {download.transferKind === "direct"
+                        ? t("content.transfer.direct_download_label")
+                        : t("content.transfer.tracked_download_label")}
+                      {" · "}
+                      {download.bucketName}
+                    </p>
+                    {download.transferKind === "direct" && download.targetPath ? (
+                      <p className="transfer-modal-item-copy transfer-modal-item-copy-secondary">
+                        {download.targetPath}
+                      </p>
+                    ) : null}
+                    <div className="transfer-progress">
+                      <span
+                        className="transfer-progress-bar"
+                        style={{
+                          width: `${Math.max(4, Math.min(100, download.progressPercent || 4))}%`
+                        }}
+                      />
+                    </div>
+                    <p className="transfer-modal-item-meta">
+                      {formatBytes(download.bytesReceived, locale)} /{" "}
+                      {download.totalBytes > 0
+                        ? formatBytes(download.totalBytes, locale)
+                        : t("content.transfer.size_unknown")}
+                    </p>
+                    <div className="transfer-modal-item-actions">
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        onClick={() => handleCancelActiveDownload(download.operationId)}
+                      >
+                        {t("navigation.menu.cancel_download")}
+                      </button>
+                    </div>
+                  </article>
+                ))
+              )}
+            </div>
+
+            <div className="modal-actions">
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() => setIsTransferModalOpen(false)}
+              >
+                {t("common.close")}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {completionToast ? (
+        <div className="toast-stack" aria-live="polite" aria-atomic="true">
+          <article className="toast-card">
+            <div className="toast-card-copy">
+              <strong>{completionToast.title}</strong>
+              <p>{completionToast.description}</p>
+            </div>
+            <button
+              type="button"
+              className="toast-card-close"
+              onClick={() => setCompletionToast(null)}
+              aria-label={t("common.close")}
+            >
+              <X size={14} strokeWidth={2} />
+            </button>
+          </article>
+        </div>
+      ) : null}
 
       {isModalOpen ? (
         <div className="modal-backdrop" role="presentation">
@@ -2033,10 +3187,8 @@ export function ConnectionNavigator({
                 <AwsConnectionFields
                   accessKeyFieldId={accessKeyFieldId}
                   secretKeyFieldId={secretKeyFieldId}
-                  cacheDirectoryFieldId={cacheDirectoryFieldId}
                   accessKeyId={accessKeyId}
                   secretAccessKey={secretAccessKey}
-                  localCacheDirectory={localCacheDirectory}
                   errors={{
                     accessKeyId: formErrors.accessKeyId,
                     secretAccessKey: formErrors.secretAccessKey
@@ -2050,10 +3202,6 @@ export function ConnectionNavigator({
                   }}
                   onSecretAccessKeyChange={(value) => {
                     setSecretAccessKey(value);
-                    resetConnectionTestState();
-                  }}
-                  onLocalCacheDirectoryChange={(value) => {
-                    setLocalCacheDirectory(value);
                     resetConnectionTestState();
                   }}
                   onTestConnection={handleTestConnection}
@@ -2340,6 +3488,245 @@ function TreeItemMenu({
         </div>
       ) : null}
     </div>
+  );
+}
+
+type ContentItemMenuProps = {
+  item: ContentExplorerItem;
+  canDownload: boolean;
+  canDownloadAs: boolean;
+  canCancelDownload: boolean;
+  canOpenInExplorer: boolean;
+  isOpen: boolean;
+  showTrigger: boolean;
+  anchorPosition: { x: number; y: number } | null;
+  onToggle: (itemId: string | null, anchorPosition?: { x: number; y: number } | null) => void;
+  onAction: (actionId: FileActionId, item: ContentExplorerItem) => void;
+  t: (key: string) => string;
+};
+
+function ContentItemMenu({
+  item,
+  canDownload,
+  canDownloadAs,
+  canCancelDownload,
+  canOpenInExplorer,
+  isOpen,
+  showTrigger,
+  anchorPosition,
+  onToggle,
+  onAction,
+  t
+}: ContentItemMenuProps) {
+  const menuRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!isOpen) {
+      return undefined;
+    }
+
+    function handlePointerDown(event: PointerEvent) {
+      if (!menuRef.current?.contains(event.target as Node)) {
+        onToggle(null, null);
+      }
+    }
+
+    window.addEventListener("pointerdown", handlePointerDown);
+
+    return () => {
+      window.removeEventListener("pointerdown", handlePointerDown);
+    };
+  }, [isOpen, onToggle]);
+
+  return (
+    <div ref={menuRef} className="tree-item-menu">
+      {showTrigger ? (
+        <button
+          type="button"
+          className="tree-menu-trigger"
+          aria-label={t("navigation.item_menu")}
+          onClick={(event) => {
+            event.stopPropagation();
+            onToggle(
+              isOpen ? null : item.id,
+              isOpen ? null : null
+            );
+          }}
+        >
+          <Ellipsis size={16} strokeWidth={2} />
+        </button>
+      ) : null}
+
+      {isOpen ? (
+        <div
+          className={`tree-menu-popup${anchorPosition ? " tree-menu-popup-floating" : ""}`}
+          role="menu"
+          style={
+            anchorPosition
+              ? {
+                  left: `${anchorPosition.x}px`,
+                  top: `${anchorPosition.y}px`
+                }
+              : undefined
+          }
+          onClick={(event) => event.stopPropagation()}
+        >
+          {canCancelDownload ? (
+            <button
+              type="button"
+              className="tree-menu-action"
+              role="menuitem"
+              onClick={(event) => {
+                event.stopPropagation();
+                onAction("cancelDownload", item);
+              }}
+            >
+              {t("navigation.menu.cancel_download")}
+            </button>
+          ) : null}
+          <button
+            type="button"
+            className="tree-menu-action"
+            role="menuitem"
+            disabled={!canDownload}
+            onClick={(event) => {
+              event.stopPropagation();
+              onAction("download", item);
+            }}
+          >
+            {t("navigation.menu.download")}
+          </button>
+          <button
+            type="button"
+            className="tree-menu-action"
+            role="menuitem"
+            disabled={!canDownloadAs}
+            onClick={(event) => {
+              event.stopPropagation();
+              onAction("downloadAs", item);
+            }}
+          >
+            {t("navigation.menu.download_as")}
+          </button>
+          <button
+            type="button"
+            className="tree-menu-action"
+            role="menuitem"
+            disabled={!canOpenInExplorer}
+            onClick={(event) => {
+              event.stopPropagation();
+              onAction("openInExplorer", item);
+            }}
+          >
+            {t("navigation.menu.open_in_file_explorer")}
+          </button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+type FileStatusBadgeProps = {
+  kind: "availability" | "download";
+  label: string;
+  status: FileAvailabilityStatus | FileDownloadState;
+};
+
+function FileStatusBadge({ kind, label, status }: FileStatusBadgeProps) {
+  let icon = <CircleAlert size={12} strokeWidth={2} />;
+
+  if (kind === "availability") {
+    if (status === "available") {
+      icon = <Cloud size={12} strokeWidth={2} />;
+    } else if (status === "archived") {
+      icon = <Archive size={12} strokeWidth={2} />;
+    } else if (status === "restoring") {
+      icon = <LoaderCircle size={12} strokeWidth={2} className="file-status-badge-spinner" />;
+    }
+  } else if (status === "downloaded") {
+    icon = <Check size={12} strokeWidth={2.4} />;
+  } else if (status === "available_to_download") {
+    icon = <Download size={12} strokeWidth={2} />;
+  } else if (status === "restoring") {
+    icon = <LoaderCircle size={12} strokeWidth={2} className="file-status-badge-spinner" />;
+  } else {
+    icon = <Download size={12} strokeWidth={2} />;
+  }
+
+  return (
+    <span className={`file-status-badge file-status-badge-${status}`} title={label}>
+      {icon}
+      <span>{label}</span>
+    </span>
+  );
+}
+
+type CompactFileStatusIconsProps = {
+  availabilityStatus: FileAvailabilityStatus;
+  downloadState: FileDownloadState;
+  t: (key: string) => string;
+};
+
+function CompactFileStatusIcons({
+  availabilityStatus,
+  downloadState,
+  t
+}: CompactFileStatusIconsProps) {
+  const items: Array<{
+    icon: ReactNode;
+    label: string;
+    className: string;
+  }> = [];
+
+  if (availabilityStatus === "available") {
+    items.push({
+      icon: <Cloud size={12} strokeWidth={2} />,
+      label: getAvailabilityLabel(availabilityStatus, t),
+      className: "is-available"
+    });
+  } else if (availabilityStatus === "archived") {
+    items.push({
+      icon: <Archive size={12} strokeWidth={2} />,
+      label: getAvailabilityLabel(availabilityStatus, t),
+      className: "is-archived"
+    });
+  } else {
+    items.push({
+      icon: <LoaderCircle size={12} strokeWidth={2} className="file-status-badge-spinner" />,
+      label: getAvailabilityLabel(availabilityStatus, t),
+      className: "is-restoring"
+    });
+  }
+
+  if (!(availabilityStatus === "restoring" && downloadState === "restoring")) {
+    if (downloadState === "available_to_download") {
+      items.push({
+        icon: <Download size={12} strokeWidth={2} />,
+        label: getDownloadStateLabel(downloadState, t),
+        className: "is-ready"
+      });
+    } else if (downloadState === "not_downloaded") {
+      items.push({
+        icon: <Download size={12} strokeWidth={2} />,
+        label: getDownloadStateLabel(downloadState, t),
+        className: "is-not-downloaded"
+      });
+    }
+  }
+
+  return (
+    <span className="content-file-status-icons" aria-label={t("content.detail.local_state")}>
+      {items.map((item, index) => (
+        <span
+          key={`${item.className}-${index}`}
+          className={`content-file-status-icon ${item.className}`}
+          title={item.label}
+          aria-label={item.label}
+        >
+          {item.icon}
+        </span>
+      ))}
+    </span>
   );
 }
 

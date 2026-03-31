@@ -31,6 +31,20 @@ export type AwsBucketItemsResult = {
   hasMore: boolean;
 };
 
+export type AwsDownloadProgressEvent = {
+  operationId: string;
+  transferKind: "cache" | "direct";
+  connectionId: string;
+  bucketName: string;
+  objectKey: string;
+  targetPath?: string | null;
+  bytesReceived: number;
+  totalBytes: number;
+  progressPercent: number;
+  state: "progress" | "completed" | "failed" | "cancelled";
+  error?: string | null;
+};
+
 export async function testAwsConnection(
   accessKeyId: string,
   secretAccessKey: string
@@ -78,5 +92,89 @@ export async function listAwsBucketItems(
     prefix,
     bucketRegion,
     continuationToken
+  });
+}
+
+export async function startAwsCacheDownload(
+  operationId: string,
+  accessKeyId: string,
+  secretAccessKey: string,
+  connectionId: string,
+  connectionName: string,
+  bucketName: string,
+  objectKey: string,
+  globalLocalCacheDirectory: string,
+  bucketRegion?: string
+): Promise<string> {
+  return invoke<string>("start_aws_cache_download", {
+    operationId,
+    accessKeyId,
+    secretAccessKey,
+    connectionId,
+    connectionName,
+    bucketName,
+    objectKey,
+    globalLocalCacheDirectory,
+    bucketRegion
+  });
+}
+
+export async function downloadAwsObjectToPath(
+  operationId: string,
+  accessKeyId: string,
+  secretAccessKey: string,
+  connectionId: string,
+  bucketName: string,
+  objectKey: string,
+  destinationPath: string,
+  bucketRegion?: string
+): Promise<string> {
+  return invoke<string>("download_aws_object_to_path", {
+    operationId,
+    accessKeyId,
+    secretAccessKey,
+    connectionId,
+    bucketName,
+    objectKey,
+    destinationPath,
+    bucketRegion
+  });
+}
+
+export async function cancelAwsDownload(operationId: string): Promise<void> {
+  await invoke("cancel_aws_download", {
+    operationId
+  });
+}
+
+export async function findAwsCachedObjects(
+  connectionId: string,
+  connectionName: string,
+  bucketName: string,
+  globalLocalCacheDirectory: string,
+  objectKeys: string[]
+): Promise<string[]> {
+  return invoke<string[]>("find_aws_cached_objects", {
+    connectionId,
+    connectionName,
+    bucketName,
+    globalLocalCacheDirectory,
+    objectKeys
+  });
+}
+
+export async function openAwsCachedObjectParent(
+  connectionId: string,
+  connectionName: string,
+  bucketName: string,
+  globalLocalCacheDirectory: string,
+  objectKey: string
+): Promise<void> {
+  await invoke("open_aws_cached_object_parent", {
+    connectionId,
+    connectionName,
+    bucketName,
+    globalLocalCacheDirectory,
+    objectKey
   });
 }

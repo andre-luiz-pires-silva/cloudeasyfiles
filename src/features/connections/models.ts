@@ -4,7 +4,6 @@ export type SavedConnectionSummary = {
   id: string;
   name: string;
   provider: ConnectionProvider;
-  localCacheDirectory?: string;
 };
 
 export type AwsConnectionDraft = {
@@ -13,7 +12,6 @@ export type AwsConnectionDraft = {
   provider: "aws";
   accessKeyId: string;
   secretAccessKey: string;
-  localCacheDirectory: string;
 };
 
 export type ConnectionFormMode = "create" | "edit";

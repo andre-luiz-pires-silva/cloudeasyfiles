@@ -43,8 +43,7 @@ export class ConnectionService {
       name: metadata.name,
       provider: "aws",
       accessKeyId: secrets.accessKeyId,
-      secretAccessKey: secrets.secretAccessKey,
-      localCacheDirectory: metadata.localCacheDirectory ?? ""
+      secretAccessKey: secrets.secretAccessKey
     };
   }
 
@@ -54,8 +53,7 @@ export class ConnectionService {
     const nextConnection: SavedConnectionSummary = {
       id: connectionId,
       name: draft.name.trim(),
-      provider: "aws",
-      localCacheDirectory: draft.localCacheDirectory.trim() || undefined
+      provider: "aws"
     };
 
     const nextConnections = sortConnections(

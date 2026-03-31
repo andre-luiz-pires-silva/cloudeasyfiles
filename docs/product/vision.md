@@ -55,7 +55,7 @@ The current product scope includes:
 - incremental explorer listing with `Carregar mais`
 - folder navigation over flat object storage, backed by prefixes and explicit folder sentinels when created in the app
 - simplified storage availability states
-- tracked download monitoring with optional local cache
+- tracked and direct download monitoring with optional globally configured local cache
 - separation between quick local filtering and future advanced search
 
 ## Long-Term Direction

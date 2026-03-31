@@ -5,17 +5,14 @@ type ConnectionTestStatus = "idle" | "testing" | "success" | "error";
 type AwsConnectionFieldsProps = {
   accessKeyFieldId: string;
   secretKeyFieldId: string;
-  cacheDirectoryFieldId: string;
   accessKeyId: string;
   secretAccessKey: string;
-  localCacheDirectory: string;
   errors: Partial<Record<"accessKeyId" | "secretAccessKey", string>>;
   connectionTestStatus: ConnectionTestStatus;
   connectionTestMessage: string | null;
   isTestButtonDisabled: boolean;
   onAccessKeyIdChange: (value: string) => void;
   onSecretAccessKeyChange: (value: string) => void;
-  onLocalCacheDirectoryChange: (value: string) => void;
   onTestConnection: () => void;
   t: (key: string) => string;
 };
@@ -23,17 +20,14 @@ type AwsConnectionFieldsProps = {
 export function AwsConnectionFields({
   accessKeyFieldId,
   secretKeyFieldId,
-  cacheDirectoryFieldId,
   accessKeyId,
   secretAccessKey,
-  localCacheDirectory,
   errors,
   connectionTestStatus,
   connectionTestMessage,
   isTestButtonDisabled,
   onAccessKeyIdChange,
   onSecretAccessKeyChange,
-  onLocalCacheDirectoryChange,
   onTestConnection,
   t
 }: AwsConnectionFieldsProps) {
@@ -63,18 +57,6 @@ export function AwsConnectionFields({
         {errors.secretAccessKey ? (
           <span className="field-error">{errors.secretAccessKey}</span>
         ) : null}
-      </label>
-
-      <label className="field-group" htmlFor={cacheDirectoryFieldId}>
-        <span>{t("navigation.modal.aws.cache_directory_label")}</span>
-        <input
-          id={cacheDirectoryFieldId}
-          type="text"
-          value={localCacheDirectory}
-          placeholder={t("navigation.modal.aws.cache_directory_placeholder")}
-          onChange={(event) => onLocalCacheDirectoryChange(event.target.value)}
-        />
-        <span className="field-helper">{t("navigation.modal.aws.cache_directory_helper")}</span>
       </label>
 
       <div className="connection-test-panel">

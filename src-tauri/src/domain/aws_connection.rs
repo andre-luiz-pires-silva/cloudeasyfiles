@@ -47,3 +47,10 @@ pub struct AwsBucketItemsResult {
     pub continuation_token: Option<String>,
     pub has_more: bool,
 }
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AwsCacheDownloadResult {
+    pub local_path: String,
+    pub bytes_written: i64,
+}

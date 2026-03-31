@@ -11,11 +11,11 @@ Current initial focus:
 - structural navigation by connection and container
 - central object browsing with navigable folders over object storage
 - archival storage awareness and restore workflows
-- optional local cache for tracked downloads
+- optional global local cache for tracked downloads
 
 ## Current Status
 
-The project is in active architecture and feature-definition mode with AWS integration already shaping the product model. The documentation is organized to support spec-oriented development and AI-assisted implementation.
+The project is in active architecture and implementation mode. AWS is the first wired provider and currently covers connection management, bucket browsing, incremental listing, manual refresh, tracked cache download progress, `Download As`, transfer tracking in the footer and modal, download cancelation, cached-file detection, and opening cached files in the local file explorer. Azure is still a documented target rather than an implemented provider path.
 
 ## Main Features
 
@@ -27,7 +27,7 @@ The project is in active architecture and feature-definition mode with AWS integ
 - provider-aware advanced search direction
 - archival restore workflows
 - tracked and direct downloads
-- optional local cache
+- optional global local cache
 
 ## Documentation Map
 
@@ -76,6 +76,6 @@ The project is in active architecture and feature-definition mode with AWS integ
 - Provider abstraction must simplify usage without hiding real provider differences.
 - Explorer listing uses incremental loading with `Carregar mais`, not numbered pages.
 - Explorer counters reflect normalized navigable entries, not raw provider payload counts.
-- Refresh is manual by default, with polling only during active restore or tracked download monitoring.
+- Refresh is manual by default, with monitoring UI driven by active downloads and refresh polling reserved for restore-style workflows.
 
 For strategic detail, architecture rules, decisions, and feature behavior, use the linked documents above instead of expanding this file again.

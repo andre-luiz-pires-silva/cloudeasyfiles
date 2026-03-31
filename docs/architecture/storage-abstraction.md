@@ -127,7 +127,7 @@ The UI should provide a shared restore entry point while adapting the available 
 - restore is triggered through the provider API
 - restore is a single-file action
 - restore status is tracked through polling
-- polling is enabled only while at least one restore or tracked download is actively being monitored
+- polling is enabled only while at least one restore workflow is actively being monitored
 - polling is not a permanent background listing behavior
 - manual refresh is also available
 - status is shown directly in the file list
@@ -144,10 +144,9 @@ Once available, the existing download modes still apply:
 Rules:
 
 - `CacheDownload` is the product meaning of `Download`.
-- `CacheDownload` stores the file in the configured local cache and participates in tracked progress monitoring.
+- In the current AWS implementation, `CacheDownload` stores the file in the globally configured local cache and participates in tracked progress monitoring.
 - `DirectDownload` is the product meaning of `Download As`.
-- `DirectDownload` exports the file to a user-chosen destination and is not tracked after the export flow completes.
-- Canceling a tracked download discards partial progress rather than preserving resumable local state in V1.
-- Pause and resume are out of scope for V1 tracked downloads.
-- The number of simultaneous tracked downloads is constrained by the active provider adapter rather than by a single hardcoded cross-provider limit.
-- When the provider limit is reached, the UI should not imply that additional downloads are running in parallel.
+- In the current AWS implementation, `DirectDownload` writes to a user-selected destination, participates in active transfer monitoring while running, and does not participate in tracked local-cache state after completion.
+- The current implementation exposes cancel controls for active downloads, but not pause or resume.
+- The current UI emits progress events for active `CacheDownload` and `DirectDownload` operations and summarizes them in the bottom bar and transfer modal.
+- Cached-file detection is based on deterministic local file paths derived from connection, container, and object key.

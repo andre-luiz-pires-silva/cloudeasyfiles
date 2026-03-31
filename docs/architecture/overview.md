@@ -27,7 +27,7 @@ CloudEasyFiles is structured to keep product behavior coherent while isolating p
 ## Cross-Cutting Rules
 
 - The cloud is always the source of truth.
-- Local cache is optional and limited to downloaded files.
+- Local cache is optional, configured globally in the app, and limited to downloaded files.
 - Navigation context is defined structurally in the sidebar.
 - Object exploration happens in the main content area.
 - Filtering and advanced search are distinct architectural concepts.
@@ -35,7 +35,7 @@ CloudEasyFiles is structured to keep product behavior coherent while isolating p
 - Provider-native listing responses must be normalized before they drive explorer UI counts or rows.
 - The explorer folder model is a domain abstraction over flat object storage, using prefix inference plus explicit trailing-slash sentinels when the app creates folders.
 - Automatic refresh is activity-driven rather than continuous.
-- Outside active restore or tracked download workflows, the UI refreshes cloud state only on explicit user action.
+- Outside active restore workflows, the UI refreshes cloud state only on explicit user action.
 
 ## Related Documents
 

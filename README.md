@@ -4,6 +4,8 @@
 
 CloudEasyFiles is a desktop application that provides a clean, intuitive interface for managing files across cloud storage providers. It is designed to reduce the complexity of working directly with provider-specific APIs and workflows, offering a consistent experience for browsing, transferring, and managing cloud files with an emphasis on simplicity and ease of use.
 
+The current working build is AWS-first. It already supports saved AWS connections, bucket browsing, incremental listing, manual refresh, tracked cache downloads with progress, `Download As`, transfer tracking in the footer and modal, download cancelation, and local-cache-aware file state in the explorer. Azure remains part of the product direction, but is not wired into the current implementation yet.
+
 For the project documentation map, architecture references, ADRs, and feature specs, see [PROJECT.md](./PROJECT.md) and the documents under [`/docs`](./docs).
 
 The project initially targets AWS S3 and Azure Blob Storage, including archival storage workflows such as AWS Glacier restores and Azure Archive tier rehydration.
@@ -48,16 +50,18 @@ The repository currently includes SVG placeholders that can later be replaced by
 - Update the main content area based on the selected tree node, showing relevant details and contextual actions
 - Keep the sidebar intentionally simplified, showing only saved connections and cloud containers
 - Explore files and folders in the main content area, where object browsing happens level by level
-- Upload, download, delete, copy, and move files
-- Track operations with progress bars and status indicators
+- Run tracked AWS cache downloads with progress indicators
+- Export files with `Download As` to a user-selected destination
+- Track active downloads from the bottom bar and an active-transfer modal
+- Cancel active `Download` and `Download As` operations from the file menu or transfer modal
 - Use a unified interface across supported providers
 - View clear file state indicators such as available, archived, and restoring
-- Understand file status clearly through local indicators such as not downloaded, downloaded, and outdated
+- Understand file status clearly through local indicators such as not downloaded, available to download, restoring, and downloaded
 - Simplify archival workflows:
   - AWS S3 Glacier restore requests
   - Azure Blob Archive rehydration
 - Normalize storage tier differences across providers so archival content is presented consistently
-- Optionally track downloaded files through a local cache directory
+- Optionally track downloaded files through a global local cache directory configured on Home
 - Quickly refine visible items through `Filter`
 - Prepare more powerful provider-aware discovery through `Advanced Search`
 - Build on an extensible architecture designed for future provider support
@@ -167,7 +171,7 @@ Typical workflow:
 6. Browse immediate folders and files in the main panel, one level at a time
 7. Use `Filter` to quickly refine the items currently visible on screen
 8. Use `Advanced Search` when you need more powerful search options
-9. Perform file operations such as upload, download, copy, move, or delete
+9. Perform available file operations such as tracked download and local cache inspection
 10. Monitor operation progress and file state changes in the UI
 11. Trigger restore or rehydration workflows for archived content when needed
 
@@ -186,7 +190,7 @@ Typical workflow:
 - The current path is shown through a breadcrumb that starts at the selected connection
 - Files and folders are always listed from the cloud provider
 - The local cache does not replace cloud listing and does not act as a sync engine
-- Local information only affects status indicators such as whether a file is downloaded or outdated
+- Local information only affects status indicators such as whether a file is downloaded and eligible for tracked download
 
 Explorer counts are based on normalized navigable entries in the current listing, not on the raw number of objects or blobs returned by the provider. This matters because flat object-storage responses may be adapted into folders, grouped prefixes, explicit folder sentinels, or deduplicated visual items before they are rendered.
 
@@ -247,19 +251,20 @@ The restore experience is intended to be direct and understandable:
 
 ### Local Cache (Optional)
 
-Users can optionally configure a local cache directory for a connection.
+Users can optionally configure a global local cache directory on the Home screen.
 
 When local cache is enabled:
 
-- Downloaded files are stored in the configured local directory
-- The app tracks file status using cloud metadata and cached metadata
-- The UI can show whether a file is downloaded or outdated
+- Tracked downloads are stored under `<cache>/<connection-id>/<bucket-name>/<object-key>`
+- The app checks whether listed AWS objects already exist in that cache path
+- The UI can show whether a file is not downloaded, available to download, restoring, or downloaded
+- Cached files can expose an action to open their local parent folder
 
 When local cache is disabled:
 
-- Downloads behave like a browser-style save operation
-- The user chooses where the file should be written
-- The app does not track the downloaded file afterward
+- The tracked `Download` action is unavailable
+- The app still lists cloud objects normally
+- No local cached-file state is resolved for that connection context
 
 The cloud provider always remains the source of truth. Local files are treated as convenience copies, not authoritative data.
 
@@ -268,11 +273,13 @@ The cloud provider always remains the source of truth. Local files are treated a
 CloudEasyFiles supports two user-facing download flows:
 
 - `Download`
-  - Uses the local cache when a cache directory is configured, allowing the app to track file state
+  - In the current AWS implementation, this writes the file into the configured local cache and emits tracked progress events
 - `Download As...`
-  - Lets the user choose a destination manually and does not add the file to the tracked cache
+  - Exports the file to a user-selected destination
+  - Remains separate from tracked cache downloads and does not update tracked local-cache state after completion
+  - Still participates in active transfer monitoring while the export is running
 
-If a user triggers a download without a configured cache, the app should warn that the file will not be tracked locally and can offer a shortcut to configure the cache. Even when cache is enabled, users can still choose `Download As...` for one-off manual downloads.
+The current transfer monitor is download-focused. The bottom bar shows persistent download and upload summary buttons, but only downloads are active today. When at least one `Download` or `Download As` operation is running, the download summary opens a modal with active transfer progress. Active downloads can be canceled from the file context menu or from the transfer modal. Pause and resume are not implemented in the current build. When `Download As` completes successfully, the app shows a subtle confirmation toast with the saved destination path.
 
 ### Explicit Non-Goals
 
