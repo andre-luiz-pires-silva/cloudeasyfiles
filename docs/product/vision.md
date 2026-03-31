@@ -33,6 +33,7 @@ The product should:
 - normalize shared concepts where that helps usability
 - preserve real provider differences where they matter
 - support archival workflows in a way that is understandable to non-specialist users
+- make restore cost and timing tradeoffs explicit before a user starts an archival retrieval
 
 ## Product Positioning
 
@@ -55,6 +56,7 @@ The current product scope includes:
 - incremental explorer listing with `Carregar mais`
 - folder navigation over flat object storage, backed by prefixes and explicit folder sentinels when created in the app
 - simplified storage availability states
+- AWS-specific restore workflows for archived objects, with room for future provider-specific variants
 - tracked and direct download monitoring with optional globally configured local cache
 - separation between quick local filtering and future advanced search
 
@@ -65,6 +67,7 @@ CloudEasyFiles should evolve toward a maintainable provider-aware platform for c
 The long-term direction includes:
 
 - strong provider abstraction
+- provider-specific workflows where abstraction would be misleading
 - sustainable feature growth through specs
 - explicit architectural decisions
 - documentation that supports both human contributors and AI-assisted implementation

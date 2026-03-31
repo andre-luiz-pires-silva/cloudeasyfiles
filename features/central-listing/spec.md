@@ -45,7 +45,6 @@ The sidebar is intentionally simplified, so the main panel must handle object ex
 - The displayed loaded count must use normalized navigable entries rather than raw provider response counts.
 - The UI must not assume an exact global total of items exists for the current directory or container.
 - Automatic refresh must not run continuously for ordinary browsing.
-- Automatic refresh may run only while restore workflows are actively being monitored.
 - Manual refresh remains available even when no background monitoring is active.
 
 ## UX Expectations
@@ -86,11 +85,10 @@ The sidebar is intentionally simplified, so the main panel must handle object ex
 - The loaded count is derived from normalized navigable entries rather than raw provider payload counts.
 - Local filter does not invalidate the ability to request more results when more provider data exists.
 - The active context can be refreshed manually without requiring navigation away and back.
-- In the absence of active restore monitoring, the listing does not poll automatically.
+- The listing does not poll automatically for restore completion; state updates arrive through navigation, screen open, reconnection, or explicit refresh.
 
 ## Out of Scope
 
-- Separate dashboard for restore monitoring
 - Using the sidebar as the primary object explorer
 - Classic numbered pagination
 - User-configurable page size in the explorer UI

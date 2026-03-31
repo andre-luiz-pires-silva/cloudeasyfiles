@@ -35,7 +35,8 @@ CloudEasyFiles is structured to keep product behavior coherent while isolating p
 - Provider-native listing responses must be normalized before they drive explorer UI counts or rows.
 - The explorer folder model is a domain abstraction over flat object storage, using prefix inference plus explicit trailing-slash sentinels when the app creates folders.
 - Automatic refresh is activity-driven rather than continuous.
-- Outside active restore workflows, the UI refreshes cloud state only on explicit user action.
+- Restore and rehydration flows may be provider-specific when provider behavior materially affects UX or orchestration.
+- Outside explicit refresh, navigation, screen-open, and reconnection events, the UI does not continuously poll restore state.
 
 ## Related Documents
 

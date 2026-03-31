@@ -154,3 +154,22 @@ Interpretation rules:
 - In the current AWS implementation, the tracked local path is rooted under a globally configured cache directory and a stable per-connection folder derived from `connection_id`.
 - Direct export flows such as `Download As` do not create or update tracked local cache state after the export flow completes.
 - A freshness or `Outdated` state is not part of the current tracked-download implementation.
+
+## Restore Concepts
+
+Restore behavior is intentionally split between normalized availability and provider-specific execution details.
+
+Representative concepts:
+
+- `AvailabilityStatus`
+- provider-native restore metadata
+- active restore operation summary
+
+Rules:
+
+- `AvailabilityStatus` may be `Available`, `Archived`, or `Restoring`.
+- Current restore status must be resolved from provider data rather than local persisted history.
+- Restore requests are single-file actions.
+- Active restore activity is an operational dataset, not a permanent audit log.
+- In the AWS flow, active restores are rediscovered by reading object metadata rather than querying a global restore-jobs API.
+- Restore tier choices and retention days are provider-specific workflow inputs, not generic domain enums that assume parity across providers.

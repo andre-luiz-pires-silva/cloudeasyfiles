@@ -47,7 +47,7 @@ CloudEasyFiles distinguishes between cloud browsing and file acquisition. The cu
 - The current implementation resolves tracked cache presence by checking whether the expected cached file exists locally.
 - The current tracked cache root is configured globally in the app and uses a stable per-connection folder derived from `connection_id`.
 - The application must not claim a single global concurrent-download number across providers.
-- Outside active restore workflows, the application must not poll automatically for updated listing state.
+- Restore state remains provider-driven and may affect download eligibility, but restore monitoring is not implemented as continuous automatic polling.
 - Manual refresh remains the standard way to update cloud state when no monitored workflow is active.
 
 ## UX Expectations
@@ -66,7 +66,7 @@ CloudEasyFiles distinguishes between cloud browsing and file acquisition. The cu
 - Active `Download` and `Download As` operations produce a bottom-bar summary affordance.
 - Opening the summary affordance reveals a modal with active download details and progress.
 - The file context menu and transfer modal both expose cancel controls for active downloads.
-- The documented refresh model uses manual refresh by default and polling only while restore workflows are active.
+- The documented refresh model uses manual refresh and interaction-driven state refresh rather than continuous polling.
 
 ## Out of Scope
 

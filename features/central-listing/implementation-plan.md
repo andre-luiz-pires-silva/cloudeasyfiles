@@ -48,7 +48,7 @@
 - empty directories
 - prefix-only structures with no immediate files
 - explicit folder sentinels with no descendants
-- archived objects that become available after restore polling
+- archived objects that become available after navigation, refresh, or reconnect-driven state refresh
 - provider responses that include folder markers or prefix-grouping data
 - duplicate-looking entries that must collapse into one navigable explorer item
 - local filter active while additional provider pages are loaded

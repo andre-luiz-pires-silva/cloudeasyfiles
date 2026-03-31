@@ -15,7 +15,7 @@ Current initial focus:
 
 ## Current Status
 
-The project is in active architecture and implementation mode. AWS is the first wired provider and currently covers connection management, bucket browsing, incremental listing, manual refresh, tracked cache download progress, `Download As`, transfer tracking in the footer and modal, download cancelation, cached-file detection, and opening cached files in the local file explorer. Azure is still a documented target rather than an implemented provider path.
+The project is in active architecture and implementation mode. AWS is the first wired provider and currently covers connection management, bucket browsing, incremental listing, manual refresh, tracked cache download progress, `Download As`, transfer tracking in the footer and modal, download cancelation, cached-file detection, and opening cached files in the local file explorer. AWS-specific restore workflows are documented as the next concrete archival step. Azure is still a documented target rather than an implemented provider path.
 
 ## Main Features
 
@@ -52,12 +52,14 @@ The project is in active architecture and implementation mode. AWS is the first 
 - [ADR-003: Provider Abstraction with Real Limitations](./docs/decisions/ADR-003-provider-abstraction-with-real-limitations.md)
 - [ADR-004: Incremental Explorer Listing and Normalized Counts](./docs/decisions/ADR-004-incremental-explorer-listing-and-normalized-counts.md)
 - [ADR-005: Hybrid Folder Representation for Object Storage](./docs/decisions/ADR-005-hybrid-folder-representation-for-object-storage.md)
+- [ADR-006: Provider-Specific Restore with No Local History](./docs/decisions/ADR-006-provider-specific-restore-with-no-local-history.md)
 
 ### Feature Specs
 
 - [Folder Navigation](./features/folder-navigation/spec.md)
 - [Central Listing](./features/central-listing/spec.md)
 - [Download Management](./features/download-management/spec.md)
+- [File Restore](./features/file-restore/spec.md)
 - [Simple Filter](./features/simple-filter/spec.md)
 - [Advanced Search](./features/advanced-search/spec.md)
 
@@ -65,6 +67,7 @@ The project is in active architecture and implementation mode. AWS is the first 
 
 - [Folder Navigation Plan](./features/folder-navigation/implementation-plan.md)
 - [Central Listing Plan](./features/central-listing/implementation-plan.md)
+- [File Restore Plan](./features/file-restore/implementation-plan.md)
 - [Simple Filter Plan](./features/simple-filter/implementation-plan.md)
 - [Advanced Search Plan](./features/advanced-search/implementation-plan.md)
 
@@ -76,6 +79,7 @@ The project is in active architecture and implementation mode. AWS is the first 
 - Provider abstraction must simplify usage without hiding real provider differences.
 - Explorer listing uses incremental loading with `Carregar mais`, not numbered pages.
 - Explorer counters reflect normalized navigable entries, not raw provider payload counts.
-- Refresh is manual by default, with monitoring UI driven by active downloads and refresh polling reserved for restore-style workflows.
+- Restore is provider-specific where provider behavior materially affects UX or implementation.
+- Refresh is manual and interaction-driven by default; restore state is rediscovered from the provider on navigation, refresh, screen open, and reconnection rather than continuous polling.
 
 For strategic detail, architecture rules, decisions, and feature behavior, use the linked documents above instead of expanding this file again.

@@ -10,7 +10,7 @@ Current emphasis:
 - structural navigation
 - central content listing
 - storage availability awareness
-- archival restore workflows
+- AWS-specific archival restore workflows
 - local cache foundations
 
 ## Near-Term Priorities
@@ -19,8 +19,8 @@ Current emphasis:
 - incremental listing continuation with `Carregar mais`
 - simple local filtering in sidebar and main content area
 - advanced search entry point with provider-aware behavior
-- continued AWS integration for object listing and archival workflows
-- Azure implementation aligned to the same product model
+- continued AWS integration for object listing and archival restore workflows
+- Azure implementation aligned to the same product model while keeping provider-specific restore behavior separate
 
 ## Follow-Up Opportunities
 
