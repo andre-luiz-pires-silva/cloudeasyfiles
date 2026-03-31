@@ -4,7 +4,7 @@
 
 CloudEasyFiles is a desktop application that provides a clean, intuitive interface for managing files across cloud storage providers. It is designed to reduce the complexity of working directly with provider-specific APIs and workflows, offering a consistent experience for browsing, transferring, and managing cloud files with an emphasis on simplicity and ease of use.
 
-The current working build is AWS-first. It already supports saved AWS connections, bucket browsing, incremental listing, manual refresh, tracked cache downloads with progress, `Download As`, transfer tracking in the footer and modal, download cancelation, and local-cache-aware file state in the explorer. Azure remains part of the product direction, but is not wired into the current implementation yet.
+The current working build is AWS-first. It already supports saved AWS connections, bucket browsing, incremental listing, manual refresh, tracked cache downloads with progress, `Download As`, transfer tracking in the footer and modal, download cancelation, local-cache-aware file state in the explorer, and provider-driven restore-state detection for archived S3 objects. Azure remains part of the product direction, but is not wired into the current implementation yet. AWS restore request submission is still documented as the next archival workflow step rather than a delivered UI flow.
 
 For the project documentation map, architecture references, ADRs, and feature specs, see [PROJECT.md](./PROJECT.md) and the documents under [`/docs`](./docs).
 
@@ -23,16 +23,16 @@ AWS and Azure both offer low-cost archival storage options such as Glacier, Deep
 - Retrieval may take minutes or even hours
 - Provider consoles are often cumbersome for this workflow
 
-CloudEasyFiles exists in part to make this practical. Instead of forcing users to learn two different archival workflows, the app presents a simpler and more consistent way to restore, monitor, and download archived files.
+CloudEasyFiles exists in part to make this practical. Instead of forcing users to learn two different archival workflows, the project is being shaped to present a simpler and more consistent way to detect restore state, monitor availability, and download archived files.
 
 ## Why CloudEasyFiles
 
 CloudEasyFiles makes low-cost cloud storage more practical to use day to day.
 
 - It abstracts provider-specific archival complexity
-- It gives users a unified way to request restores
-- It shows restore progress directly in the app
+- It shows provider-driven archival availability directly in the explorer
 - It makes it clear when a file is ready to download
+- It keeps room for provider-specific restore request flows instead of forcing fake parity
 
 ## Screenshots
 
@@ -58,8 +58,9 @@ The repository currently includes SVG placeholders that can later be replaced by
 - View clear file state indicators such as available, archived, and restoring
 - Understand file status clearly through local indicators such as not downloaded, available to download, restoring, and downloaded
 - Simplify archival workflows:
-  - AWS S3 Glacier restore requests
-  - Azure Blob Archive rehydration
+  - AWS S3 restore-state detection and availability summaries
+  - future AWS S3 Glacier restore requests
+  - future Azure Blob Archive rehydration
 - Normalize storage tier differences across providers so archival content is presented consistently
 - Optionally track downloaded files through a global local cache directory configured on Home
 - Quickly refine visible items through `Filter`
@@ -173,7 +174,7 @@ Typical workflow:
 8. Use `Advanced Search` when you need more powerful search options
 9. Perform available file operations such as tracked download and local cache inspection
 10. Monitor operation progress and file state changes in the UI
-11. Trigger restore or rehydration workflows for archived content when needed
+11. Refresh the current listing when needed to rediscover archived, restoring, or temporarily available content
 
 ### How Cloud Listing Works
 
@@ -217,6 +218,10 @@ In the main explorer, the counter language is:
 - without local filter: `X itens carregados`
 - with local filter: `X itens filtrados de Y carregados`
 
+The current AWS explorer also supports status-only refinement for the already loaded file set. The toolbar can narrow visible files by normalized status such as `Downloaded`, `Available`, `Restoring`, and `Archived`, while folders remain visible for navigation.
+
+When the current loaded context contains files with known statuses, the footer counter adds a compact breakdown beside the loaded-count label so the user can understand the mix of downloaded, available, restoring, and archived items without leaving the current view.
+
 The UI does not promise a total number of pages or a reliable global total of items for the directory based only on native provider listing.
 
 ### Storage Availability
@@ -225,21 +230,24 @@ CloudEasyFiles simplifies storage tier differences across providers:
 
 - AWS Glacier-style content and Azure Archive content are both presented as `Archived`
 - Restore and rehydration workflows are both presented as `Restoring`
+- Temporarily restored AWS archival objects are treated as `Available` when the provider reports that they can currently be used
 - The UI focuses on whether a file is available to use, not on provider-specific storage jargon
 
 ### Archival Storage Support
 
 CloudEasyFiles is designed to make archived storage easier to work with.
 
-- The app detects when a file is archived
-- The app lets the user request a restore when needed
-- The app shows when a file is still restoring
-- The app allows download when the file becomes available again
-- Provider-specific restore options are handled transparently in the workflow
+- The current AWS implementation detects when a file is archived
+- The current AWS implementation shows when a file is still restoring
+- The current AWS implementation recognizes when AWS reports a temporarily restored archival object as available again
+- The current AWS implementation allows download when the file becomes available
+- Provider-specific restore request flows are still documented separately from the current delivered UI
 
 ### Restore Workflow
 
-The restore experience is intended to be direct and understandable:
+The restore request experience is currently documented as the intended next AWS archival workflow, not as a delivered UI flow yet.
+
+The planned experience is intended to be direct and understandable:
 
 1. The user sees a file marked as archived
 2. The user clicks `Restore`
@@ -296,8 +304,8 @@ It also intentionally avoids turning the sidebar into a full object explorer. De
 
 - Standard object browsing and file operations
 - Archived object visibility and status reporting
-- AWS Glacier restore request flow
-- Azure Archive tier rehydration flow
+- planned AWS Glacier restore request flow
+- planned Azure Archive tier rehydration flow
 
 ## Project Structure
 

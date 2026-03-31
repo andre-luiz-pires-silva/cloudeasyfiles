@@ -15,7 +15,7 @@ Current initial focus:
 
 ## Current Status
 
-The project is in active architecture and implementation mode. AWS is the first wired provider and currently covers connection management, bucket browsing, incremental listing, manual refresh, tracked cache download progress, `Download As`, transfer tracking in the footer and modal, download cancelation, cached-file detection, and opening cached files in the local file explorer. AWS-specific restore workflows are documented as the next concrete archival step. Azure is still a documented target rather than an implemented provider path.
+The project is in active architecture and implementation mode. AWS is the first wired provider and currently covers connection management, bucket browsing, incremental listing, manual refresh, tracked cache download progress, `Download As`, transfer tracking in the footer and modal, download cancelation, cached-file detection, opening cached files in the local file explorer, and provider-driven restore-state visibility for archived S3 objects. The AWS restore request workflow itself is still documented as the next concrete archival step. Azure is still a documented target rather than an implemented provider path.
 
 ## Main Features
 
@@ -25,7 +25,7 @@ The project is in active architecture and implementation mode. AWS is the first 
 - folder navigation over flat object storage
 - simple local filtering
 - provider-aware advanced search direction
-- archival restore workflows
+- archival restore-state visibility and future restore workflows
 - tracked and direct downloads
 - optional global local cache
 
@@ -79,6 +79,7 @@ The project is in active architecture and implementation mode. AWS is the first 
 - Provider abstraction must simplify usage without hiding real provider differences.
 - Explorer listing uses incremental loading with `Carregar mais`, not numbered pages.
 - Explorer counters reflect normalized navigable entries, not raw provider payload counts.
+- The current AWS explorer can refine loaded files by normalized content status and shows a local status breakdown next to the loaded-count summary.
 - Restore is provider-specific where provider behavior materially affects UX or implementation.
 - Refresh is manual and interaction-driven by default; restore state is rediscovered from the provider on navigation, refresh, screen open, and reconnection rather than continuous polling.
 

@@ -16,6 +16,7 @@ The sidebar is intentionally simplified, so the main panel must handle object ex
 - Navigation must proceed level by level.
 - File availability and relevant status information should be visible in the list.
 - File download state should be visible in the list.
+- The main panel must support local status filters for the loaded file dataset.
 - The main panel must support both list view and compact view for the same visible dataset.
 - View mode selection must be persisted globally in the app.
 - Listing must use incremental loading with a `Carregar mais` action.
@@ -44,6 +45,8 @@ The sidebar is intentionally simplified, so the main panel must handle object ex
 - The UI must not expose page size as a user-controlled option in V1.
 - The displayed loaded count must use normalized navigable entries rather than raw provider response counts.
 - The UI must not assume an exact global total of items exists for the current directory or container.
+- Local status filters must refine only the already loaded dataset and must not trigger provider reloads by themselves.
+- Loaded-context status summaries must be derived from the currently loaded file dataset for the active bucket or folder.
 - Automatic refresh must not run continuously for ordinary browsing.
 - Manual refresh remains available even when no background monitoring is active.
 
@@ -59,6 +62,7 @@ The sidebar is intentionally simplified, so the main panel must handle object ex
 - A folder created in the app should appear as a normal folder, not as a special technical item.
 - The counter should read `X itens carregados` when no local filter is active.
 - The counter should read `X itens filtrados de Y carregados` when a local filter is active.
+- When file statuses are known for the loaded context, the counter area should also show a compact status breakdown for the current loaded dataset.
 - `Carregar mais` should remain available even when a local filter is active, as long as the provider still has more data.
 - The disabled `Carregar mais` state should clearly represent that the available listing for the current context has ended.
 - A visible refresh action should make it clear that the user can update the current listing on demand.
@@ -82,8 +86,10 @@ The sidebar is intentionally simplified, so the main panel must handle object ex
 - `Carregar mais` becomes disabled when no more data exists for the current context.
 - Without local filter, the explorer counter uses `X itens carregados`.
 - With local filter, the explorer counter uses `X itens filtrados de Y carregados`.
+- The current loaded context can expose a local status breakdown for file states such as `Downloaded`, `Available`, `Restoring`, and `Archived`.
 - The loaded count is derived from normalized navigable entries rather than raw provider payload counts.
 - Local filter does not invalidate the ability to request more results when more provider data exists.
+- Local status filters do not invalidate the ability to request more results when more provider data exists.
 - The active context can be refreshed manually without requiring navigation away and back.
 - The listing does not poll automatically for restore completion; state updates arrive through navigation, screen open, reconnection, or explicit refresh.
 

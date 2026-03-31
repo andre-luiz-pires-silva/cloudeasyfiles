@@ -103,6 +103,7 @@ Rules:
 - `AvailableToDownload` means the file is eligible for the tracked `Download` action and has no current tracked local copy.
 - `Downloaded` means the tracked cache already contains the current file version.
 - `NotDownloaded` is the fallback state when no tracked local copy exists and the file is not currently in restore.
+- A file may have normalized `AvailabilityStatus = Available` while still having `DownloadState = Downloaded` when the provider copy is usable and the app already has a tracked cached copy.
 - The UI may show provider-native storage class and normalized availability alongside `DownloadState` when that adds operational clarity.
 
 ## Restore Options
@@ -128,11 +129,14 @@ The product may expose a common concept of restoring archived content, but the w
 - restore is a single-file action
 - restore execution details are provider-specific
 - AWS restore state is inferred from object metadata such as restore headers rather than from a global restore-jobs API
+- the current AWS implementation requests `RestoreStatus` during object listing so the same loaded dataset can represent archived, restoring, and temporarily restored items
 - restore activity is rediscovered from the provider on connection initialization, screen open, navigation, and explicit refresh
 - the app does not persist restore history locally
 - the app does not continuously poll restore status in the background
 - manual refresh is also available
-- status is shown directly in the file list and in operational activity surfaces such as the footer restore indicator
+- status is shown directly in the file list
+- loaded-context status summaries belong beside the listing counter rather than in a separate global restore footer indicator
+- the current AWS explorer can also refine already loaded files by normalized status such as `Downloaded`, `Available`, `Restoring`, and `Archived`
 
 ## Download Rule
 
