@@ -1,8 +1,11 @@
 use aws_config::Region;
 use aws_credential_types::Credentials;
 use aws_sdk_s3::Client as S3Client;
-use aws_sdk_s3::types::OptionalObjectAttributes;
 use aws_sdk_s3::types::BucketLocationConstraint;
+use aws_sdk_s3::types::GlacierJobParameters;
+use aws_sdk_s3::types::OptionalObjectAttributes;
+use aws_sdk_s3::types::RestoreRequest;
+use aws_sdk_s3::types::Tier;
 use aws_sdk_sts::error::ProvideErrorMetadata;
 use aws_sdk_sts::operation::RequestId;
 use aws_sdk_sts::Client;
@@ -115,6 +118,32 @@ fn build_directory_name(path: &str) -> String {
     }
 
     name.to_string()
+}
+
+fn parse_restore_tier(value: &str) -> Result<Tier, String> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "expedited" => Ok(Tier::Expedited),
+        "standard" => Ok(Tier::Standard),
+        "bulk" => Ok(Tier::Bulk),
+        _ => Err("Unsupported AWS restore tier.".to_string()),
+    }
+}
+
+fn validate_restore_tier_for_storage_class(
+    storage_class: Option<&str>,
+    restore_tier: &Tier,
+) -> Result<(), String> {
+    let normalized_storage_class = storage_class.unwrap_or_default().trim().to_ascii_uppercase();
+
+    if normalized_storage_class.contains("DEEP_ARCHIVE") && matches!(restore_tier, Tier::Expedited)
+    {
+        return Err(
+            "Expedited restore is not supported for S3 Deep Archive objects. Choose Standard or Bulk."
+                .to_string(),
+        );
+    }
+
+    Ok(())
 }
 
 impl AwsConnectionService {
@@ -732,6 +761,84 @@ impl AwsConnectionService {
         })
     }
 
+    pub async fn request_object_restore(
+        input: AwsConnectionTestInput,
+        bucket_name: String,
+        object_key: String,
+        storage_class: Option<String>,
+        bucket_region: Option<String>,
+        restore_tier: String,
+        days: i32,
+    ) -> Result<(), String> {
+        let access_key_id = input.access_key_id.trim().to_string();
+        let secret_access_key = input.secret_access_key.trim().to_string();
+        let bucket_name = bucket_name.trim().to_string();
+        let object_key = object_key.trim().to_string();
+
+        if bucket_name.is_empty() {
+            return Err("Bucket name is required for restore requests.".to_string());
+        }
+
+        if object_key.is_empty() {
+            return Err("Object key is required for restore requests.".to_string());
+        }
+
+        if !(1..=365).contains(&days) {
+            return Err("Restore retention days must be between 1 and 365.".to_string());
+        }
+
+        let tier = parse_restore_tier(&restore_tier)?;
+        validate_restore_tier_for_storage_class(storage_class.as_deref(), &tier)?;
+
+        eprintln!(
+            "[aws_connection_service] requesting S3 restore for bucket={} object_key={} tier={} days={}",
+            bucket_name, object_key, restore_tier, days
+        );
+
+        let resolved_bucket_region = Self::resolve_bucket_region(
+            &access_key_id,
+            &secret_access_key,
+            &bucket_name,
+            bucket_region,
+        )
+        .await?;
+
+        let (_, s3_client) =
+            Self::build_clients(&resolved_bucket_region, access_key_id, secret_access_key).await;
+
+        let glacier_job_parameters = GlacierJobParameters::builder()
+            .tier(tier)
+            .build()
+            .map_err(|error| error.to_string())?;
+        let restore_request = RestoreRequest::builder()
+            .days(days)
+            .glacier_job_parameters(glacier_job_parameters)
+            .build();
+
+        s3_client
+            .restore_object()
+            .bucket(bucket_name.clone())
+            .key(object_key.clone())
+            .restore_request(restore_request)
+            .send()
+            .await
+            .map_err(|error| {
+                let error_message = error
+                    .as_service_error()
+                    .map(format_provider_service_error)
+                    .unwrap_or_else(|| error.to_string());
+
+                eprintln!(
+                    "[aws_connection_service] failed to request S3 restore for bucket={} object_key={} error={}",
+                    bucket_name, object_key, error_message
+                );
+
+                error_message
+            })?;
+
+        Ok(())
+    }
+
     pub async fn download_object_to_cache<F>(
         operation_id: String,
         input: AwsConnectionTestInput,
@@ -1090,6 +1197,39 @@ impl AwsConnectionService {
         let mut command = {
             let mut command = Command::new("xdg-open");
             command.arg(parent_directory);
+            command
+        };
+
+        command.spawn().map_err(|error| error.to_string())?;
+
+        Ok(())
+    }
+
+    pub fn open_external_url(url: String) -> Result<(), String> {
+        let url = url.trim().to_string();
+
+        if !(url.starts_with("https://") || url.starts_with("http://")) {
+            return Err("Only HTTP and HTTPS URLs are supported.".to_string());
+        }
+
+        #[cfg(target_os = "windows")]
+        let mut command = {
+            let mut command = Command::new("rundll32.exe");
+            command.args(["url.dll,FileProtocolHandler", &url]);
+            command
+        };
+
+        #[cfg(target_os = "macos")]
+        let mut command = {
+            let mut command = Command::new("open");
+            command.arg(&url);
+            command
+        };
+
+        #[cfg(all(unix, not(target_os = "macos")))]
+        let mut command = {
+            let mut command = Command::new("xdg-open");
+            command.arg(&url);
             command
         };
 

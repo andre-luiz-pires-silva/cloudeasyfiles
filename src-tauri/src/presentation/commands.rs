@@ -207,6 +207,59 @@ pub async fn list_aws_bucket_items(
     result
 }
 
+#[tauri::command]
+pub async fn request_aws_object_restore(
+    access_key_id: String,
+    secret_access_key: String,
+    bucket_name: String,
+    object_key: String,
+    storage_class: Option<String>,
+    bucket_region: Option<String>,
+    restore_tier: String,
+    days: i32,
+) -> Result<(), String> {
+    eprintln!(
+        "[commands] request_aws_object_restore called for bucket_name={} object_key={} tier={} days={}",
+        bucket_name, object_key, restore_tier, days
+    );
+
+    let result = AwsConnectionService::request_object_restore(
+        AwsConnectionTestInput {
+            access_key_id,
+            secret_access_key,
+        },
+        bucket_name,
+        object_key,
+        storage_class,
+        bucket_region,
+        restore_tier,
+        days,
+    )
+    .await;
+
+    if let Err(error) = &result {
+        eprintln!(
+            "[commands] request_aws_object_restore failed with error={}",
+            error
+        );
+    }
+
+    result
+}
+
+#[tauri::command]
+pub async fn open_external_url(url: String) -> Result<(), String> {
+    eprintln!("[commands] open_external_url called");
+
+    let result = AwsConnectionService::open_external_url(url);
+
+    if let Err(error) = &result {
+        eprintln!("[commands] open_external_url failed with error={}", error);
+    }
+
+    result
+}
+
 
 #[tauri::command]
 pub async fn start_aws_cache_download(

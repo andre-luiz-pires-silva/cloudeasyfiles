@@ -47,6 +47,8 @@ export type AwsDownloadProgressEvent = {
   error?: string | null;
 };
 
+export type AwsRestoreTier = "expedited" | "standard" | "bulk";
+
 export async function testAwsConnection(
   accessKeyId: string,
   secretAccessKey: string
@@ -95,6 +97,32 @@ export async function listAwsBucketItems(
     bucketRegion,
     continuationToken
   });
+}
+
+export async function requestAwsObjectRestore(
+  accessKeyId: string,
+  secretAccessKey: string,
+  bucketName: string,
+  objectKey: string,
+  storageClass: string | null | undefined,
+  restoreTier: AwsRestoreTier,
+  days: number,
+  bucketRegion?: string
+): Promise<void> {
+  await invoke("request_aws_object_restore", {
+    accessKeyId,
+    secretAccessKey,
+    bucketName,
+    objectKey,
+    storageClass,
+    bucketRegion,
+    restoreTier,
+    days
+  });
+}
+
+export async function openExternalUrl(url: string): Promise<void> {
+  await invoke("open_external_url", { url });
 }
 
 

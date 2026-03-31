@@ -33,6 +33,7 @@ import type {
 } from "../connections/models";
 import { connectionService } from "../connections/services/connectionService";
 import {
+  type AwsRestoreTier,
   type AwsDownloadProgressEvent,
   type AwsBucketSummary,
   cancelAwsDownload,
@@ -42,12 +43,14 @@ import {
   listAwsBucketItems,
   listAwsBuckets,
   openAwsCachedObjectParent,
+  requestAwsObjectRestore,
   startAwsCacheDownload,
   testAwsConnection
 } from "../../lib/tauri/awsConnections";
 import type { AwsBucketItemsResult } from "../../lib/tauri/awsConnections";
 import type { Locale } from "../../lib/i18n/I18nProvider";
 import { useI18n } from "../../lib/i18n/useI18n";
+import { type RestoreRequestTarget, RestoreRequestModal } from "../restore/RestoreRequestModal";
 
 type NavigatorView = "home" | "node";
 type ConnectionTestStatus = "idle" | "testing" | "success" | "error";
@@ -91,7 +94,7 @@ type ContentViewMode = "list" | "compact";
 type FileAvailabilityStatus = "available" | "archived" | "restoring";
 type FileDownloadState = "not_downloaded" | "restoring" | "available_to_download" | "downloaded";
 type ContentStatusFilter = (typeof ALL_CONTENT_STATUS_FILTERS)[number];
-type FileActionId = "download" | "downloadAs" | "openInExplorer" | "cancelDownload";
+type FileActionId = "download" | "downloadAs" | "openInExplorer" | "cancelDownload" | "restore";
 type DownloadTransferState = "progress" | "completed" | "failed" | "cancelled";
 type ContentMenuAnchor = {
   itemId: string;
@@ -763,6 +766,13 @@ type CompletionToast = {
   description: string;
 };
 
+type RestoreRequestState = RestoreRequestTarget & {
+  connectionId: string;
+  bucketName: string;
+  bucketRegion?: string | null;
+  objectKey: string;
+};
+
 type ConnectionNavigatorProps = {
   locale: Locale;
   onLocaleChange: (locale: string) => Promise<void>;
@@ -819,6 +829,9 @@ export function ConnectionNavigator({
   const [contentError, setContentError] = useState<string | null>(null);
   const [loadMoreContentError, setLoadMoreContentError] = useState<string | null>(null);
   const [contentActionError, setContentActionError] = useState<string | null>(null);
+  const [restoreRequest, setRestoreRequest] = useState<RestoreRequestState | null>(null);
+  const [restoreSubmitError, setRestoreSubmitError] = useState<string | null>(null);
+  const [isSubmittingRestoreRequest, setIsSubmittingRestoreRequest] = useState(false);
   const [sidebarFilterText, setSidebarFilterText] = useState("");
   const [contentFilterText, setContentFilterText] = useState("");
   const [contentStatusFilters, setContentStatusFilters] = useState<ContentStatusFilter[]>(
@@ -1120,6 +1133,53 @@ export function ConnectionNavigator({
     })();
   }
 
+  function closeRestoreRequestModal() {
+    if (isSubmittingRestoreRequest) {
+      return;
+    }
+
+    setRestoreRequest(null);
+    setRestoreSubmitError(null);
+  }
+
+  function handleSubmitAwsRestoreRequest(input: { tier: AwsRestoreTier; days: number }) {
+    if (!restoreRequest || restoreRequest.provider !== "aws") {
+      return;
+    }
+
+    void (async () => {
+      setRestoreSubmitError(null);
+      setIsSubmittingRestoreRequest(true);
+
+      try {
+        const draft = await connectionService.getAwsConnectionDraft(restoreRequest.connectionId);
+
+        await requestAwsObjectRestore(
+          draft.accessKeyId.trim(),
+          draft.secretAccessKey.trim(),
+          restoreRequest.bucketName,
+          restoreRequest.objectKey,
+          restoreRequest.storageClass,
+          input.tier,
+          input.days,
+          restoreRequest.bucketRegion && restoreRequest.bucketRegion !== BUCKET_REGION_PLACEHOLDER
+            ? restoreRequest.bucketRegion
+            : undefined
+        );
+
+        setRestoreRequest(null);
+        setRestoreSubmitError(null);
+        await handleRefreshCurrentView();
+      } catch (error) {
+        setRestoreSubmitError(
+          extractErrorMessage(error) ?? t("restore.modal.submit_failed")
+        );
+      } finally {
+        setIsSubmittingRestoreRequest(false);
+      }
+    })();
+  }
+
   function handlePreviewFileAction(actionId: FileActionId, item: ContentExplorerItem) {
     setOpenContentMenuItemId(null);
     setContentMenuAnchor(null);
@@ -1139,6 +1199,31 @@ export function ConnectionNavigator({
         handleCancelActiveDownload(activeDownload.operationId);
       }
 
+      return;
+    }
+
+    if (
+      actionId === "restore" &&
+      item.kind === "file" &&
+      selectedBucketProvider === "aws" &&
+      selectedBucketConnectionId &&
+      selectedBucketName &&
+      item.availabilityStatus === "archived"
+    ) {
+      setRestoreSubmitError(null);
+      setRestoreRequest({
+        provider: selectedBucketProvider,
+        connectionId: selectedBucketConnectionId,
+        bucketName: selectedBucketName,
+        bucketRegion:
+          selectedBucketRegion && selectedBucketRegion !== BUCKET_REGION_PLACEHOLDER
+            ? selectedBucketRegion
+            : null,
+        objectKey: item.path,
+        fileName: item.name,
+        fileSizeLabel: formatBytes(item.size, locale),
+        storageClass: item.storageClass
+      });
       return;
     }
 
@@ -3043,6 +3128,10 @@ export function ConnectionNavigator({
                               <span className="content-list-item-actions">
                                 <ContentItemMenu
                                   item={item}
+                                  canRestore={
+                                    selectedBucketProvider === "aws" &&
+                                    item.availabilityStatus === "archived"
+                                  }
                                   canDownload={
                                     hasConfiguredGlobalCacheDirectory &&
                                     item.availabilityStatus === "available" &&
@@ -3227,6 +3316,17 @@ export function ConnectionNavigator({
           )}
         </section>
       </div>
+
+      {restoreRequest ? (
+        <RestoreRequestModal
+          request={restoreRequest}
+          isSubmitting={isSubmittingRestoreRequest}
+          submitError={restoreSubmitError}
+          onCancel={closeRestoreRequestModal}
+          onSubmitAwsRequest={handleSubmitAwsRestoreRequest}
+          t={t}
+        />
+      ) : null}
 
       {isTransferModalOpen ? (
         <div className="modal-backdrop" role="presentation">
@@ -3695,6 +3795,7 @@ function TreeItemMenu({
 
 type ContentItemMenuProps = {
   item: ContentExplorerItem;
+  canRestore: boolean;
   canDownload: boolean;
   canDownloadAs: boolean;
   canCancelDownload: boolean;
@@ -3709,6 +3810,7 @@ type ContentItemMenuProps = {
 
 function ContentItemMenu({
   item,
+  canRestore,
   canDownload,
   canDownloadAs,
   canCancelDownload,
@@ -3773,6 +3875,19 @@ function ContentItemMenu({
           }
           onClick={(event) => event.stopPropagation()}
         >
+          {canRestore ? (
+            <button
+              type="button"
+              className="tree-menu-action"
+              role="menuitem"
+              onClick={(event) => {
+                event.stopPropagation();
+                onAction("restore", item);
+              }}
+            >
+              {t("navigation.menu.restore")}
+            </button>
+          ) : null}
           {canCancelDownload ? (
             <button
               type="button"
