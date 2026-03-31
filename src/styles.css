@@ -708,21 +708,81 @@ body {
   display: grid;
   justify-items: end;
   gap: 8px;
-  flex: 0 1 380px;
+  flex: 1 1 520px;
   min-width: 0;
-  width: min(380px, 100%);
+  width: 100%;
+  max-width: 100%;
 }
 
 .content-toolbar-controls {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 12px;
   width: 100%;
+  min-width: 0;
 }
 
 .content-toolbar-filter {
-  flex: 1;
-  min-width: 160px;
+  flex: 0 1 220px;
+  min-width: 180px;
+  margin-left: auto;
+}
+
+.content-status-filter-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+.content-toolbar-divider {
+  width: 1px;
+  height: 24px;
+  flex: 0 0 auto;
+  background: var(--panel-border);
+}
+
+.content-status-filter-button {
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition:
+    border-color 150ms ease,
+    background-color 150ms ease,
+    color 150ms ease,
+    box-shadow 150ms ease;
+}
+
+.content-status-filter-button:hover {
+  background: var(--accent-surface-soft);
+}
+
+.content-status-filter-button.is-selected {
+  border-color: var(--accent-border-soft);
+  background: var(--button-active-surface);
+  box-shadow: inset 0 0 0 1px rgba(11, 87, 208, 0.04);
+}
+
+.content-status-filter-button .content-counter-status {
+  margin-left: 0;
+}
+
+.content-status-filter-button .content-counter-status svg {
+  width: 14px;
+  height: 14px;
+}
+
+.content-status-filter-button .content-counter-status strong {
+  display: none;
 }
 
 .content-toolbar-status {
@@ -941,6 +1001,7 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  flex: 0 0 auto;
 }
 
 .content-view-button {
@@ -1247,10 +1308,6 @@ body {
   background: var(--success-soft);
 }
 
-.content-file-status-icon.is-available svg {
-  fill: currentColor;
-}
-
 .content-file-status-icon.is-archived {
   color: var(--warning);
   border-color: var(--warning-border);
@@ -1268,6 +1325,11 @@ body {
   color: var(--success);
   border-color: rgba(24, 121, 78, 0.18);
   background: rgba(24, 121, 78, 0.08);
+}
+
+.content-file-status-icon.is-downloaded svg,
+.file-status-badge-downloaded svg {
+  fill: currentColor;
 }
 
 .content-file-status-icon.is-not-downloaded {
@@ -1336,17 +1398,14 @@ body {
   flex-shrink: 0;
 }
 
-.file-status-badge-available,
-.file-status-badge-downloaded {
-  color: var(--success);
-}
-
 .file-status-badge-available {
+  color: var(--success);
   border-color: var(--success-border);
   background: var(--success-soft);
 }
 
 .file-status-badge-downloaded {
+  color: var(--success);
   border-color: rgba(24, 121, 78, 0.18);
   background: rgba(24, 121, 78, 0.08);
 }
@@ -1493,6 +1552,49 @@ body {
   color: var(--success);
   box-shadow: inset 0 0 0 1px rgba(24, 121, 78, 0.08);
 }
+
+.content-list-counter-detail {
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.content-counter-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 8px;
+  vertical-align: middle;
+}
+
+.content-counter-status svg {
+  flex: 0 0 auto;
+}
+
+.content-counter-status strong {
+  color: inherit;
+  font-size: 0.82rem;
+}
+
+.content-counter-status-available {
+  color: #64748b;
+}
+
+.content-counter-status-downloaded {
+  color: #1f8f57;
+}
+
+.content-counter-status-downloaded .is-filled {
+  fill: currentColor;
+}
+
+.content-counter-status-archived {
+  color: #9a3412;
+}
+
+.content-counter-status-restoring {
+  color: #0f766e;
+}
+
 
 .transfer-status-button.is-blinking {
   animation: transfer-status-pulse 1.15s ease-in-out infinite;

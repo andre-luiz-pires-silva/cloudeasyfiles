@@ -4,7 +4,6 @@ import { open, save } from "@tauri-apps/plugin-dialog";
 import { isTauri } from "@tauri-apps/api/core";
 import {
   Archive,
-  Check,
   ChevronRight,
   CircleAlert,
   Cloud,
@@ -76,6 +75,12 @@ const BUCKET_REGION_PLACEHOLDER = "...";
 const MAX_BUCKET_REGION_REQUESTS = 4;
 const CONTENT_VIEW_MODE_STORAGE_KEY = "cloudeasyfiles.content-view-mode";
 const CONNECTION_METADATA_STORAGE_KEY = "cloudeasyfiles.connection-metadata";
+const ALL_CONTENT_STATUS_FILTERS: Array<"downloaded" | "available" | "restoring" | "archived"> = [
+  "downloaded",
+  "available",
+  "restoring",
+  "archived"
+];
 
 type ConnectionIndicator = {
   status: ConnectionIndicatorStatus;
@@ -85,6 +90,7 @@ type ConnectionIndicator = {
 type ContentViewMode = "list" | "compact";
 type FileAvailabilityStatus = "available" | "archived" | "restoring";
 type FileDownloadState = "not_downloaded" | "restoring" | "available_to_download" | "downloaded";
+type ContentStatusFilter = (typeof ALL_CONTENT_STATUS_FILTERS)[number];
 type FileActionId = "download" | "downloadAs" | "openInExplorer" | "cancelDownload";
 type DownloadTransferState = "progress" | "completed" | "failed" | "cancelled";
 type ContentMenuAnchor = {
@@ -209,11 +215,27 @@ function isCancelledTransferError(error: unknown): boolean {
 }
 
 function buildPreviewFileState(
-  storageClass: string | null | undefined
+  storageClass: string | null | undefined,
+  restoreInProgress?: boolean | null,
+  restoreExpiryDate?: string | null
 ): Pick<ContentExplorerItem, "availabilityStatus" | "downloadState"> {
   const normalizedStorageClass = storageClass?.toLocaleLowerCase() ?? "";
   const isArchivedTier =
     normalizedStorageClass.includes("archive") || normalizedStorageClass.includes("glacier");
+
+  if (restoreInProgress) {
+    return {
+      availabilityStatus: "restoring",
+      downloadState: "restoring"
+    };
+  }
+
+  if (isArchivedTier && restoreExpiryDate) {
+    return {
+      availabilityStatus: "available",
+      downloadState: "not_downloaded"
+    };
+  }
 
   if (isArchivedTier) {
     return {
@@ -245,7 +267,7 @@ function buildContentItems(result: AwsBucketItemsResult): ContentExplorerItem[] 
 
   const files: ContentExplorerItem[] = result.files
     .map((file) => ({
-      ...buildPreviewFileState(file.storageClass),
+      ...buildPreviewFileState(file.storageClass, file.restoreInProgress, file.restoreExpiryDate),
       id: `file:${file.key}`,
       kind: "file" as const,
       name: file.key.split("/").pop() || file.key,
@@ -452,12 +474,67 @@ function buildContentCounterLabel(
   return t("content.list.count_loaded").replace("{loaded}", String(loadedCount));
 }
 
-function getAvailabilityLabel(status: FileAvailabilityStatus, t: (key: string) => string): string {
-  return t(`content.availability.${status}`);
+function getSummaryContentStatus(item: ContentExplorerItem): ContentStatusFilter | null {
+  if (item.kind !== "file") {
+    return null;
+  }
+
+  if (item.availabilityStatus === "restoring") {
+    return "restoring";
+  }
+
+  if (item.availabilityStatus === "archived") {
+    return "archived";
+  }
+
+  if (item.availabilityStatus === "available") {
+    return "available";
+  }
+
+  if (item.downloadState === "downloaded") {
+    return "downloaded";
+  }
+
+  return null;
 }
 
-function getDownloadStateLabel(state: FileDownloadState, t: (key: string) => string): string {
-  return t(`content.download_state.${state}`);
+function getDisplayContentStatus(item: ContentExplorerItem): ContentStatusFilter | null {
+  if (item.kind !== "file") {
+    return null;
+  }
+
+  if (item.downloadState === "downloaded") {
+    return "downloaded";
+  }
+
+  if (item.availabilityStatus === "available") {
+    return "available";
+  }
+
+  if (item.availabilityStatus === "restoring") {
+    return "restoring";
+  }
+
+  if (item.availabilityStatus === "archived") {
+    return "archived";
+  }
+
+  return null;
+}
+
+function getContentStatusLabel(
+  status: ContentStatusFilter | null,
+  t: (key: string) => string
+): string | null {
+  if (status === "downloaded") {
+    return t("content.download_state.downloaded");
+  }
+
+  if (status === "available" || status === "restoring" || status === "archived") {
+    return t(`content.availability.${status}`);
+  }
+
+  return null;
 }
 
 function resolveDownloadState(
@@ -744,6 +821,9 @@ export function ConnectionNavigator({
   const [contentActionError, setContentActionError] = useState<string | null>(null);
   const [sidebarFilterText, setSidebarFilterText] = useState("");
   const [contentFilterText, setContentFilterText] = useState("");
+  const [contentStatusFilters, setContentStatusFilters] = useState<ContentStatusFilter[]>(
+    ALL_CONTENT_STATUS_FILTERS
+  );
   const [downloadedFilePaths, setDownloadedFilePaths] = useState<string[]>([]);
   const [activeDownloads, setActiveDownloads] = useState<Record<string, ActiveDownload>>({});
   const [activeDirectDownloadItemIds, setActiveDirectDownloadItemIds] = useState<string[]>([]);
@@ -866,27 +946,50 @@ export function ConnectionNavigator({
       matchesFilter([bucketNode.name, bucketNode.region, bucketNode.bucketName], normalizedContentFilter)
     );
   }, [connectionBuckets, normalizedContentFilter, selectedNode]);
-  const filteredContentItems = useMemo(() => {
-    if (!normalizedContentFilter) {
-      return contentItems;
-    }
+  const filteredContentItems = useMemo(
+    () =>
+      contentItems.filter((item) => {
+        const matchesTextFilter = matchesFilter(
+          [item.name, item.path, item.storageClass, item.kind],
+          normalizedContentFilter
+        );
 
-    return contentItems.filter((item) =>
-      matchesFilter([item.name, item.path, item.storageClass, item.kind], normalizedContentFilter)
-    );
-  }, [contentItems, normalizedContentFilter]);
-  const isContentFilterActive = normalizedContentFilter.length > 0;
+        if (!matchesTextFilter) {
+          return false;
+        }
+
+        const itemStatus = getSummaryContentStatus(item);
+
+        if (contentStatusFilters.length === ALL_CONTENT_STATUS_FILTERS.length) {
+          return true;
+        }
+
+        return itemStatus ? contentStatusFilters.includes(itemStatus) : false;
+      }),
+    [contentItems, normalizedContentFilter, contentStatusFilters]
+  );
+  const isContentFilterActive =
+    normalizedContentFilter.length > 0 ||
+    contentStatusFilters.length !== ALL_CONTENT_STATUS_FILTERS.length;
+  const loadedFileItems = useMemo(
+    () => contentItems.filter((item) => item.kind === "file"),
+    [contentItems]
+  );
+  const filteredFileItems = useMemo(
+    () => filteredContentItems.filter((item) => item.kind === "file"),
+    [filteredContentItems]
+  );
   const loadedContentCount =
     selectedNode?.kind === "connection"
       ? (connectionBuckets[selectedNode.id] ?? []).length
       : selectedNode?.kind === "bucket"
-      ? contentItems.length
+      ? loadedFileItems.length
       : 0;
   const displayedContentCount =
     selectedNode?.kind === "connection"
       ? filteredConnectionBuckets.length
       : selectedNode?.kind === "bucket"
-      ? filteredContentItems.length
+      ? filteredFileItems.length
       : 0;
   const contentCounterLabel = buildContentCounterLabel(
     t,
@@ -921,8 +1024,57 @@ export function ConnectionNavigator({
     [downloadedFilePaths]
   );
   const hasConfiguredGlobalCacheDirectory = Boolean(globalLocalCacheDirectory.trim());
+  const loadedDownloadedCount = useMemo(
+    () => loadedFileItems.filter((item) => getSummaryContentStatus(item) === "downloaded").length,
+    [loadedFileItems]
+  );
+  const loadedAvailableCount = useMemo(
+    () => loadedFileItems.filter((item) => getSummaryContentStatus(item) === "available").length,
+    [loadedFileItems]
+  );
+  const loadedRestoringCount = useMemo(
+    () => loadedFileItems.filter((item) => getSummaryContentStatus(item) === "restoring").length,
+    [loadedFileItems]
+  );
+  const loadedArchivedCount = useMemo(
+    () => loadedFileItems.filter((item) => getSummaryContentStatus(item) === "archived").length,
+    [loadedFileItems]
+  );
+  const contentStatusSummaryItems =
+    selectedNode?.kind === "bucket"
+      ? [
+          {
+            key: "downloaded" as const,
+            label: t("content.download_state.downloaded"),
+            count: loadedDownloadedCount
+          },
+          {
+            key: "available" as const,
+            label: t("content.availability.available"),
+            count: loadedAvailableCount
+          },
+          {
+            key: "restoring" as const,
+            label: t("content.availability.restoring"),
+            count: loadedRestoringCount
+          },
+          {
+            key: "archived" as const,
+            label: t("content.availability.archived"),
+            count: loadedArchivedCount
+          }
+        ]
+      : [];
 
   const shouldRenderLoadMoreButton = selectedNode?.kind === "bucket";
+
+  function toggleContentStatusFilter(filter: ContentStatusFilter) {
+    setContentStatusFilters((currentFilters) =>
+      currentFilters.includes(filter)
+        ? currentFilters.filter((currentFilter) => currentFilter !== filter)
+        : [...currentFilters, filter]
+    );
+  }
 
   function handlePickGlobalCacheDirectory() {
     if (!isTauri()) {
@@ -1525,6 +1677,7 @@ export function ConnectionNavigator({
 
   useEffect(() => {
     setContentFilterText("");
+    setContentStatusFilters(ALL_CONTENT_STATUS_FILTERS);
   }, [selectedNodeId]);
 
   useEffect(() => {
@@ -2460,6 +2613,41 @@ export function ConnectionNavigator({
                         ) : null}
                       </label>
 
+                      {selectedNode.kind === "bucket" ? (
+                        <div
+                          className="content-status-filter-group"
+                          role="group"
+                          aria-label={t("content.filter.status_label")}
+                        >
+                          {ALL_CONTENT_STATUS_FILTERS.map((status) => {
+                            const isSelected = contentStatusFilters.includes(status);
+                            const label = t(`content.filter.status.${status}`);
+
+                            return (
+                              <button
+                                key={status}
+                                type="button"
+                                className={`content-status-filter-button${
+                                  isSelected ? " is-selected" : ""
+                                }`}
+                                aria-pressed={isSelected}
+                                title={label}
+                                onClick={() => toggleContentStatusFilter(status)}
+                              >
+                                <ContentCounterStatus
+                                  status={status}
+                                  label={label}
+                                  count={0}
+                                  hideCount
+                                />
+                              </button>
+                            );
+                          })}
+                        </div>
+                      ) : null}
+
+                      <span className="content-toolbar-divider" aria-hidden="true" />
+
                       <div
                         className="content-view-switcher"
                         role="group"
@@ -2778,21 +2966,17 @@ export function ConnectionNavigator({
                                   {item.availabilityStatus && item.downloadState ? (
                                     contentViewMode === "compact" ? null : (
                                       <span className="content-file-status-row">
-                                        <FileStatusBadge
-                                          kind="availability"
-                                          label={getAvailabilityLabel(item.availabilityStatus, t)}
-                                          status={item.availabilityStatus}
-                                        />
-                                        {!(
-                                          item.availabilityStatus === "restoring" &&
-                                          item.downloadState === "restoring"
-                                        ) ? (
-                                          <FileStatusBadge
-                                            kind="download"
-                                            label={getDownloadStateLabel(item.downloadState, t)}
-                                            status={item.downloadState}
-                                          />
-                                        ) : null}
+                                        {(() => {
+                                          const primaryStatus = getDisplayContentStatus(item);
+                                          const primaryLabel = getContentStatusLabel(primaryStatus, t);
+
+                                          return primaryStatus && primaryLabel ? (
+                                            <FileStatusBadge
+                                              label={primaryLabel}
+                                              status={primaryStatus}
+                                            />
+                                          ) : null;
+                                        })()}
                                       </span>
                                     )
                                   ) : null}
@@ -2979,13 +3163,30 @@ export function ConnectionNavigator({
                   <span>{t("content.transfer.upload_label")}</span>
                   <strong>0</strong>
                 </button>
+
               </div>
 
               <div className="content-panel-footer-meta">
                 {selectedNode.kind === "connection" &&
                 selectedConnectionIndicator.status !== "connected" ? null : (
                   <>
-                  <p className="content-list-counter">{contentCounterLabel}</p>
+                  <p className="content-list-counter">
+                    {contentCounterLabel}
+                    {contentStatusSummaryItems.length > 0 ? (
+                      <span className="content-list-counter-detail" aria-label={t("content.filter.status_label")}>
+                        {" ("}
+                        {contentStatusSummaryItems.map((statusItem) => (
+                          <ContentCounterStatus
+                            key={statusItem.key}
+                            status={statusItem.key}
+                            label={statusItem.label}
+                            count={statusItem.count}
+                          />
+                        ))}
+                        {")"}
+                      </span>
+                    ) : null}
+                  </p>
                   {shouldRenderLoadMoreButton ? (
                     <button
                       type="button"
@@ -3106,6 +3307,7 @@ export function ConnectionNavigator({
           </div>
         </div>
       ) : null}
+
 
       {completionToast ? (
         <div className="toast-stack" aria-live="polite" aria-atomic="true">
@@ -3627,36 +3829,60 @@ function ContentItemMenu({
 }
 
 type FileStatusBadgeProps = {
-  kind: "availability" | "download";
   label: string;
-  status: FileAvailabilityStatus | FileDownloadState;
+  status: "available" | "downloaded" | "archived" | "restoring";
 };
 
-function FileStatusBadge({ kind, label, status }: FileStatusBadgeProps) {
+function FileStatusBadge({ label, status }: FileStatusBadgeProps) {
   let icon = <CircleAlert size={12} strokeWidth={2} />;
 
-  if (kind === "availability") {
-    if (status === "available") {
-      icon = <Cloud size={12} strokeWidth={2} />;
-    } else if (status === "archived") {
-      icon = <Archive size={12} strokeWidth={2} />;
-    } else if (status === "restoring") {
-      icon = <LoaderCircle size={12} strokeWidth={2} className="file-status-badge-spinner" />;
-    }
+  if (status === "available") {
+    icon = <Cloud size={12} strokeWidth={2} />;
   } else if (status === "downloaded") {
-    icon = <Check size={12} strokeWidth={2.4} />;
-  } else if (status === "available_to_download") {
-    icon = <Download size={12} strokeWidth={2} />;
-  } else if (status === "restoring") {
-    icon = <LoaderCircle size={12} strokeWidth={2} className="file-status-badge-spinner" />;
+    icon = <Cloud size={12} strokeWidth={2} className="is-filled" />;
+  } else if (status === "archived") {
+    icon = <Archive size={12} strokeWidth={2} />;
   } else {
-    icon = <Download size={12} strokeWidth={2} />;
+    icon = <LoaderCircle size={12} strokeWidth={2} />;
   }
 
   return (
     <span className={`file-status-badge file-status-badge-${status}`} title={label}>
       {icon}
       <span>{label}</span>
+    </span>
+  );
+}
+
+type ContentCounterStatusProps = {
+  status: "available" | "downloaded" | "archived" | "restoring";
+  label: string;
+  count: number;
+  hideCount?: boolean;
+};
+
+function ContentCounterStatus({
+  status,
+  label,
+  count,
+  hideCount = false
+}: ContentCounterStatusProps) {
+  let icon = <CircleAlert size={12} strokeWidth={2} />;
+
+  if (status === "available") {
+    icon = <Cloud size={12} strokeWidth={2} />;
+  } else if (status === "downloaded") {
+    icon = <Cloud size={12} strokeWidth={2} className="is-filled" />;
+  } else if (status === "archived") {
+    icon = <Archive size={12} strokeWidth={2} />;
+  } else if (status === "restoring") {
+    icon = <LoaderCircle size={12} strokeWidth={2} className="content-counter-status-spinner" />;
+  }
+
+  return (
+    <span className={`content-counter-status content-counter-status-${status}`} title={label}>
+      {icon}
+      {hideCount ? null : <strong>{count}</strong>}
     </span>
   );
 }
@@ -3672,47 +3898,50 @@ function CompactFileStatusIcons({
   downloadState,
   t
 }: CompactFileStatusIconsProps) {
+  const primaryStatus = getDisplayContentStatus({
+    kind: "file",
+    id: "",
+    name: "",
+    path: "",
+    lastModified: null,
+    availabilityStatus,
+    downloadState
+  });
+  const primaryLabel = getContentStatusLabel(primaryStatus, t);
+
+  if (!primaryStatus || !primaryLabel) {
+    return null;
+  }
+
   const items: Array<{
     icon: ReactNode;
     label: string;
     className: string;
-  }> = [];
-
-  if (availabilityStatus === "available") {
-    items.push({
-      icon: <Cloud size={12} strokeWidth={2} />,
-      label: getAvailabilityLabel(availabilityStatus, t),
-      className: "is-available"
-    });
-  } else if (availabilityStatus === "archived") {
-    items.push({
-      icon: <Archive size={12} strokeWidth={2} />,
-      label: getAvailabilityLabel(availabilityStatus, t),
-      className: "is-archived"
-    });
-  } else {
-    items.push({
-      icon: <LoaderCircle size={12} strokeWidth={2} className="file-status-badge-spinner" />,
-      label: getAvailabilityLabel(availabilityStatus, t),
-      className: "is-restoring"
-    });
-  }
-
-  if (!(availabilityStatus === "restoring" && downloadState === "restoring")) {
-    if (downloadState === "available_to_download") {
-      items.push({
-        icon: <Download size={12} strokeWidth={2} />,
-        label: getDownloadStateLabel(downloadState, t),
-        className: "is-ready"
-      });
-    } else if (downloadState === "not_downloaded") {
-      items.push({
-        icon: <Download size={12} strokeWidth={2} />,
-        label: getDownloadStateLabel(downloadState, t),
-        className: "is-not-downloaded"
-      });
-    }
-  }
+  }> = [
+    primaryStatus === "downloaded"
+      ? {
+          icon: <Cloud size={12} strokeWidth={2} className="is-filled" />,
+          label: primaryLabel,
+          className: "is-downloaded"
+        }
+      : primaryStatus === "available"
+      ? {
+          icon: <Cloud size={12} strokeWidth={2} />,
+          label: primaryLabel,
+          className: "is-available"
+        }
+      : primaryStatus === "restoring"
+      ? {
+          icon: <LoaderCircle size={12} strokeWidth={2} />,
+          label: primaryLabel,
+          className: "is-restoring"
+        }
+      : {
+          icon: <Archive size={12} strokeWidth={2} />,
+          label: primaryLabel,
+          className: "is-archived"
+        }
+  ];
 
   return (
     <span className="content-file-status-icons" aria-label={t("content.detail.local_state")}>

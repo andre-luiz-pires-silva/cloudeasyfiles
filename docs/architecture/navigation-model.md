@@ -42,7 +42,7 @@ Listing follows an incremental loading model rather than numbered pagination.
 
 The current browsing path is represented with a breadcrumb that starts at the selected connection and continues through the active container and folder path.
 
-Operational workflow summaries that do not redefine browsing context may live outside the sidebar and explorer. Active download, upload, and restore monitoring belong to this category and are exposed through the bottom bar without changing the current navigation selection.
+Operational workflow summaries that do not redefine browsing context may live outside the sidebar and explorer. Active download and upload monitoring belong to this category and are exposed through the bottom bar without changing the current navigation selection. Restore detail is scoped to the currently loaded listing context and belongs near the listing counters rather than in a global footer workflow.
 
 ## Listing Continuation Model
 

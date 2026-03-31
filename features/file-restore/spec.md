@@ -30,9 +30,9 @@ Archived files are not immediately downloadable. The product needs a restore wor
   - `Archived`
   - `Restoring`
   - `Available`
-- The app must expose a footer indicator for active restores in addition to active downloads and uploads.
-- Activating the restore footer indicator must open a list of files currently restoring.
-- The restoring list must show current status and any provider-derived estimate when available.
+- When the user is browsing a bucket or folder, the loaded-context summary must include how many loaded files are currently `Restoring`.
+- The restore summary must be derived only from the currently loaded context, not from a global account-wide scan.
+- The restore detail must appear as part of the loaded-count summary, for example `37 itens carregados (30 disponíveis, 7 restaurando)`.
 
 ## Non-Functional Requirements
 
@@ -51,12 +51,10 @@ Archived files are not immediately downloadable. The product needs a restore wor
 - The cloud provider is the source of truth for current restore state.
 - The application must not persist restore history locally.
 - The application must not maintain a local restore state that can diverge from provider state.
-- Only active restore operations are visible in the product.
-- Completed restores disappear from the restore activity list once the provider no longer reports them as in progress.
-- Restore activity must be rediscovered when the app reconnects to AWS by inspecting object metadata, because AWS does not expose a single global restore-jobs API for this workflow.
-- Refresh of restore state occurs on navigation, explicit refresh, screen open, and connection initialization.
+- The product must not perform a connection-wide restore scan just to populate a global restore counter.
+- Restore state is discovered from the same provider listing data already loaded for the current context.
+- Refresh of restore state occurs when the current context is loaded or refreshed.
 - V1 must not use automatic polling for restore monitoring.
-- If the restore list is open and refreshed state shows completion, the item disappears from the list and the main file row updates accordingly.
 - V1 must not emit dedicated completion notifications for restore.
 - Restore availability duration is temporary and must never be presented as a permanent storage-class change.
 
@@ -64,8 +62,8 @@ Archived files are not immediately downloadable. The product needs a restore wor
 
 - Users should understand why file size matters before choosing a restore tier.
 - The restore modal should make the cost-versus-speed tradeoff easy to compare.
-- The footer should communicate ongoing operational activity without becoming a historical log.
-- Restore monitoring should feel current when the user navigates or refreshes, without implying real-time streaming updates.
+- Restore detail in the list summary should feel local to what the user is currently seeing.
+- Restore monitoring should feel current when the user navigates or refreshes the current context, without implying real-time streaming updates.
 - Files that are already restoring should not invite duplicate restore requests from the main list.
 
 ## Acceptance Criteria
@@ -75,11 +73,9 @@ Archived files are not immediately downloadable. The product needs a restore wor
 - The modal shows file name, file size, restore-tier options, retention days, AWS documentation links, and a confirmation summary.
 - Restore-tier options include estimated time, approximate cost guidance, and explanation text.
 - The main file list can represent `Archived`, `Restoring`, and `Available` based on provider state.
-- The footer shows separate indicators for downloads, uploads, and restores in progress.
-- Opening the restore indicator shows only active restore operations.
-- Closing and reopening the app does not invent or preserve restore history locally; active restores are rediscovered from AWS state.
-- Without explicit refresh, navigation event, screen open, or reconnection, the app does not auto-poll restore status.
-- When AWS no longer reports a restore as active, the restore item disappears from the active list.
+- The loaded-context summary shows restore detail only for the currently loaded bucket or folder contents.
+- Without explicit refresh or context navigation, the app does not auto-poll restore status.
+- When AWS no longer reports a file as restoring in the loaded context, the summary and file row update on the next context load or refresh.
 
 ## Out of Scope
 
@@ -87,4 +83,5 @@ Archived files are not immediately downloadable. The product needs a restore wor
 - Persisted restore history
 - Restore-completion notifications
 - Background polling independent of user interaction
+- Global account-wide restore dashboard
 - Exact live pricing calculation from AWS

@@ -36,6 +36,8 @@ pub struct AwsObjectSummary {
     pub e_tag: Option<String>,
     pub last_modified: Option<String>,
     pub storage_class: Option<String>,
+    pub restore_in_progress: Option<bool>,
+    pub restore_expiry_date: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -47,6 +49,7 @@ pub struct AwsBucketItemsResult {
     pub continuation_token: Option<String>,
     pub has_more: bool,
 }
+
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]

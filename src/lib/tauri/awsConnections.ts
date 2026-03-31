@@ -21,6 +21,8 @@ export type AwsObjectSummary = {
   eTag?: string | null;
   lastModified?: string | null;
   storageClass?: string | null;
+  restoreInProgress?: boolean | null;
+  restoreExpiryDate?: string | null;
 };
 
 export type AwsBucketItemsResult = {
@@ -94,6 +96,7 @@ export async function listAwsBucketItems(
     continuationToken
   });
 }
+
 
 export async function startAwsCacheDownload(
   operationId: string,

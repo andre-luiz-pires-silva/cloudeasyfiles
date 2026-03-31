@@ -1,6 +1,7 @@
 use aws_config::Region;
 use aws_credential_types::Credentials;
 use aws_sdk_s3::Client as S3Client;
+use aws_sdk_s3::types::OptionalObjectAttributes;
 use aws_sdk_s3::types::BucketLocationConstraint;
 use aws_sdk_sts::error::ProvideErrorMetadata;
 use aws_sdk_sts::operation::RequestId;
@@ -657,6 +658,7 @@ impl AwsConnectionService {
             .bucket(bucket_name.clone())
             .delimiter("/")
             .max_keys(S3_LISTING_PAGE_SIZE)
+            .optional_object_attributes(OptionalObjectAttributes::RestoreStatus)
             .set_prefix((!prefix.is_empty()).then_some(prefix.clone()))
             .set_continuation_token(continuation_token)
             .send()
@@ -698,6 +700,7 @@ impl AwsConnectionService {
             }
 
             if seen_files.insert(key.to_string()) {
+                let restore_status = object.restore_status();
                 files.push(AwsObjectSummary {
                     key: key.to_string(),
                     size: object.size().unwrap_or_default(),
@@ -709,6 +712,10 @@ impl AwsConnectionService {
                             .map(|storage_class| storage_class.as_str().to_string())
                             .unwrap_or_else(|| "STANDARD".to_string()),
                     ),
+                    restore_in_progress: restore_status.and_then(|status| status.is_restore_in_progress()),
+                    restore_expiry_date: restore_status
+                        .and_then(|status| status.restore_expiry_date())
+                        .map(ToString::to_string),
                 });
             }
         }
