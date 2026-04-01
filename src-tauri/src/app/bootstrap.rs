@@ -19,11 +19,15 @@ pub fn run() {
             commands::list_aws_buckets,
             commands::get_aws_bucket_region,
             commands::list_aws_bucket_items,
+            commands::aws_object_exists,
             commands::request_aws_object_restore,
             commands::open_external_url,
             commands::start_aws_cache_download,
             commands::download_aws_object_to_path,
+            commands::start_aws_upload,
+            commands::start_aws_upload_bytes,
             commands::cancel_aws_download,
+            commands::cancel_aws_upload,
             commands::find_aws_cached_objects,
             commands::open_aws_cached_object_parent
         ])

@@ -47,6 +47,19 @@ export type AwsDownloadProgressEvent = {
   error?: string | null;
 };
 
+export type AwsUploadProgressEvent = {
+  operationId: string;
+  connectionId: string;
+  bucketName: string;
+  objectKey: string;
+  localFilePath: string;
+  bytesTransferred: number;
+  totalBytes: number;
+  progressPercent: number;
+  state: "progress" | "completed" | "failed" | "cancelled";
+  error?: string | null;
+};
+
 export type AwsRestoreTier = "expedited" | "standard" | "bulk";
 
 export async function testAwsConnection(
@@ -174,6 +187,78 @@ export async function downloadAwsObjectToPath(
 
 export async function cancelAwsDownload(operationId: string): Promise<void> {
   await invoke("cancel_aws_download", {
+    operationId
+  });
+}
+
+export async function awsObjectExists(
+  accessKeyId: string,
+  secretAccessKey: string,
+  bucketName: string,
+  objectKey: string,
+  bucketRegion?: string
+): Promise<boolean> {
+  return invoke<boolean>("aws_object_exists", {
+    accessKeyId,
+    secretAccessKey,
+    bucketName,
+    objectKey,
+    bucketRegion
+  });
+}
+
+export async function startAwsUpload(
+  operationId: string,
+  accessKeyId: string,
+  secretAccessKey: string,
+  connectionId: string,
+  bucketName: string,
+  objectKey: string,
+  localFilePath: string,
+  storageClass?: string,
+  bucketRegion?: string
+): Promise<string> {
+  return invoke<string>("start_aws_upload", {
+    operationId,
+    accessKeyId,
+    secretAccessKey,
+    connectionId,
+    bucketName,
+    objectKey,
+    localFilePath,
+    storageClass,
+    bucketRegion
+  });
+}
+
+export async function startAwsUploadFromBytes(
+  operationId: string,
+  accessKeyId: string,
+  secretAccessKey: string,
+  connectionId: string,
+  bucketName: string,
+  objectKey: string,
+  fileName: string,
+  fileBytes: Uint8Array,
+  storageClass?: string,
+  bucketRegion?: string
+): Promise<string> {
+  return invoke<string>("start_aws_upload_bytes", {
+    operationId,
+    accessKeyId,
+    secretAccessKey,
+    connectionId,
+    bucketName,
+    objectKey,
+    fileName,
+    fileBytes: Array.from(fileBytes),
+    storageClass,
+    bucketRegion
+  });
+}
+
+export async function cancelAwsUpload(operationId: string): Promise<void> {
+  await invoke("cancel_aws_upload", {
     operationId
   });
 }

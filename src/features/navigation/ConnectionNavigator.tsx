@@ -1,5 +1,6 @@
 import { useDeferredValue, useEffect, useId, useMemo, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { isTauri } from "@tauri-apps/api/core";
 import {
@@ -39,7 +40,10 @@ import {
 import {
   type AwsRestoreTier,
   type AwsDownloadProgressEvent,
+  type AwsUploadProgressEvent,
   type AwsBucketSummary,
+  awsObjectExists,
+  cancelAwsUpload,
   cancelAwsDownload,
   downloadAwsObjectToPath,
   findAwsCachedObjects,
@@ -48,6 +52,8 @@ import {
   listAwsBuckets,
   openAwsCachedObjectParent,
   requestAwsObjectRestore,
+  startAwsUpload,
+  startAwsUploadFromBytes,
   startAwsCacheDownload,
   testAwsConnection
 } from "../../lib/tauri/awsConnections";
@@ -88,6 +94,16 @@ const ALL_CONTENT_STATUS_FILTERS: Array<"downloaded" | "available" | "restoring"
   "restoring",
   "archived"
 ];
+const DEFAULT_AWS_UPLOAD_STORAGE_CLASS = "STANDARD";
+const AWS_UPLOAD_STORAGE_CLASS_OPTIONS = [
+  "STANDARD",
+  "STANDARD_IA",
+  "ONEZONE_IA",
+  "INTELLIGENT_TIERING",
+  "GLACIER_IR",
+  "GLACIER",
+  "DEEP_ARCHIVE"
+] as const;
 
 type ConnectionIndicator = {
   status: ConnectionIndicatorStatus;
@@ -100,6 +116,7 @@ type FileDownloadState = "not_downloaded" | "restoring" | "available_to_download
 type ContentStatusFilter = (typeof ALL_CONTENT_STATUS_FILTERS)[number];
 type FileActionId = "download" | "downloadAs" | "openInExplorer" | "cancelDownload" | "restore";
 type DownloadTransferState = "progress" | "completed" | "failed" | "cancelled";
+type TransferKind = "cache" | "direct" | "upload";
 type ContentMenuAnchor = {
   itemId: string;
   x: number;
@@ -825,17 +842,19 @@ function loadInitialGlobalCacheDirectory(): string {
   return loadLegacyGlobalCacheDirectoryCandidate() ?? "";
 }
 
-type ActiveDownload = {
+type ActiveTransfer = {
   operationId: string;
   itemId: string;
   fileIdentity: string;
   fileName: string;
   bucketName: string;
-  transferKind: "cache" | "direct";
+  transferKind: TransferKind;
   progressPercent: number;
-  bytesReceived: number;
+  bytesTransferred: number;
   totalBytes: number;
   state: DownloadTransferState;
+  objectKey?: string;
+  localFilePath?: string;
   targetPath?: string | null;
   error?: string | null;
 };
@@ -844,6 +863,32 @@ type CompletionToast = {
   id: string;
   title: string;
   description: string;
+  tone?: "success" | "error";
+};
+
+type UploadConflictDecision = "overwrite" | "skip" | "overwriteAll" | "skipAll";
+
+type SimpleUploadBatchInput = {
+  fileName: string;
+  localFilePath?: string;
+  startUpload: (
+    draft: AwsConnectionDraft,
+    operationId: string,
+    objectKey: string
+  ) => Promise<void>;
+};
+
+type PreparedSimpleUploadBatchItem = SimpleUploadBatchInput & {
+  objectKey: string;
+  fileIdentity: string;
+  objectAlreadyExists: boolean;
+};
+
+type UploadConflictPromptState = {
+  currentConflictIndex: number;
+  totalConflicts: number;
+  fileName: string;
+  objectKey: string;
 };
 
 type RestoreRequestState = RestoreRequestTarget & {
@@ -869,6 +914,7 @@ export function ConnectionNavigator({
   const secretKeyFieldId = useId();
   const localeFieldId = useId();
   const globalCacheDirectoryFieldId = useId();
+  const uploadStorageClassFieldId = useId();
   const [connections, setConnections] = useState<SavedConnectionSummary[]>([]);
   const [selectedView, setSelectedView] = useState<NavigatorView>("home");
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
@@ -882,6 +928,16 @@ export function ConnectionNavigator({
   const [globalLocalCacheDirectory, setGlobalLocalCacheDirectory] = useState(
     loadInitialGlobalCacheDirectory
   );
+  const [defaultAwsUploadStorageClass, setDefaultAwsUploadStorageClass] = useState(() => {
+    const appSettings = appSettingsStore.load();
+    const configuredStorageClass = appSettings.defaultAwsUploadStorageClass?.trim().toUpperCase();
+
+    return configuredStorageClass && AWS_UPLOAD_STORAGE_CLASS_OPTIONS.includes(
+      configuredStorageClass as (typeof AWS_UPLOAD_STORAGE_CLASS_OPTIONS)[number]
+    )
+      ? configuredStorageClass
+      : DEFAULT_AWS_UPLOAD_STORAGE_CLASS;
+  });
   const [connectionTestStatus, setConnectionTestStatus] =
     useState<ConnectionTestStatus>("idle");
   const [connectionTestMessage, setConnectionTestMessage] = useState<string | null>(null);
@@ -918,12 +974,15 @@ export function ConnectionNavigator({
     ALL_CONTENT_STATUS_FILTERS
   );
   const [downloadedFilePaths, setDownloadedFilePaths] = useState<string[]>([]);
-  const [activeDownloads, setActiveDownloads] = useState<Record<string, ActiveDownload>>({});
+  const [activeTransfers, setActiveTransfers] = useState<Record<string, ActiveTransfer>>({});
   const [activeDirectDownloadItemIds, setActiveDirectDownloadItemIds] = useState<string[]>([]);
   const [completionToast, setCompletionToast] = useState<CompletionToast | null>(null);
+  const [uploadConflictPrompt, setUploadConflictPrompt] =
+    useState<UploadConflictPromptState | null>(null);
   const [openContentMenuItemId, setOpenContentMenuItemId] = useState<string | null>(null);
   const [contentMenuAnchor, setContentMenuAnchor] = useState<ContentMenuAnchor | null>(null);
   const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
+  const [isUploadDropTargetActive, setIsUploadDropTargetActive] = useState(false);
   const [contentRefreshNonce, setContentRefreshNonce] = useState(0);
   const [contentViewMode, setContentViewMode] = useState<ContentViewMode>(() => {
     if (typeof window === "undefined") {
@@ -954,6 +1013,11 @@ export function ConnectionNavigator({
   });
   const [isResizingSidebar, setIsResizingSidebar] = useState(false);
   const workspaceRef = useRef<HTMLDivElement | null>(null);
+  const contentDropZoneRef = useRef<HTMLElement | null>(null);
+  const nativeDragDropPathsRef = useRef<string[]>([]);
+  const uploadConflictResolverRef = useRef<((decision: UploadConflictDecision) => void) | null>(
+    null
+  );
   const connectionTestRequestIdRef = useRef(0);
   const connectionRequestIdsRef = useRef<Record<string, number>>({});
   const contentRequestIdRef = useRef(0);
@@ -1091,27 +1155,37 @@ export function ConnectionNavigator({
     loadedContentCount
   );
   const shouldRenderListHeaders = contentViewMode === "list";
-  const activeDownloadList = Object.values(activeDownloads).filter(
-    (download) => download.state === "progress"
+  const activeTransferList = Object.values(activeTransfers).filter(
+    (transfer) => transfer.state === "progress"
   );
   const activeTrackedDownloadList = useMemo(
-    () => activeDownloadList.filter((download) => download.transferKind === "cache"),
-    [activeDownloadList]
+    () => activeTransferList.filter((transfer) => transfer.transferKind === "cache"),
+    [activeTransferList]
   );
   const activeTrackedDownloadIdentityMap = useMemo(
     () =>
       new Map(
-        activeTrackedDownloadList.map((download) => [download.fileIdentity, download] as const)
+        activeTrackedDownloadList.map((transfer) => [transfer.fileIdentity, transfer] as const)
       ),
     [activeTrackedDownloadList]
   );
   const activeTransferIdentityMap = useMemo(
     () =>
-      new Map(activeDownloadList.map((download) => [download.fileIdentity, download] as const)),
-    [activeDownloadList]
+      new Map(activeTransferList.map((transfer) => [transfer.fileIdentity, transfer] as const)),
+    [activeTransferList]
+  );
+  const activeDownloadList = useMemo(
+    () => activeTransferList.filter((transfer) => transfer.transferKind !== "upload"),
+    [activeTransferList]
+  );
+  const activeUploadList = useMemo(
+    () => activeTransferList.filter((transfer) => transfer.transferKind === "upload"),
+    [activeTransferList]
   );
   const activeDownloadPreviewCount = activeDownloadList.length;
+  const activeUploadPreviewCount = activeUploadList.length;
   const isDownloadTransferActive = activeDownloadPreviewCount > 0;
+  const isUploadTransferActive = activeUploadPreviewCount > 0;
   const downloadedFilePathSet = useMemo(
     () => new Set(downloadedFilePaths),
     [downloadedFilePaths]
@@ -1169,6 +1243,29 @@ export function ConnectionNavigator({
     );
   }
 
+  function getFileNameFromPath(filePath: string) {
+    return filePath.split(/[\\/]/).filter(Boolean).pop() ?? filePath;
+  }
+
+  function buildUploadObjectKey(currentPath: string, fileName: string) {
+    const normalizedPath = currentPath.trim().replace(/^\/+|\/+$/g, "");
+
+    return normalizedPath ? `${normalizedPath}/${fileName}` : fileName;
+  }
+
+  function extractDroppedFiles(event: React.DragEvent<HTMLElement>) {
+    const droppedFilesFromItems = Array.from(event.dataTransfer?.items ?? [])
+      .filter((item) => item.kind === "file")
+      .map((item) => item.getAsFile())
+      .filter((candidate): candidate is File => candidate instanceof File);
+
+    if (droppedFilesFromItems.length > 0) {
+      return droppedFilesFromItems;
+    }
+
+    return Array.from(event.dataTransfer?.files ?? []);
+  }
+
   function handlePickGlobalCacheDirectory() {
     if (!isTauri()) {
       return;
@@ -1206,8 +1303,392 @@ export function ConnectionNavigator({
           return;
         }
 
-        setContentActionError(
-          extractErrorMessage(error) ?? t("content.transfer.cancel_failed")
+        showTransferErrorToast(extractErrorMessage(error) ?? t("content.transfer.cancel_failed"));
+      }
+    })();
+  }
+
+  function handleCancelActiveTransfer(operationId: string, transferKind: TransferKind) {
+    if (transferKind === "upload") {
+      void (async () => {
+        try {
+          await cancelAwsUpload(operationId);
+        } catch (error) {
+          if (isCancelledTransferError(error)) {
+            return;
+          }
+
+          showTransferErrorToast(
+            extractErrorMessage(error) ?? t("content.transfer.cancel_failed")
+          );
+        }
+      })();
+
+      return;
+    }
+
+    handleCancelActiveDownload(operationId);
+  }
+
+  function isUploadExistsPreflightPermissionError(error: unknown) {
+    const message = extractErrorMessage(error)?.toLowerCase() ?? "";
+
+    return (
+      message.includes("accessdenied") ||
+      message.includes("unauthorizedaccess") ||
+      message.includes("forbidden") ||
+      message.includes("not authorized")
+    );
+  }
+
+  async function startPreparedSimpleAwsUpload(
+    draft: AwsConnectionDraft,
+    input: PreparedSimpleUploadBatchItem
+  ) {
+    if (
+      !selectedBucketConnectionId ||
+      !selectedBucketName ||
+      selectedBucketProvider !== "aws"
+    ) {
+      return;
+    }
+
+    const operationId =
+      typeof globalThis.crypto !== "undefined" && "randomUUID" in globalThis.crypto
+        ? globalThis.crypto.randomUUID()
+        : `upload-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    let didCreateTransferEntry = false;
+
+    try {
+      setContentActionError(null);
+
+      setActiveTransfers((currentTransfers) => ({
+        ...currentTransfers,
+        [operationId]: {
+          operationId,
+          itemId: `upload:${input.objectKey}`,
+          fileIdentity: input.fileIdentity,
+          fileName: input.fileName,
+          bucketName: selectedBucketName,
+          transferKind: "upload",
+          progressPercent: 0,
+          bytesTransferred: 0,
+          totalBytes: 0,
+          state: "progress",
+          objectKey: input.objectKey,
+          localFilePath: input.localFilePath ?? input.fileName
+        }
+      }));
+      didCreateTransferEntry = true;
+
+      await input.startUpload(draft, operationId, input.objectKey);
+    } catch (error) {
+      if (isCancelledTransferError(error)) {
+        return;
+      }
+
+      const message = extractErrorMessage(error) ?? t("content.transfer.upload_failed");
+
+      setActiveTransfers((currentTransfers) => {
+        const currentTransfer = currentTransfers[operationId];
+
+        if (!currentTransfer) {
+          return currentTransfers;
+        }
+
+        return {
+          ...currentTransfers,
+          [operationId]: {
+            ...currentTransfer,
+            state: "failed",
+            error: message
+          }
+        };
+      });
+      if (!didCreateTransferEntry) {
+        showTransferErrorToast(message);
+      }
+    }
+  }
+
+  function promptUploadConflictResolution(
+    input: UploadConflictPromptState
+  ): Promise<UploadConflictDecision> {
+    setUploadConflictPrompt(input);
+
+    return new Promise<UploadConflictDecision>((resolve) => {
+      uploadConflictResolverRef.current = (decision) => {
+        uploadConflictResolverRef.current = null;
+        setUploadConflictPrompt(null);
+        resolve(decision);
+      };
+    });
+  }
+
+  function resolveUploadConflict(decision: UploadConflictDecision) {
+    uploadConflictResolverRef.current?.(decision);
+  }
+
+  async function prepareSimpleAwsUploadBatch(inputs: SimpleUploadBatchInput[]) {
+    if (
+      !selectedBucketConnectionId ||
+      !selectedBucketName ||
+      selectedBucketProvider !== "aws"
+    ) {
+      return null;
+    }
+
+    const draft = await connectionService.getAwsConnectionDraft(selectedBucketConnectionId);
+    const preparedItems: PreparedSimpleUploadBatchItem[] = [];
+    const seenObjectKeys = new Set<string>();
+
+    for (const input of inputs) {
+      const fileName = input.fileName.trim();
+
+      if (!fileName) {
+        showTransferErrorToast(t("content.transfer.upload_invalid_path"));
+        continue;
+      }
+
+      const objectKey = buildUploadObjectKey(selectedBucketPath, fileName);
+
+      if (seenObjectKeys.has(objectKey)) {
+        showTransferErrorToast(
+          t("content.transfer.upload_duplicate_batch").replace("{name}", fileName)
+        );
+        continue;
+      }
+
+      seenObjectKeys.add(objectKey);
+
+      const fileIdentity = buildFileIdentity(
+        selectedBucketConnectionId,
+        selectedBucketName,
+        objectKey
+      );
+
+      if (activeTransferIdentityMap.has(fileIdentity)) {
+        showTransferErrorToast(t("content.transfer.upload_duplicate_active"));
+        continue;
+      }
+
+      let objectAlreadyExists = false;
+
+      try {
+        objectAlreadyExists = await awsObjectExists(
+          draft.accessKeyId.trim(),
+          draft.secretAccessKey.trim(),
+          selectedBucketName,
+          objectKey,
+          selectedBucketRegion && selectedBucketRegion !== BUCKET_REGION_PLACEHOLDER
+            ? selectedBucketRegion
+            : undefined
+        );
+      } catch (error) {
+        if (!isUploadExistsPreflightPermissionError(error)) {
+          throw error;
+        }
+      }
+
+      preparedItems.push({
+        ...input,
+        fileName,
+        objectKey,
+        fileIdentity,
+        objectAlreadyExists
+      });
+    }
+
+    return {
+      draft,
+      preparedItems
+    };
+  }
+
+  async function processSimpleAwsUploadBatch(inputs: SimpleUploadBatchInput[]) {
+    const preparedBatch = await prepareSimpleAwsUploadBatch(inputs);
+
+    if (!preparedBatch || preparedBatch.preparedItems.length === 0) {
+      return;
+    }
+
+    const conflictingItems = preparedBatch.preparedItems.filter((item) => item.objectAlreadyExists);
+    const totalConflicts = conflictingItems.length;
+    let conflictCursor = 0;
+    let applyRemainingDecision: "overwrite" | "skip" | null = null;
+
+    for (const item of preparedBatch.preparedItems) {
+      let shouldUpload = true;
+
+      if (item.objectAlreadyExists) {
+        conflictCursor += 1;
+
+        if (applyRemainingDecision) {
+          shouldUpload = applyRemainingDecision === "overwrite";
+        } else {
+          const decision = await promptUploadConflictResolution({
+            currentConflictIndex: conflictCursor,
+            totalConflicts,
+            fileName: item.fileName,
+            objectKey: item.objectKey
+          });
+
+          if (decision === "skipAll") {
+            applyRemainingDecision = "skip";
+            shouldUpload = false;
+          } else if (decision === "overwriteAll") {
+            applyRemainingDecision = "overwrite";
+          } else {
+            shouldUpload = decision === "overwrite";
+          }
+        }
+      }
+
+      if (!shouldUpload) {
+        continue;
+      }
+
+      void startPreparedSimpleAwsUpload(preparedBatch.draft, item);
+    }
+  }
+
+  async function runSimpleAwsUpload(localFilePath: string) {
+    const normalizedFilePath = localFilePath.trim();
+
+    if (!normalizedFilePath) {
+      return;
+    }
+
+    await processSimpleAwsUploadBatch([
+      {
+        fileName: getFileNameFromPath(normalizedFilePath),
+        localFilePath: normalizedFilePath,
+        startUpload: async (draft, operationId, objectKey) => {
+          await startAwsUpload(
+            operationId,
+            draft.accessKeyId.trim(),
+            draft.secretAccessKey.trim(),
+            selectedBucketConnectionId!,
+            selectedBucketName!,
+            objectKey,
+            normalizedFilePath,
+            defaultAwsUploadStorageClass,
+            selectedBucketRegion && selectedBucketRegion !== BUCKET_REGION_PLACEHOLDER
+              ? selectedBucketRegion
+              : undefined
+          );
+        }
+      }
+    ]);
+  }
+
+  function runSimpleAwsUploads(localFilePaths: string[]) {
+    const normalizedPaths = localFilePaths
+      .map((localFilePath) => localFilePath.trim())
+      .filter((localFilePath) => localFilePath.length > 0);
+
+    void processSimpleAwsUploadBatch(
+      normalizedPaths.map((localFilePath) => ({
+        fileName: getFileNameFromPath(localFilePath),
+        localFilePath,
+        startUpload: async (draft, operationId, objectKey) => {
+          await startAwsUpload(
+            operationId,
+            draft.accessKeyId.trim(),
+            draft.secretAccessKey.trim(),
+            selectedBucketConnectionId!,
+            selectedBucketName!,
+            objectKey,
+            localFilePath,
+            defaultAwsUploadStorageClass,
+            selectedBucketRegion && selectedBucketRegion !== BUCKET_REGION_PLACEHOLDER
+              ? selectedBucketRegion
+              : undefined
+          );
+        }
+      }))
+    );
+  }
+
+  function runSimpleDroppedFileUploads(files: File[]) {
+    void processSimpleAwsUploadBatch(
+      files.map((file) => ({
+        fileName: file.name,
+        localFilePath: file.name,
+        startUpload: async (draft, operationId, objectKey) => {
+          const candidateFile = file as File & {
+            path?: string;
+            webkitRelativePath?: string;
+          };
+          const candidatePath =
+            candidateFile.path?.trim() || candidateFile.webkitRelativePath?.trim();
+
+          if (candidatePath) {
+            await startAwsUpload(
+              operationId,
+              draft.accessKeyId.trim(),
+              draft.secretAccessKey.trim(),
+              selectedBucketConnectionId!,
+              selectedBucketName!,
+              objectKey,
+              candidatePath,
+              defaultAwsUploadStorageClass,
+              selectedBucketRegion && selectedBucketRegion !== BUCKET_REGION_PLACEHOLDER
+                ? selectedBucketRegion
+                : undefined
+            );
+
+            return;
+          }
+
+          const fileBytes = new Uint8Array(await file.arrayBuffer());
+
+          await startAwsUploadFromBytes(
+            operationId,
+            draft.accessKeyId.trim(),
+            draft.secretAccessKey.trim(),
+            selectedBucketConnectionId!,
+            selectedBucketName!,
+            objectKey,
+            file.name,
+            fileBytes,
+            defaultAwsUploadStorageClass,
+            selectedBucketRegion && selectedBucketRegion !== BUCKET_REGION_PLACEHOLDER
+              ? selectedBucketRegion
+              : undefined
+          );
+        }
+      }))
+    );
+  }
+
+  function handlePickUploadFile() {
+    if (
+      !isTauri() ||
+      !selectedBucketConnectionId ||
+      !selectedBucketName ||
+      selectedBucketProvider !== "aws"
+    ) {
+      return;
+    }
+
+    void (async () => {
+      try {
+        setContentActionError(null);
+
+        const selectedPath = await open({
+          directory: false,
+          multiple: true
+        });
+
+        if (!selectedPath) {
+          return;
+        }
+
+        runSimpleAwsUploads(Array.isArray(selectedPath) ? selectedPath : [selectedPath]);
+      } catch (error) {
+        showTransferErrorToast(
+          extractErrorMessage(error) ?? t("content.transfer.upload_picker_failed")
         );
       }
     })();
@@ -1358,12 +1839,13 @@ export function ConnectionNavigator({
           typeof globalThis.crypto !== "undefined" && "randomUUID" in globalThis.crypto
             ? globalThis.crypto.randomUUID()
             : `download-as-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+        let didCreateTransferEntry = false;
 
         setActiveDirectDownloadItemIds((currentItemIds) =>
           currentItemIds.includes(item.id) ? currentItemIds : [...currentItemIds, item.id]
         );
-        setActiveDownloads((currentDownloads) => ({
-          ...currentDownloads,
+        setActiveTransfers((currentTransfers) => ({
+          ...currentTransfers,
           [operationId]: {
             operationId,
             itemId: item.id,
@@ -1376,12 +1858,13 @@ export function ConnectionNavigator({
             bucketName: selectedBucketName,
             transferKind: "direct",
             progressPercent: 0,
-            bytesReceived: 0,
+            bytesTransferred: 0,
             totalBytes: item.size ?? 0,
             state: "progress",
             targetPath: destinationPath
           }
         }));
+        didCreateTransferEntry = true;
 
         try {
           const draft = await connectionService.getAwsConnectionDraft(selectedBucketConnectionId);
@@ -1403,9 +1886,11 @@ export function ConnectionNavigator({
             return;
           }
 
-          setContentActionError(
-            extractErrorMessage(error) ?? t("content.transfer.download_as_failed")
-          );
+          if (!didCreateTransferEntry) {
+            showTransferErrorToast(
+              extractErrorMessage(error) ?? t("content.transfer.download_as_failed")
+            );
+          }
         } finally {
           setActiveDirectDownloadItemIds((currentItemIds) =>
             currentItemIds.filter((currentItemId) => currentItemId !== item.id)
@@ -1442,8 +1927,8 @@ export function ConnectionNavigator({
         ? globalThis.crypto.randomUUID()
         : `download-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 
-    setActiveDownloads((currentDownloads) => ({
-      ...currentDownloads,
+    setActiveTransfers((currentTransfers) => ({
+      ...currentTransfers,
       [operationId]: {
         operationId,
         itemId: item.id,
@@ -1456,7 +1941,7 @@ export function ConnectionNavigator({
         bucketName: selectedBucketName,
         transferKind: "cache",
         progressPercent: 0,
-        bytesReceived: 0,
+        bytesTransferred: 0,
         totalBytes: item.size ?? 0,
         state: "progress"
       }
@@ -1486,17 +1971,17 @@ export function ConnectionNavigator({
 
         const message = extractErrorMessage(error) ?? t("content.transfer.download_failed");
 
-        setActiveDownloads((currentDownloads) => {
-          const currentDownload = currentDownloads[operationId];
+        setActiveTransfers((currentTransfers) => {
+          const currentTransfer = currentTransfers[operationId];
 
-          if (!currentDownload) {
-            return currentDownloads;
+          if (!currentTransfer) {
+            return currentTransfers;
           }
 
           return {
-            ...currentDownloads,
+            ...currentTransfers,
             [operationId]: {
-              ...currentDownload,
+              ...currentTransfer,
               state: "failed",
               error: message
             }
@@ -1525,19 +2010,19 @@ export function ConnectionNavigator({
 
             const payload = event.payload;
 
-            setActiveDownloads((currentDownloads) => {
-              const existingDownload = currentDownloads[payload.operationId];
+            setActiveTransfers((currentTransfers) => {
+              const existingTransfer = currentTransfers[payload.operationId];
 
-              if (!existingDownload) {
-                return currentDownloads;
+              if (!existingTransfer) {
+                return currentTransfers;
               }
 
               return {
-                ...currentDownloads,
+                ...currentTransfers,
                 [payload.operationId]: {
-                  ...existingDownload,
+                  ...existingTransfer,
                   progressPercent: payload.progressPercent,
-                  bytesReceived: payload.bytesReceived,
+                  bytesTransferred: payload.bytesReceived,
                   totalBytes: payload.totalBytes,
                   state: payload.state,
                   transferKind: payload.transferKind,
@@ -1573,8 +2058,11 @@ export function ConnectionNavigator({
                 id: payload.operationId,
                 title: t("content.transfer.download_as_completed"),
                 description:
-                  payload.targetPath ?? t("content.transfer.download_as_completed_fallback")
+                  payload.targetPath ?? t("content.transfer.download_as_completed_fallback"),
+                tone: "success"
               });
+            } else if (payload.state === "failed" && payload.error) {
+              showTransferErrorToast(payload.error);
             }
           }
         );
@@ -1599,6 +2087,179 @@ export function ConnectionNavigator({
   }, [t]);
 
   useEffect(() => {
+    let isActive = true;
+    let cleanup: (() => void) | null = null;
+
+    if (!isTauri()) {
+      return undefined;
+    }
+
+    void (async () => {
+      try {
+        const unlisten = await listen<AwsUploadProgressEvent>(
+          "aws-upload-progress",
+          (event) => {
+            if (!isActive) {
+              return;
+            }
+
+            const payload = event.payload;
+
+            setActiveTransfers((currentTransfers) => {
+              const existingTransfer = currentTransfers[payload.operationId];
+
+              if (!existingTransfer) {
+                return currentTransfers;
+              }
+
+              return {
+                ...currentTransfers,
+                [payload.operationId]: {
+                  ...existingTransfer,
+                  progressPercent: payload.progressPercent,
+                  bytesTransferred: payload.bytesTransferred,
+                  totalBytes: payload.totalBytes,
+                  state: payload.state,
+                  error: payload.error,
+                  objectKey: payload.objectKey,
+                  localFilePath: payload.localFilePath
+                }
+              };
+            });
+
+            if (payload.state === "completed") {
+              setCompletionToast({
+                id: payload.operationId,
+                title: t("content.transfer.upload_completed"),
+                description: payload.objectKey,
+                tone: "success"
+              });
+
+              if (
+                payload.connectionId === selectedBucketConnectionId &&
+                payload.bucketName === selectedBucketName
+              ) {
+                const uploadedParentPath = payload.objectKey.includes("/")
+                  ? payload.objectKey.slice(0, payload.objectKey.lastIndexOf("/"))
+                  : "";
+
+                if (uploadedParentPath === selectedBucketPath) {
+                  setContentRefreshNonce((currentValue) => currentValue + 1);
+                }
+              }
+            } else if (payload.state === "failed" && payload.error) {
+              showTransferErrorToast(payload.error);
+            }
+          }
+        );
+
+        if (!isActive) {
+          void unlisten();
+          return;
+        }
+
+        cleanup = () => {
+          void unlisten();
+        };
+      } catch (error) {
+        console.warn("[ui] failed to register aws upload listener", error);
+      }
+    })();
+
+    return () => {
+      isActive = false;
+      cleanup?.();
+    };
+  }, [selectedBucketConnectionId, selectedBucketName, selectedBucketPath, t]);
+
+  useEffect(() => {
+    let isActive = true;
+    let cleanup: (() => void) | null = null;
+
+    if (!isTauri()) {
+      return undefined;
+    }
+
+    void (async () => {
+      try {
+        const unlisten = await getCurrentWindow().onDragDropEvent((event) => {
+          if (!isActive) {
+            return;
+          }
+
+          if (
+            !selectedBucketConnectionId ||
+            !selectedBucketName ||
+            selectedBucketProvider !== "aws"
+          ) {
+            if (event.payload.type === "leave" || event.payload.type === "drop") {
+              setIsUploadDropTargetActive(false);
+              nativeDragDropPathsRef.current = [];
+            }
+
+            return;
+          }
+
+          if (event.payload.type === "enter" || event.payload.type === "over") {
+            if ("paths" in event.payload && event.payload.paths.length > 0) {
+              nativeDragDropPathsRef.current = event.payload.paths
+                .map((filePath) => filePath.trim())
+                .filter((filePath) => filePath.length > 0);
+            }
+
+            setIsUploadDropTargetActive(true);
+            return;
+          }
+
+          if (event.payload.type === "leave") {
+            setIsUploadDropTargetActive(false);
+            nativeDragDropPathsRef.current = [];
+            return;
+          }
+
+          setIsUploadDropTargetActive(false);
+
+          const droppedPaths = event.payload.paths
+            .map((filePath) => filePath.trim())
+            .filter((filePath) => filePath.length > 0);
+
+          nativeDragDropPathsRef.current = [];
+
+          if (droppedPaths.length === 0) {
+            return;
+          }
+
+          runSimpleAwsUploads(droppedPaths);
+        });
+
+        if (!isActive) {
+          unlisten();
+          return;
+        }
+
+        cleanup = () => {
+          unlisten();
+        };
+      } catch (error) {
+        console.warn("[ui] failed to register native drag and drop listener", error);
+      }
+    })();
+
+    return () => {
+      isActive = false;
+      cleanup?.();
+    };
+  }, [
+    selectedBucketConnectionId,
+    selectedBucketName,
+    selectedBucketProvider,
+    selectedBucketPath,
+    activeTransferIdentityMap,
+    defaultAwsUploadStorageClass,
+    t
+  ]);
+
+  useEffect(() => {
     if (!completionToast) {
       return undefined;
     }
@@ -1613,6 +2274,18 @@ export function ConnectionNavigator({
       window.clearTimeout(timeoutId);
     };
   }, [completionToast]);
+
+  function showTransferErrorToast(description: string) {
+    setCompletionToast({
+      id:
+        typeof globalThis.crypto !== "undefined" && "randomUUID" in globalThis.crypto
+          ? globalThis.crypto.randomUUID()
+          : `toast-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+      title: t("content.transfer.error_title"),
+      description,
+      tone: "error"
+    });
+  }
 
   useEffect(() => {
     if (
@@ -1958,9 +2631,10 @@ export function ConnectionNavigator({
 
   useEffect(() => {
     appSettingsStore.save({
-      globalLocalCacheDirectory: globalLocalCacheDirectory.trim() || undefined
+      globalLocalCacheDirectory: globalLocalCacheDirectory.trim() || undefined,
+      defaultAwsUploadStorageClass: defaultAwsUploadStorageClass.trim() || undefined
     });
-  }, [globalLocalCacheDirectory]);
+  }, [defaultAwsUploadStorageClass, globalLocalCacheDirectory]);
 
   useEffect(() => {
     if (!isResizingSidebar) {
@@ -2034,6 +2708,12 @@ export function ConnectionNavigator({
           : t("navigation.modal.credentials_load_warning")
       );
     }
+  }
+
+  function getTransferCancelLabel(transferKind: TransferKind) {
+    return transferKind === "upload"
+      ? t("navigation.menu.cancel_upload")
+      : t("navigation.menu.cancel_download");
   }
 
   function resetConnectionTestState() {
@@ -2684,7 +3364,75 @@ export function ConnectionNavigator({
           <span className="sidebar-resizer-handle" aria-hidden="true" />
         </div>
 
-        <section className={`content-panel${selectedView === "home" ? " content-panel-home" : ""}`}>
+        <section
+          ref={contentDropZoneRef}
+          className={`content-panel${selectedView === "home" ? " content-panel-home" : ""}${
+            isUploadDropTargetActive ? " is-upload-drop-active" : ""
+          }`}
+          onDragEnter={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            if (
+              selectedNode?.kind === "bucket" &&
+              selectedBucketConnectionId &&
+              selectedBucketName &&
+              selectedBucketProvider === "aws"
+            ) {
+              setIsUploadDropTargetActive(true);
+            }
+          }}
+          onDragOver={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            if (
+              selectedNode?.kind === "bucket" &&
+              selectedBucketConnectionId &&
+              selectedBucketName &&
+              selectedBucketProvider === "aws"
+            ) {
+              setIsUploadDropTargetActive(true);
+            }
+          }}
+          onDragLeave={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            if (
+              contentDropZoneRef.current &&
+              !contentDropZoneRef.current.contains(event.relatedTarget as Node | null)
+            ) {
+              setIsUploadDropTargetActive(false);
+            }
+          }}
+          onDrop={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            setIsUploadDropTargetActive(false);
+
+            if (
+              selectedNode?.kind !== "bucket" ||
+              !selectedBucketConnectionId ||
+              !selectedBucketName ||
+              selectedBucketProvider !== "aws"
+            ) {
+              return;
+            }
+
+            const droppedFiles = extractDroppedFiles(event);
+            const nativeFallbackPaths = nativeDragDropPathsRef.current;
+
+            nativeDragDropPathsRef.current = [];
+
+            if (droppedFiles.length > 0) {
+              runSimpleDroppedFileUploads(droppedFiles);
+              return;
+            }
+
+            if (nativeFallbackPaths.length > 0) {
+              runSimpleAwsUploads(nativeFallbackPaths);
+              return;
+            }
+          }}
+        >
           {selectedView === "home" ? null : (
             <div className="content-toolbar">
               <div className="content-toolbar-copy">
@@ -2829,6 +3577,23 @@ export function ConnectionNavigator({
 
                       <span className="content-toolbar-divider" aria-hidden="true" />
 
+                      {selectedNode.kind === "bucket" ? (
+                        <>
+                          <button
+                            type="button"
+                            className="content-load-more-button"
+                            onClick={handlePickUploadFile}
+                            disabled={!isTauri() || isLoadingContent || isLoadingMoreContent}
+                            title={t("content.transfer.upload_button")}
+                          >
+                            <Upload size={15} strokeWidth={2} />
+                            <span>{t("content.transfer.upload_button")}</span>
+                          </button>
+
+                          <span className="content-toolbar-divider" aria-hidden="true" />
+                        </>
+                      ) : null}
+
                       <div
                         className="content-view-switcher"
                         role="group"
@@ -2923,6 +3688,22 @@ export function ConnectionNavigator({
                   </button>
                 </div>
                 <span className="field-helper">{t("settings.download_directory_helper")}</span>
+              </label>
+
+              <label className="field-group" htmlFor={uploadStorageClassFieldId}>
+                <span>{t("settings.upload_storage_class")}</span>
+                <select
+                  id={uploadStorageClassFieldId}
+                  value={defaultAwsUploadStorageClass}
+                  onChange={(event) => setDefaultAwsUploadStorageClass(event.target.value)}
+                >
+                  {AWS_UPLOAD_STORAGE_CLASS_OPTIONS.map((storageClass) => (
+                    <option key={storageClass} value={storageClass}>
+                      {storageClass}
+                    </option>
+                  ))}
+                </select>
+                <span className="field-helper">{t("settings.upload_storage_class_helper")}</span>
               </label>
 
               {submitError ? <p className="status-message-error">{submitError}</p> : null}
@@ -3308,7 +4089,6 @@ export function ConnectionNavigator({
               )}
 
               {submitError ? <p className="status-message-error">{submitError}</p> : null}
-              {contentActionError ? <p className="status-message-error">{contentActionError}</p> : null}
             </div>
           ) : (
             <div className="content-card content-empty">
@@ -3345,12 +4125,24 @@ export function ConnectionNavigator({
 
                 <button
                   type="button"
-                  className="transfer-status-button"
-                  title={t("content.transfer.upload_inactive")}
+                  className={`transfer-status-button${isUploadTransferActive ? " is-active is-blinking" : ""}`}
+                  onClick={() => {
+                    if (isUploadTransferActive) {
+                      setIsTransferModalOpen(true);
+                    }
+                  }}
+                  title={
+                    isUploadTransferActive
+                      ? t("content.transfer.upload_active").replace(
+                          "{count}",
+                          String(activeUploadPreviewCount)
+                        )
+                      : t("content.transfer.upload_inactive")
+                  }
                 >
                   <Upload size={16} strokeWidth={2} />
                   <span>{t("content.transfer.upload_label")}</span>
-                  <strong>0</strong>
+                  <strong>{activeUploadPreviewCount}</strong>
                 </button>
 
               </div>
@@ -3446,10 +4238,10 @@ export function ConnectionNavigator({
             </div>
 
             <div className="transfer-modal-list">
-              {activeDownloadList.length === 0 ? (
+              {activeTransferList.length === 0 ? (
                 <p className="modal-copy">{t("content.transfer.modal_empty")}</p>
               ) : (
-                activeDownloadList.map((download) => (
+                activeTransferList.map((download) => (
                   <article key={download.operationId} className="transfer-modal-item">
                     <div className="transfer-modal-item-header">
                       <strong>{download.fileName}</strong>
@@ -3458,6 +4250,8 @@ export function ConnectionNavigator({
                     <p className="transfer-modal-item-copy">
                       {download.transferKind === "direct"
                         ? t("content.transfer.direct_download_label")
+                        : download.transferKind === "upload"
+                        ? t("content.transfer.simple_upload_label")
                         : t("content.transfer.tracked_download_label")}
                       {" · "}
                       {download.bucketName}
@@ -3465,6 +4259,11 @@ export function ConnectionNavigator({
                     {download.transferKind === "direct" && download.targetPath ? (
                       <p className="transfer-modal-item-copy transfer-modal-item-copy-secondary">
                         {download.targetPath}
+                      </p>
+                    ) : null}
+                    {download.transferKind === "upload" && download.objectKey ? (
+                      <p className="transfer-modal-item-copy transfer-modal-item-copy-secondary">
+                        {download.objectKey}
                       </p>
                     ) : null}
                     <div className="transfer-progress">
@@ -3476,7 +4275,7 @@ export function ConnectionNavigator({
                       />
                     </div>
                     <p className="transfer-modal-item-meta">
-                      {formatBytes(download.bytesReceived, locale)} /{" "}
+                      {formatBytes(download.bytesTransferred, locale)} /{" "}
                       {download.totalBytes > 0
                         ? formatBytes(download.totalBytes, locale)
                         : t("content.transfer.size_unknown")}
@@ -3485,9 +4284,11 @@ export function ConnectionNavigator({
                       <button
                         type="button"
                         className="secondary-button"
-                        onClick={() => handleCancelActiveDownload(download.operationId)}
+                        onClick={() =>
+                          handleCancelActiveTransfer(download.operationId, download.transferKind)
+                        }
                       >
-                        {t("navigation.menu.cancel_download")}
+                        {getTransferCancelLabel(download.transferKind)}
                       </button>
                     </div>
                   </article>
@@ -3511,7 +4312,9 @@ export function ConnectionNavigator({
 
       {completionToast ? (
         <div className="toast-stack" aria-live="polite" aria-atomic="true">
-          <article className="toast-card">
+          <article
+            className={`toast-card${completionToast.tone === "error" ? " is-error" : ""}`}
+          >
             <div className="toast-card-copy">
               <strong>{completionToast.title}</strong>
               <p>{completionToast.description}</p>
@@ -3677,6 +4480,71 @@ export function ConnectionNavigator({
                 }}
               >
                 {t("navigation.menu.remove")}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {uploadConflictPrompt ? (
+        <div className="modal-backdrop" role="presentation">
+          <div
+            className="modal-card modal-card-compact"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="upload-conflict-modal-title"
+          >
+            <div className="modal-header">
+              <div>
+                <p className="modal-eyebrow">{t("content.transfer.conflict_modal_eyebrow")}</p>
+                <h2 id="upload-conflict-modal-title" className="modal-title">
+                  {t("content.transfer.conflict_modal_title").replace(
+                    "{name}",
+                    uploadConflictPrompt.fileName
+                  )}
+                </h2>
+              </div>
+            </div>
+
+            <p className="modal-copy">
+              {t("content.transfer.conflict_modal_progress")
+                .replace("{current}", String(uploadConflictPrompt.currentConflictIndex))
+                .replace("{total}", String(uploadConflictPrompt.totalConflicts))}
+            </p>
+            <p className="modal-copy">{t("content.transfer.conflict_modal_body")}</p>
+            <p className="modal-copy">
+              <strong>{t("content.transfer.conflict_modal_destination_label")}:</strong>{" "}
+              {uploadConflictPrompt.objectKey}
+            </p>
+
+            <div className="modal-actions">
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() => resolveUploadConflict("skip")}
+              >
+                {t("content.transfer.conflict_skip")}
+              </button>
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() => resolveUploadConflict("skipAll")}
+              >
+                {t("content.transfer.conflict_skip_all")}
+              </button>
+              <button
+                type="button"
+                className="primary-button"
+                onClick={() => resolveUploadConflict("overwrite")}
+              >
+                {t("content.transfer.conflict_replace")}
+              </button>
+              <button
+                type="button"
+                className="primary-button"
+                onClick={() => resolveUploadConflict("overwriteAll")}
+              >
+                {t("content.transfer.conflict_replace_all")}
               </button>
             </div>
           </div>

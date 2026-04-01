@@ -1,5 +1,5 @@
 use crate::application::services::aws_connection_service::{
-    AwsConnectionService, DOWNLOAD_CANCELLED_ERROR,
+    AwsConnectionService, DOWNLOAD_CANCELLED_ERROR, UPLOAD_CANCELLED_ERROR,
 };
 use crate::application::services::aws_connection_secret_service::AwsConnectionSecretService;
 use crate::application::services::greeting_service::GreetingService;
@@ -28,6 +28,25 @@ struct AwsDownloadEvent {
 
 fn is_cancelled_download_error(error: &str) -> bool {
     error == DOWNLOAD_CANCELLED_ERROR
+}
+
+fn is_cancelled_upload_error(error: &str) -> bool {
+    error == UPLOAD_CANCELLED_ERROR
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AwsUploadEvent {
+    operation_id: String,
+    connection_id: String,
+    bucket_name: String,
+    object_key: String,
+    local_file_path: String,
+    bytes_transferred: i64,
+    total_bytes: i64,
+    progress_percent: f64,
+    state: String,
+    error: Option<String>,
 }
 
 #[tauri::command]
@@ -205,6 +224,26 @@ pub async fn list_aws_bucket_items(
     }
 
     result
+}
+
+#[tauri::command]
+pub async fn aws_object_exists(
+    access_key_id: String,
+    secret_access_key: String,
+    bucket_name: String,
+    object_key: String,
+    bucket_region: Option<String>,
+) -> Result<bool, String> {
+    AwsConnectionService::object_exists(
+        AwsConnectionTestInput {
+            access_key_id,
+            secret_access_key,
+        },
+        bucket_name,
+        object_key,
+        bucket_region,
+    )
+    .await
 }
 
 #[tauri::command]
@@ -487,6 +526,220 @@ pub async fn download_aws_object_to_path(
 }
 
 #[tauri::command]
+pub async fn start_aws_upload(
+    window: Window,
+    operation_id: String,
+    access_key_id: String,
+    secret_access_key: String,
+    connection_id: String,
+    bucket_name: String,
+    object_key: String,
+    local_file_path: String,
+    storage_class: Option<String>,
+    bucket_region: Option<String>,
+) -> Result<String, String> {
+    eprintln!(
+        "[commands] start_aws_upload called for bucket_name={} object_key={} local_file_path={}",
+        bucket_name, object_key, local_file_path
+    );
+
+    let emit_event = |event: AwsUploadEvent| -> Result<(), String> {
+        window
+            .emit("aws-upload-progress", event)
+            .map_err(|error| error.to_string())
+    };
+
+    let operation_id_for_progress = operation_id.clone();
+    let connection_id_for_progress = connection_id.clone();
+    let bucket_name_for_progress = bucket_name.clone();
+    let object_key_for_progress = object_key.clone();
+    let local_file_path_for_progress = local_file_path.clone();
+
+    let result = AwsConnectionService::upload_object_from_path(
+        operation_id.clone(),
+        AwsConnectionTestInput {
+            access_key_id,
+            secret_access_key,
+        },
+        bucket_name.clone(),
+        object_key.clone(),
+        local_file_path.clone(),
+        storage_class,
+        bucket_region,
+        |bytes_transferred, total_bytes| {
+            let progress_percent = if total_bytes > 0 {
+                (bytes_transferred as f64 / total_bytes as f64) * 100.0
+            } else {
+                0.0
+            };
+
+            emit_event(AwsUploadEvent {
+                operation_id: operation_id_for_progress.clone(),
+                connection_id: connection_id_for_progress.clone(),
+                bucket_name: bucket_name_for_progress.clone(),
+                object_key: object_key_for_progress.clone(),
+                local_file_path: local_file_path_for_progress.clone(),
+                bytes_transferred,
+                total_bytes,
+                progress_percent,
+                state: "progress".to_string(),
+                error: None,
+            })
+        },
+    )
+    .await;
+
+    match result {
+        Ok(local_file_path) => {
+            emit_event(AwsUploadEvent {
+                operation_id,
+                connection_id,
+                bucket_name,
+                object_key,
+                local_file_path: local_file_path.clone(),
+                bytes_transferred: 0,
+                total_bytes: 0,
+                progress_percent: 100.0,
+                state: "completed".to_string(),
+                error: None,
+            })?;
+
+            Ok(local_file_path)
+        }
+        Err(error) => {
+            let state = if is_cancelled_upload_error(&error) {
+                "cancelled"
+            } else {
+                "failed"
+            };
+
+            emit_event(AwsUploadEvent {
+                operation_id,
+                connection_id,
+                bucket_name,
+                object_key,
+                local_file_path,
+                bytes_transferred: 0,
+                total_bytes: 0,
+                progress_percent: 0.0,
+                state: state.to_string(),
+                error: Some(error.clone()),
+            })?;
+
+            Err(error)
+        }
+    }
+}
+
+#[tauri::command]
+pub async fn start_aws_upload_bytes(
+    window: Window,
+    operation_id: String,
+    access_key_id: String,
+    secret_access_key: String,
+    connection_id: String,
+    bucket_name: String,
+    object_key: String,
+    file_name: String,
+    file_bytes: Vec<u8>,
+    storage_class: Option<String>,
+    bucket_region: Option<String>,
+) -> Result<String, String> {
+    eprintln!(
+        "[commands] start_aws_upload_bytes called for bucket_name={} object_key={} file_name={}",
+        bucket_name, object_key, file_name
+    );
+
+    let emit_event = |event: AwsUploadEvent| -> Result<(), String> {
+        window
+            .emit("aws-upload-progress", event)
+            .map_err(|error| error.to_string())
+    };
+
+    let operation_id_for_progress = operation_id.clone();
+    let connection_id_for_progress = connection_id.clone();
+    let bucket_name_for_progress = bucket_name.clone();
+    let object_key_for_progress = object_key.clone();
+    let file_name_for_progress = file_name.clone();
+
+    let result = AwsConnectionService::upload_object_from_bytes(
+        operation_id.clone(),
+        AwsConnectionTestInput {
+            access_key_id,
+            secret_access_key,
+        },
+        bucket_name.clone(),
+        object_key.clone(),
+        file_name.clone(),
+        file_bytes,
+        storage_class,
+        bucket_region,
+        |bytes_transferred, total_bytes| {
+            let progress_percent = if total_bytes > 0 {
+                (bytes_transferred as f64 / total_bytes as f64) * 100.0
+            } else {
+                0.0
+            };
+
+            emit_event(AwsUploadEvent {
+                operation_id: operation_id_for_progress.clone(),
+                connection_id: connection_id_for_progress.clone(),
+                bucket_name: bucket_name_for_progress.clone(),
+                object_key: object_key_for_progress.clone(),
+                local_file_path: file_name_for_progress.clone(),
+                bytes_transferred,
+                total_bytes,
+                progress_percent,
+                state: "progress".to_string(),
+                error: None,
+            })
+        },
+    )
+    .await;
+
+    match result {
+        Ok(returned_file_name) => {
+            emit_event(AwsUploadEvent {
+                operation_id,
+                connection_id,
+                bucket_name,
+                object_key,
+                local_file_path: returned_file_name.clone(),
+                bytes_transferred: 0,
+                total_bytes: 0,
+                progress_percent: 100.0,
+                state: "completed".to_string(),
+                error: None,
+            })?;
+
+            Ok(returned_file_name)
+        }
+        Err(error) => {
+            let state = if is_cancelled_upload_error(&error) {
+                "cancelled"
+            } else {
+                "failed"
+            };
+
+            emit_event(AwsUploadEvent {
+                operation_id,
+                connection_id,
+                bucket_name,
+                object_key,
+                local_file_path: file_name,
+                bytes_transferred: 0,
+                total_bytes: 0,
+                progress_percent: 0.0,
+                state: state.to_string(),
+                error: Some(error.clone()),
+            })?;
+
+            Err(error)
+        }
+    }
+}
+
+#[tauri::command]
 pub async fn find_aws_cached_objects(
     connection_id: String,
     connection_name: String,
@@ -525,6 +778,13 @@ pub async fn open_aws_cached_object_parent(
 #[tauri::command]
 pub async fn cancel_aws_download(operation_id: String) -> Result<(), String> {
     let _was_cancelled = AwsConnectionService::cancel_download(operation_id)?;
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn cancel_aws_upload(operation_id: String) -> Result<(), String> {
+    let _was_cancelled = AwsConnectionService::cancel_upload(operation_id)?;
 
     Ok(())
 }

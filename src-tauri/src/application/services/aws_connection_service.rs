@@ -1,10 +1,14 @@
 use aws_config::Region;
 use aws_credential_types::Credentials;
 use aws_sdk_s3::Client as S3Client;
+use aws_sdk_s3::primitives::ByteStream;
 use aws_sdk_s3::types::BucketLocationConstraint;
+use aws_sdk_s3::types::CompletedMultipartUpload;
+use aws_sdk_s3::types::CompletedPart;
 use aws_sdk_s3::types::GlacierJobParameters;
 use aws_sdk_s3::types::OptionalObjectAttributes;
 use aws_sdk_s3::types::RestoreRequest;
+use aws_sdk_s3::types::StorageClass;
 use aws_sdk_s3::types::Tier;
 use aws_sdk_sts::error::ProvideErrorMetadata;
 use aws_sdk_sts::operation::RequestId;
@@ -16,6 +20,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, LazyLock, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::fs;
+use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWriteExt;
 
 use crate::domain::aws_connection::{
@@ -26,7 +31,9 @@ use crate::domain::aws_connection::{
 pub struct AwsConnectionService;
 const MISSING_MINIMUM_S3_PERMISSION_ERROR: &str = "AWS_S3_LIST_BUCKETS_PERMISSION_REQUIRED";
 pub const DOWNLOAD_CANCELLED_ERROR: &str = "DOWNLOAD_CANCELLED";
+pub const UPLOAD_CANCELLED_ERROR: &str = "UPLOAD_CANCELLED";
 const S3_LISTING_PAGE_SIZE: i32 = 200;
+const MULTIPART_UPLOAD_CHUNK_SIZE: usize = 8 * 1024 * 1024;
 const GLOBAL_AWS_REGION_FALLBACKS: &[&str] = &[
     "us-east-1",
     "us-east-2",
@@ -72,12 +79,26 @@ struct DownloadCancellationGuard {
     operation_id: String,
 }
 
+struct UploadCancellationGuard {
+    operation_id: String,
+}
+
 static DOWNLOAD_CANCELLATIONS: LazyLock<Mutex<HashMap<String, Arc<AtomicBool>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+static UPLOAD_CANCELLATIONS: LazyLock<Mutex<HashMap<String, Arc<AtomicBool>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
 impl Drop for DownloadCancellationGuard {
     fn drop(&mut self) {
         if let Ok(mut cancellations) = DOWNLOAD_CANCELLATIONS.lock() {
+            cancellations.remove(&self.operation_id);
+        }
+    }
+}
+
+impl Drop for UploadCancellationGuard {
+    fn drop(&mut self) {
+        if let Ok(mut cancellations) = UPLOAD_CANCELLATIONS.lock() {
             cancellations.remove(&self.operation_id);
         }
     }
@@ -127,6 +148,16 @@ fn parse_restore_tier(value: &str) -> Result<Tier, String> {
         "bulk" => Ok(Tier::Bulk),
         _ => Err("Unsupported AWS restore tier.".to_string()),
     }
+}
+
+fn parse_upload_storage_class(value: Option<&str>) -> Result<Option<StorageClass>, String> {
+    let Some(value) = value.map(|value| value.trim()).filter(|value| !value.is_empty()) else {
+        return Ok(None);
+    };
+
+    StorageClass::try_parse(value)
+        .map(Some)
+        .map_err(|_| "Unsupported AWS upload storage class.".to_string())
 }
 
 fn validate_restore_tier_for_storage_class(
@@ -1048,6 +1079,342 @@ impl AwsConnectionService {
         Ok(destination_path)
     }
 
+    pub async fn object_exists(
+        input: AwsConnectionTestInput,
+        bucket_name: String,
+        object_key: String,
+        bucket_region: Option<String>,
+    ) -> Result<bool, String> {
+        let access_key_id = input.access_key_id.trim().to_string();
+        let secret_access_key = input.secret_access_key.trim().to_string();
+        let bucket_name = bucket_name.trim().to_string();
+        let object_key = object_key.trim().to_string();
+
+        if object_key.is_empty() {
+            return Err("Object key is required.".to_string());
+        }
+
+        let resolved_bucket_region = Self::resolve_bucket_region(
+            &access_key_id,
+            &secret_access_key,
+            &bucket_name,
+            bucket_region,
+        )
+        .await?;
+
+        let (_, s3_client) =
+            Self::build_clients(&resolved_bucket_region, access_key_id, secret_access_key).await;
+
+        match s3_client
+            .head_object()
+            .bucket(bucket_name)
+            .key(object_key)
+            .send()
+            .await
+        {
+            Ok(_) => Ok(true),
+            Err(error) => {
+                if let Some(service_error) = error.as_service_error() {
+                    if service_error.code() == Some("NotFound") {
+                        return Ok(false);
+                    }
+                }
+
+                Err(error
+                    .as_service_error()
+                    .map(format_provider_service_error)
+                    .unwrap_or_else(|| error.to_string()))
+            }
+        }
+    }
+
+    pub async fn upload_object_from_path<F>(
+        operation_id: String,
+        input: AwsConnectionTestInput,
+        bucket_name: String,
+        object_key: String,
+        local_file_path: String,
+        storage_class: Option<String>,
+        bucket_region: Option<String>,
+        mut on_progress: F,
+    ) -> Result<String, String>
+    where
+        F: FnMut(i64, i64) -> Result<(), String>,
+    {
+        let access_key_id = input.access_key_id.trim().to_string();
+        let secret_access_key = input.secret_access_key.trim().to_string();
+        let bucket_name = bucket_name.trim().to_string();
+        let object_key = object_key.trim().to_string();
+        let local_file_path = local_file_path.trim().to_string();
+        let storage_class = parse_upload_storage_class(storage_class.as_deref())?;
+        let (cancellation_flag, _cancellation_guard) =
+            Self::register_upload_cancellation(&operation_id)?;
+
+        if object_key.is_empty() {
+            return Err("Object key is required for uploads.".to_string());
+        }
+
+        if local_file_path.is_empty() {
+            return Err("Local file path is required for uploads.".to_string());
+        }
+
+        let file_path = PathBuf::from(&local_file_path);
+        let metadata = fs::metadata(&file_path)
+            .await
+            .map_err(|error| error.to_string())?;
+
+        if !metadata.is_file() {
+            return Err("The selected local path is not a regular file.".to_string());
+        }
+
+        let total_bytes = i64::try_from(metadata.len())
+            .map_err(|_| "The selected file is too large to upload.".to_string())?;
+
+        let resolved_bucket_region = Self::resolve_bucket_region(
+            &access_key_id,
+            &secret_access_key,
+            &bucket_name,
+            bucket_region,
+        )
+        .await?;
+
+        let (_, s3_client) =
+            Self::build_clients(&resolved_bucket_region, access_key_id, secret_access_key).await;
+
+        if cancellation_flag.load(Ordering::SeqCst) {
+            return Err(UPLOAD_CANCELLED_ERROR.to_string());
+        }
+
+        if metadata.len() <= MULTIPART_UPLOAD_CHUNK_SIZE as u64 {
+            let body = ByteStream::from_path(&file_path)
+                .await
+                .map_err(|error| error.to_string())?;
+
+            let mut request = s3_client
+                .put_object()
+                .bucket(bucket_name)
+                .key(object_key)
+                .body(body);
+
+            if let Some(storage_class) = storage_class {
+                request = request.storage_class(storage_class);
+            }
+
+            request.send().await.map_err(|error| {
+                error
+                    .as_service_error()
+                    .map(format_provider_service_error)
+                    .unwrap_or_else(|| error.to_string())
+            })?;
+
+            // Single-request uploads cannot be interrupted once the provider call is in flight.
+            // If the request succeeded, treat it as completed even if a local cancel was requested
+            // while waiting for the response.
+            on_progress(total_bytes, total_bytes)?;
+
+            return Ok(local_file_path);
+        }
+
+        let mut create_request = s3_client
+            .create_multipart_upload()
+            .bucket(bucket_name.clone())
+            .key(object_key.clone());
+
+        if let Some(storage_class) = storage_class.clone() {
+            create_request = create_request.storage_class(storage_class);
+        }
+
+        let multipart_upload = create_request.send().await.map_err(|error| {
+            error
+                .as_service_error()
+                .map(format_provider_service_error)
+                .unwrap_or_else(|| error.to_string())
+        })?;
+
+        let upload_id = multipart_upload
+            .upload_id()
+            .map(|value| value.to_string())
+            .ok_or_else(|| "AWS S3 did not return an upload identifier.".to_string())?;
+        let mut file = fs::File::open(&file_path)
+            .await
+            .map_err(|error| error.to_string())?;
+        let mut completed_parts = Vec::new();
+        let mut next_part_number = 1_i32;
+        let mut transferred_bytes = 0_i64;
+        let mut chunk_buffer = vec![0_u8; MULTIPART_UPLOAD_CHUNK_SIZE];
+
+        loop {
+            if cancellation_flag.load(Ordering::SeqCst) {
+                let _ = s3_client
+                    .abort_multipart_upload()
+                    .bucket(bucket_name.clone())
+                    .key(object_key.clone())
+                    .upload_id(upload_id.clone())
+                    .send()
+                    .await;
+
+                return Err(UPLOAD_CANCELLED_ERROR.to_string());
+            }
+
+            let bytes_read = file
+                .read(&mut chunk_buffer)
+                .await
+                .map_err(|error| error.to_string())?;
+
+            if bytes_read == 0 {
+                break;
+            }
+
+            let body = ByteStream::from(chunk_buffer[..bytes_read].to_vec());
+            let upload_part_output = match s3_client
+                .upload_part()
+                .bucket(bucket_name.clone())
+                .key(object_key.clone())
+                .upload_id(upload_id.clone())
+                .part_number(next_part_number)
+                .body(body)
+                .send()
+                .await
+            {
+                Ok(output) => output,
+                Err(error) => {
+                    let _ = s3_client
+                        .abort_multipart_upload()
+                        .bucket(bucket_name.clone())
+                        .key(object_key.clone())
+                        .upload_id(upload_id.clone())
+                        .send()
+                        .await;
+
+                    return Err(error
+                        .as_service_error()
+                        .map(format_provider_service_error)
+                        .unwrap_or_else(|| error.to_string()));
+                }
+            };
+
+            let e_tag = upload_part_output
+                .e_tag()
+                .map(|value| value.to_string())
+                .ok_or_else(|| "AWS S3 did not return an ETag for an uploaded part.".to_string())?;
+            let completed_part = CompletedPart::builder()
+                .e_tag(e_tag)
+                .part_number(next_part_number)
+                .build();
+
+            completed_parts.push(completed_part);
+            transferred_bytes += bytes_read as i64;
+            on_progress(transferred_bytes, total_bytes)?;
+            next_part_number += 1;
+        }
+
+        if cancellation_flag.load(Ordering::SeqCst) {
+            let _ = s3_client
+                .abort_multipart_upload()
+                .bucket(bucket_name.clone())
+                .key(object_key.clone())
+                .upload_id(upload_id.clone())
+                .send()
+                .await;
+
+            return Err(UPLOAD_CANCELLED_ERROR.to_string());
+        }
+
+        let completed_upload = CompletedMultipartUpload::builder()
+            .set_parts(Some(completed_parts))
+            .build();
+
+        s3_client
+            .complete_multipart_upload()
+            .bucket(bucket_name)
+            .key(object_key)
+            .upload_id(upload_id)
+            .multipart_upload(completed_upload)
+            .send()
+            .await
+            .map_err(|error| {
+                error
+                    .as_service_error()
+                    .map(format_provider_service_error)
+                    .unwrap_or_else(|| error.to_string())
+            })?;
+
+        Ok(local_file_path)
+    }
+
+    pub async fn upload_object_from_bytes<F>(
+        operation_id: String,
+        input: AwsConnectionTestInput,
+        bucket_name: String,
+        object_key: String,
+        file_name: String,
+        file_bytes: Vec<u8>,
+        storage_class: Option<String>,
+        bucket_region: Option<String>,
+        mut on_progress: F,
+    ) -> Result<String, String>
+    where
+        F: FnMut(i64, i64) -> Result<(), String>,
+    {
+        let access_key_id = input.access_key_id.trim().to_string();
+        let secret_access_key = input.secret_access_key.trim().to_string();
+        let bucket_name = bucket_name.trim().to_string();
+        let object_key = object_key.trim().to_string();
+        let file_name = file_name.trim().to_string();
+        let storage_class = parse_upload_storage_class(storage_class.as_deref())?;
+        let (cancellation_flag, _cancellation_guard) =
+            Self::register_upload_cancellation(&operation_id)?;
+
+        if object_key.is_empty() {
+            return Err("Object key is required for uploads.".to_string());
+        }
+
+        if file_name.is_empty() {
+            return Err("File name is required for uploads.".to_string());
+        }
+
+        let total_bytes = i64::try_from(file_bytes.len())
+            .map_err(|_| "The selected file is too large to upload.".to_string())?;
+
+        let resolved_bucket_region = Self::resolve_bucket_region(
+            &access_key_id,
+            &secret_access_key,
+            &bucket_name,
+            bucket_region,
+        )
+        .await?;
+
+        let (_, s3_client) =
+            Self::build_clients(&resolved_bucket_region, access_key_id, secret_access_key).await;
+
+        if cancellation_flag.load(Ordering::SeqCst) {
+            return Err(UPLOAD_CANCELLED_ERROR.to_string());
+        }
+
+        let mut request = s3_client
+            .put_object()
+            .bucket(bucket_name)
+            .key(object_key)
+            .body(ByteStream::from(file_bytes));
+
+        if let Some(storage_class) = storage_class {
+            request = request.storage_class(storage_class);
+        }
+
+        request.send().await.map_err(|error| {
+            error
+                .as_service_error()
+                .map(format_provider_service_error)
+                .unwrap_or_else(|| error.to_string())
+        })?;
+
+        // Byte-backed uploads use the same single-request PutObject path and share the same
+        // cancellation limitation as small path uploads.
+        on_progress(total_bytes, total_bytes)?;
+
+        Ok(file_name)
+    }
+
     pub async fn find_cached_objects(
         connection_id: String,
         connection_name: String,
@@ -1217,6 +1584,24 @@ impl AwsConnectionService {
         ))
     }
 
+    fn register_upload_cancellation(
+        operation_id: &str,
+    ) -> Result<(Arc<AtomicBool>, UploadCancellationGuard), String> {
+        let cancellation_flag = Arc::new(AtomicBool::new(false));
+        let mut cancellations = UPLOAD_CANCELLATIONS
+            .lock()
+            .map_err(|_| "Unable to access upload cancellation state.".to_string())?;
+
+        cancellations.insert(operation_id.to_string(), cancellation_flag.clone());
+
+        Ok((
+            cancellation_flag,
+            UploadCancellationGuard {
+                operation_id: operation_id.to_string(),
+            },
+        ))
+    }
+
     async fn remove_temp_file_if_exists(temp_path: &Path) -> Result<(), String> {
         if fs::try_exists(temp_path)
             .await
@@ -1234,6 +1619,20 @@ impl AwsConnectionService {
         let cancellations = DOWNLOAD_CANCELLATIONS
             .lock()
             .map_err(|_| "Unable to access download cancellation state.".to_string())?;
+
+        let Some(cancellation_flag) = cancellations.get(&operation_id) else {
+            return Ok(false);
+        };
+
+        cancellation_flag.store(true, Ordering::SeqCst);
+
+        Ok(true)
+    }
+
+    pub fn cancel_upload(operation_id: String) -> Result<bool, String> {
+        let cancellations = UPLOAD_CANCELLATIONS
+            .lock()
+            .map_err(|_| "Unable to access upload cancellation state.".to_string())?;
 
         let Some(cancellation_flag) = cancellations.get(&operation_id) else {
             return Ok(false);

@@ -18,13 +18,14 @@ Current emphasis:
 - central listing of immediate folders and files
 - incremental listing continuation with `Carregar mais`
 - simple local filtering in sidebar and main content area
+- simple monitored multi-file upload to the currently open AWS bucket folder
 - advanced search entry point with provider-aware behavior
 - continued AWS integration for object listing and archival restore workflows
 - Azure implementation aligned to the same product model while keeping provider-specific restore behavior separate
 
 ## Follow-Up Opportunities
 
-- drag-and-drop interactions
+- advanced upload window with richer parameters
 - richer file preview capabilities
 - additional providers such as Google Cloud Storage
 - cache ergonomics and performance improvements

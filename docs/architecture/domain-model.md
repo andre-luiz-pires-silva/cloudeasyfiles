@@ -4,6 +4,8 @@
 
 CloudEasyFiles uses a provider-agnostic vocabulary so the application and UI can reason about cloud storage without depending directly on AWS or Azure SDK shapes.
 
+The current upload workflow also relies on a normalized transfer concept so downloads and uploads can share monitoring, cancelation, and status presentation patterns.
+
 ## CloudContainer
 
 `CloudContainer` represents the top-level storage namespace for a connection.
@@ -127,6 +129,35 @@ Relevant concepts:
 - file state resolution using cloud availability plus cached-file presence
 
 The cache enriches UI state but never becomes the listing source.
+
+## Transfer Concepts
+
+Transfers are an operational concern distinct from cloud listing and local cache presence.
+
+Representative concepts:
+
+- `TransferKind`
+- `TransferState`
+
+Current transfer kinds:
+
+- `CacheDownload`
+- `DirectDownload`
+- `SimpleUpload`
+
+Current transfer states:
+
+- `Progress`
+- `Completed`
+- `Failed`
+- `Cancelled`
+
+Rules:
+
+- transfers are monitored while active and summarized in the footer and transfer modal
+- the current upload MVP does not define a `Pending` state
+- the current upload MVP does not define a local queue or scheduler
+- transfer completion may trigger a local UI refresh when the active context is directly affected
 
 ## Download State Concepts
 

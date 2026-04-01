@@ -66,6 +66,8 @@ The current direction is to expose these provider-specific tier names directly i
 
 Cross-provider simplification should happen primarily through `AvailabilityStatus`, not by erasing the native storage tier label.
 
+The current upload MVP also preserves provider-native AWS storage-class names directly in settings and request orchestration rather than flattening them into a fake cross-provider abstraction.
+
 ## AvailabilityStatus
 
 `AvailabilityStatus` represents whether content can be used immediately.
@@ -159,3 +161,18 @@ Rules:
 - The current implementation exposes cancel controls for active downloads, but not pause or resume.
 - The current UI emits progress events for active `CacheDownload` and `DirectDownload` operations and summarizes them in the bottom bar and transfer modal.
 - Cached-file detection is based on deterministic local file paths derived from connection, container, and object key.
+
+## Upload Rule
+
+The current simple upload implementation is AWS-only and targets the currently open bucket path.
+
+Rules:
+
+- `SimpleUpload` sends one or more local files to the currently open bucket root or folder path.
+- the object key is derived from the current logical path plus the original local file name
+- the current AWS implementation uses `PutObject` for smaller files and multipart upload when needed internally
+- the current upload flow uses a single global AWS `StorageClass` default configured in app settings
+- the current upload flow preflights destination conflicts and resolves them in a dedicated batch modal with per-item and apply-to-all decisions
+- uploads participate in the same transfer monitor used for downloads, including progress and cancelation
+- the current upload MVP does not implement a local queue, `pending` state, or explicit concurrency cap
+- after a successful upload to the currently open context, the explorer refreshes that context automatically

@@ -1,5 +1,6 @@
 export type AppSettings = {
   globalLocalCacheDirectory?: string;
+  defaultAwsUploadStorageClass?: string;
 };
 
 const STORAGE_KEY = "cloudeasyfiles.app-settings";
@@ -14,6 +15,9 @@ function isAppSettings(value: unknown): value is AppSettings {
   return (
     typeof candidate.globalLocalCacheDirectory === "string" ||
     typeof candidate.globalLocalCacheDirectory === "undefined"
+  ) && (
+    typeof candidate.defaultAwsUploadStorageClass === "string" ||
+    typeof candidate.defaultAwsUploadStorageClass === "undefined"
   );
 }
 

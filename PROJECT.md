@@ -12,10 +12,11 @@ Current initial focus:
 - central object browsing with navigable folders over object storage
 - archival storage awareness and restore workflows
 - optional global local cache for tracked downloads
+- simple monitored upload to the current AWS bucket folder
 
 ## Current Status
 
-The project is in active architecture and implementation mode. AWS is the first wired provider and currently covers connection management, bucket browsing, incremental listing, manual refresh, tracked cache download progress, `Download As`, transfer tracking in the footer and modal, download cancelation, cached-file detection, opening cached files in the local file explorer, and provider-driven restore-state visibility for archived S3 objects. The AWS restore request workflow itself is still documented as the next concrete archival step. Azure is still a documented target rather than an implemented provider path.
+The project is in active architecture and implementation mode. AWS is the first wired provider and currently covers connection management, bucket browsing, incremental listing, manual refresh, tracked cache download progress, `Download As`, simple monitored upload to the current bucket folder, transfer tracking in the footer and modal, transfer cancelation, cached-file detection, opening cached files in the local file explorer, and provider-driven restore-state visibility for archived S3 objects. The AWS restore request workflow itself is still documented as the next concrete archival step. Azure is still a documented target rather than an implemented provider path.
 
 ## Main Features
 
@@ -27,6 +28,7 @@ The project is in active architecture and implementation mode. AWS is the first 
 - provider-aware advanced search direction
 - archival restore-state visibility and future restore workflows
 - tracked and direct downloads
+- simple AWS upload
 - optional global local cache
 
 ## Documentation Map
@@ -62,6 +64,7 @@ The project is in active architecture and implementation mode. AWS is the first 
 - [File Restore](./features/file-restore/spec.md)
 - [Simple Filter](./features/simple-filter/spec.md)
 - [Advanced Search](./features/advanced-search/spec.md)
+- [Simple Upload](./features/simple-upload/spec.md)
 
 ### Implementation Plans
 
@@ -70,6 +73,7 @@ The project is in active architecture and implementation mode. AWS is the first 
 - [File Restore Plan](./features/file-restore/implementation-plan.md)
 - [Simple Filter Plan](./features/simple-filter/implementation-plan.md)
 - [Advanced Search Plan](./features/advanced-search/implementation-plan.md)
+- [Simple Upload Plan](./features/simple-upload/implementation-plan.md)
 
 ## Scope Notes
 
@@ -81,6 +85,9 @@ The project is in active architecture and implementation mode. AWS is the first 
 - Explorer counters reflect normalized navigable entries, not raw provider payload counts.
 - The current AWS explorer can refine loaded files by normalized content status and shows a local status breakdown next to the loaded-count summary.
 - The current AWS explorer can keep archival context visible for temporarily restored Glacier objects while they remain provider-available for download.
+- The current AWS explorer supports simple multi-file upload to the open bucket folder through button or drag and drop.
+- The current upload flow detects overwrite conflicts across the batch before starting uploads and resolves them in a unified modal with per-item or apply-to-all decisions.
+- The current upload implementation has no local queue, no `pending` state, and no explicit parallelism cap.
 - Restore is provider-specific where provider behavior materially affects UX or implementation.
 - Refresh is manual and interaction-driven by default; restore state is rediscovered from the provider on navigation, refresh, screen open, and reconnection rather than continuous polling.
 

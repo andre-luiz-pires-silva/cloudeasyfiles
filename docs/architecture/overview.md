@@ -28,6 +28,7 @@ CloudEasyFiles is structured to keep product behavior coherent while isolating p
 
 - The cloud is always the source of truth.
 - Local cache is optional, configured globally in the app, and limited to downloaded files.
+- Default upload parameters are configured globally in the app and the current upload MVP only uses AWS `StorageClass`.
 - Navigation context is defined structurally in the sidebar.
 - Object exploration happens in the main content area.
 - Filtering and advanced search are distinct architectural concepts.
@@ -36,6 +37,9 @@ CloudEasyFiles is structured to keep product behavior coherent while isolating p
 - The explorer folder model is a domain abstraction over flat object storage, using prefix inference plus explicit trailing-slash sentinels when the app creates folders.
 - Automatic refresh is activity-driven rather than continuous.
 - Restore and rehydration flows may be provider-specific when provider behavior materially affects UX or orchestration.
+- The current transfer monitor covers downloads and simple uploads, but the upload MVP has no local queue, no `pending` state, and no explicit concurrency cap.
+- The current simple upload flow can start multiple file uploads from a single picker or drag-and-drop action.
+- The current simple upload flow resolves overwrite conflicts in a dedicated batch modal rather than chaining browser confirms.
 - Outside explicit refresh, navigation, screen-open, and reconnection events, the UI does not continuously poll restore state.
 
 ## Related Documents
