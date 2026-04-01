@@ -152,6 +152,7 @@ Interpretation rules:
 - `DownloadState` is a UX-oriented state distinct from raw provider storage tier labels.
 - In the current AWS implementation, `DownloadState` is resolved from provider availability data plus whether the expected cached file exists locally.
 - In the current AWS implementation, the tracked local path is rooted under a globally configured cache directory and a stable per-connection folder derived from `connection_id`.
+- Provider metadata such as AWS restore expiry may add contextual detail to the UI for temporarily restored archival files, but does not create a new `DownloadState`.
 - Direct export flows such as `Download As` do not create or update tracked local cache state after the export flow completes.
 - A freshness or `Outdated` state is not part of the current tracked-download implementation.
 
@@ -168,8 +169,10 @@ Representative concepts:
 Rules:
 
 - `AvailabilityStatus` may be `Available`, `Archived`, or `Restoring`.
+- `AvailabilityStatus = Available` may come from standard provider availability or from a temporary restored archival copy reported as usable by the provider.
 - Current restore status must be resolved from provider data rather than local persisted history.
 - Restore requests are single-file actions.
 - Active restore activity is an operational dataset, not a permanent audit log.
 - In the AWS flow, active restores are rediscovered by reading object metadata rather than querying a global restore-jobs API.
+- In the AWS flow, restore-expiry metadata can be used to describe until when a temporary restored copy remains available for download.
 - Restore tier choices and retention days are provider-specific workflow inputs, not generic domain enums that assume parity across providers.

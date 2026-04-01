@@ -44,6 +44,8 @@ CloudEasyFiles distinguishes between cloud browsing and file acquisition. The cu
 - `AvailableToDownload` means the file is provider-available and does not already have a current tracked cached copy.
 - `Downloaded` means the tracked cache has the current file version.
 - `NotDownloaded` means the file does not currently have a tracked cached copy and is not in an active restore workflow.
+- An archival file may remain visually associated with `Archived` while also being eligible for download when the provider reports a temporary restored copy.
+- Provider metadata such as AWS restore expiry may be shown as contextual UI detail for temporary availability without creating a new normalized download state.
 - The current implementation resolves tracked cache presence by checking whether the expected cached file exists locally.
 - The current tracked cache root is configured globally in the app and uses a stable per-connection folder derived from `connection_id`.
 - The application must not claim a single global concurrent-download number across providers.
@@ -53,6 +55,7 @@ CloudEasyFiles distinguishes between cloud browsing and file acquisition. The cu
 ## UX Expectations
 
 - A user looking at the explorer should be able to understand whether a file still needs restore, is ready for tracked download, or is already cached.
+- A user looking at a temporarily restored archival file should be able to see both that it is still archival content and that the temporary download window is active.
 - The bottom bar should act as a lightweight operational summary rather than as a second explorer.
 - The modal should focus on active download details and progress.
 - Users should expect cancelation for active downloads, but not paused or resumed downloads.
@@ -61,8 +64,10 @@ CloudEasyFiles distinguishes between cloud browsing and file acquisition. The cu
 ## Acceptance Criteria
 
 - A file can be represented with exactly one of the four documented tracked download states at a time.
+- The UI may combine normalized availability and archival context for the same file row without introducing a fifth `DownloadState`.
 - `Download` stores into local cache and is tracked by the app.
 - `Download As` remains documented as a separate flow and is not represented as tracked local-cache state after completion.
+- After a tracked download completes, a temporarily restored archival file may be shown simply as `Downloaded` in the current context.
 - Active `Download` and `Download As` operations produce a bottom-bar summary affordance.
 - Opening the summary affordance reveals a modal with active download details and progress.
 - The file context menu and transfer modal both expose cancel controls for active downloads.

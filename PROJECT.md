@@ -80,6 +80,7 @@ The project is in active architecture and implementation mode. AWS is the first 
 - Explorer listing uses incremental loading with `Carregar mais`, not numbered pages.
 - Explorer counters reflect normalized navigable entries, not raw provider payload counts.
 - The current AWS explorer can refine loaded files by normalized content status and shows a local status breakdown next to the loaded-count summary.
+- The current AWS explorer can keep archival context visible for temporarily restored Glacier objects while they remain provider-available for download.
 - Restore is provider-specific where provider behavior materially affects UX or implementation.
 - Refresh is manual and interaction-driven by default; restore state is rediscovered from the provider on navigation, refresh, screen open, and reconnection rather than continuous polling.
 

@@ -193,6 +193,7 @@ export function AwsRestoreRequestPanel({
             .replace("{tier}", selectedTierDescriptor ? t(selectedTierDescriptor.titleKey) : selectedTier)
             .replace("{days}", String(isRetentionDaysValid ? parsedRetentionDays : retentionDays || "-"))}
         </p>
+        <p>{t("restore.modal.aws.confirmation_warning")}</p>
       </div>
 
       {submitError ? <p className="status-message-error">{submitError}</p> : null}

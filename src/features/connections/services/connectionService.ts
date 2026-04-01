@@ -2,6 +2,9 @@ import type { AwsConnectionDraft, SavedConnectionSummary } from "../models";
 import { ConnectionMetadataStore } from "../persistence/connectionMetadataStore";
 import { ConnectionSecretsVault } from "../persistence/connectionSecretsVault";
 
+export const MAX_CONNECTION_NAME_LENGTH = 48;
+const SIMPLE_CONNECTION_NAME_PATTERN = /^[\p{L}\p{N}][\p{L}\p{N} _-]*$/u;
+
 function createConnectionId(): string {
   if (typeof globalThis.crypto !== "undefined" && "randomUUID" in globalThis.crypto) {
     return globalThis.crypto.randomUUID();
@@ -17,6 +20,24 @@ function sortConnections(connections: SavedConnectionSummary[]) {
       numeric: true
     })
   );
+}
+
+export function normalizeConnectionName(value: string): string {
+  return value.trim();
+}
+
+export function isConnectionNameFormatValid(value: string): boolean {
+  const normalizedValue = normalizeConnectionName(value);
+
+  return (
+    normalizedValue.length > 0 &&
+    normalizedValue.length <= MAX_CONNECTION_NAME_LENGTH &&
+    SIMPLE_CONNECTION_NAME_PATTERN.test(normalizedValue)
+  );
+}
+
+function normalizeConnectionNameForComparison(value: string): string {
+  return normalizeConnectionName(value).toLocaleLowerCase();
 }
 
 export class ConnectionService {
@@ -50,9 +71,28 @@ export class ConnectionService {
   async saveAwsConnection(draft: AwsConnectionDraft): Promise<SavedConnectionSummary> {
     const previousConnections = this.metadataStore.load();
     const connectionId = draft.id ?? createConnectionId();
+    const normalizedName = normalizeConnectionName(draft.name);
+
+    if (!isConnectionNameFormatValid(normalizedName)) {
+      throw new Error(
+        `Connection names must be 1 to ${MAX_CONNECTION_NAME_LENGTH} characters and use only letters, numbers, spaces, hyphens, or underscores.`
+      );
+    }
+
+    const normalizedComparisonName = normalizeConnectionNameForComparison(normalizedName);
+    const hasDuplicateName = previousConnections.some(
+      (connection) =>
+        connection.id !== connectionId &&
+        normalizeConnectionNameForComparison(connection.name) === normalizedComparisonName
+    );
+
+    if (hasDuplicateName) {
+      throw new Error("A connection with this name already exists.");
+    }
+
     const nextConnection: SavedConnectionSummary = {
       id: connectionId,
-      name: draft.name.trim(),
+      name: normalizedName,
       provider: "aws"
     };
 

@@ -180,21 +180,21 @@ impl AwsConnectionService {
 
     fn build_connection_cache_root(
         global_local_cache_directory: &str,
-        connection_id: &str,
+        connection_name: &str,
     ) -> Result<PathBuf, String> {
-        let normalized_connection_id = connection_id.trim();
+        let normalized_connection_name = connection_name.trim();
 
-        if normalized_connection_id.is_empty() {
-            return Err("Connection id is required for local cache operations.".to_string());
+        if normalized_connection_name.is_empty() {
+            return Err("Connection name is required for local cache operations.".to_string());
         }
 
         Ok(PathBuf::from(global_local_cache_directory)
-            .join(Self::normalize_cache_path_segment(normalized_connection_id)))
+            .join(Self::normalize_cache_path_segment(normalized_connection_name)))
     }
 
     fn build_primary_cache_object_path(
         global_local_cache_directory: &str,
-        connection_id: &str,
+        connection_name: &str,
         bucket_name: &str,
         object_key: &str,
     ) -> Result<PathBuf, String> {
@@ -210,38 +210,10 @@ impl AwsConnectionService {
 
         Ok(Self::build_connection_cache_root(
             global_local_cache_directory,
-            connection_id,
+            connection_name,
         )?
         .join(bucket_name)
         .join(normalized_object_path))
-    }
-
-    fn build_legacy_connection_name_cache_object_path(
-        global_local_cache_directory: &str,
-        connection_name: &str,
-        bucket_name: &str,
-        object_key: &str,
-    ) -> Result<PathBuf, String> {
-        if object_key.is_empty() {
-            return Err("Object key is required for local cache operations.".to_string());
-        }
-
-        let normalized_connection_name = connection_name.trim();
-
-        if normalized_connection_name.is_empty() {
-            return Err("Connection name is required for local cache operations.".to_string());
-        }
-
-        let normalized_object_path = object_key
-            .split('/')
-            .fold(PathBuf::new(), |path, segment| {
-                path.join(Self::normalize_cache_path_segment(segment))
-            });
-
-        Ok(PathBuf::from(global_local_cache_directory)
-            .join(Self::normalize_cache_path_segment(normalized_connection_name))
-            .join(bucket_name)
-            .join(normalized_object_path))
     }
 
     fn build_legacy_raw_cache_object_path(
@@ -313,21 +285,10 @@ impl AwsConnectionService {
 
         paths.push(Self::build_primary_cache_object_path(
             global_local_cache_directory,
-            connection_id,
-            bucket_name,
-            object_key,
-        )?);
-
-        let legacy_connection_name_path = Self::build_legacy_connection_name_cache_object_path(
-            global_local_cache_directory,
             connection_name,
             bucket_name,
             object_key,
-        )?;
-
-        if !paths.contains(&legacy_connection_name_path) {
-            paths.push(legacy_connection_name_path);
-        }
+        )?);
 
         let recent_legacy_path = Self::build_recent_legacy_cache_object_path(
             global_local_cache_directory,
@@ -366,18 +327,18 @@ impl AwsConnectionService {
 
     fn build_cache_temp_object_path(
         global_local_cache_directory: &str,
-        connection_id: &str,
+        connection_name: &str,
         bucket_name: &str,
         object_key: &str,
     ) -> Result<PathBuf, String> {
         let cache_object_path = Self::build_primary_cache_object_path(
             global_local_cache_directory,
-            connection_id,
+            connection_name,
             bucket_name,
             object_key,
         )?;
         let connection_cache_root =
-            Self::build_connection_cache_root(global_local_cache_directory, connection_id)?;
+            Self::build_connection_cache_root(global_local_cache_directory, connection_name)?;
         let relative_path = cache_object_path
             .strip_prefix(&connection_cache_root)
             .map_err(|error| error.to_string())?;
@@ -388,7 +349,7 @@ impl AwsConnectionService {
 
         Ok(PathBuf::from(global_local_cache_directory)
             .join(Self::CACHE_TEMP_DIRECTORY)
-            .join(Self::normalize_cache_path_segment(connection_id.trim()))
+            .join(Self::normalize_cache_path_segment(connection_name.trim()))
             .join(relative_path)
             .with_extension(format!("part-{}-{}", std::process::id(), timestamp)))
     }
@@ -855,8 +816,8 @@ impl AwsConnectionService {
     {
         let access_key_id = input.access_key_id.trim().to_string();
         let secret_access_key = input.secret_access_key.trim().to_string();
-        let connection_id = connection_id.trim().to_string();
-        let _connection_name = connection_name.trim().to_string();
+        let _connection_id = connection_id.trim().to_string();
+        let connection_name = connection_name.trim().to_string();
         let bucket_name = bucket_name.trim().to_string();
         let object_key = object_key.trim().to_string();
         let global_local_cache_directory = global_local_cache_directory.trim().to_string();
@@ -894,13 +855,13 @@ impl AwsConnectionService {
         let total_bytes = response.content_length().unwrap_or(0).max(0);
         let final_path = Self::build_primary_cache_object_path(
             &global_local_cache_directory,
-            &connection_id,
+            &connection_name,
             &bucket_name,
             &object_key,
         )?;
         let temp_path = Self::build_cache_temp_object_path(
             &global_local_cache_directory,
-            &connection_id,
+            &connection_name,
             &bucket_name,
             &object_key,
         )?;

@@ -30,6 +30,7 @@ Archived files are not immediately downloadable. The product needs a restore wor
   - `Archived`
   - `Restoring`
   - `Available`
+- When AWS reports a temporary restored copy for an archival object, the explorer must preserve the archival context while also showing that the file is currently available.
 - When the user is browsing a bucket or folder, the loaded-context summary must include how many loaded files are currently `Restoring`.
 - The restore summary must be derived only from the currently loaded context, not from a global account-wide scan.
 - The restore detail must appear as part of the loaded-count summary, for example `37 itens carregados (30 disponíveis, 7 restaurando)`.
@@ -57,6 +58,7 @@ Archived files are not immediately downloadable. The product needs a restore wor
 - V1 must not use automatic polling for restore monitoring.
 - V1 must not emit dedicated completion notifications for restore.
 - Restore availability duration is temporary and must never be presented as a permanent storage-class change.
+- Provider metadata such as AWS restore expiry is the source of truth for how long the temporary restored copy remains available.
 
 ## UX Expectations
 
@@ -65,6 +67,7 @@ Archived files are not immediately downloadable. The product needs a restore wor
 - Restore detail in the list summary should feel local to what the user is currently seeing.
 - Restore monitoring should feel current when the user navigates or refreshes the current context, without implying real-time streaming updates.
 - Files that are already restoring should not invite duplicate restore requests from the main list.
+- Files that are temporarily restored should communicate both immediate usability and continued archival origin.
 
 ## Acceptance Criteria
 
@@ -73,6 +76,8 @@ Archived files are not immediately downloadable. The product needs a restore wor
 - The modal shows file name, file size, restore-tier options, retention days, AWS documentation links, and a confirmation summary.
 - Restore-tier options include estimated time, approximate cost guidance, and explanation text.
 - The main file list can represent `Archived`, `Restoring`, and `Available` based on provider state.
+- A temporarily restored archival file can simultaneously communicate `Available` and `Archived` before it has been downloaded.
+- When the provider reports a restore-expiry timestamp, the UI can expose that deadline as contextual detail for the `Available` signal.
 - The loaded-context summary shows restore detail only for the currently loaded bucket or folder contents.
 - Without explicit refresh or context navigation, the app does not auto-poll restore status.
 - When AWS no longer reports a file as restoring in the loaded context, the summary and file row update on the next context load or refresh.

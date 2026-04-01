@@ -231,6 +231,8 @@ CloudEasyFiles simplifies storage tier differences across providers:
 - AWS Glacier-style content and Azure Archive content are both presented as `Archived`
 - Restore and rehydration workflows are both presented as `Restoring`
 - Temporarily restored AWS archival objects are treated as `Available` when the provider reports that they can currently be used
+- When an AWS archival object is temporarily restored but not yet downloaded, the list can show both `Available` and `Archived` so the user can see that it is usable now without losing the archival context
+- In that temporary-restored case, the `Available` badge can expose a tooltip with the provider-reported expiry time for that download window
 - The UI focuses on whether a file is available to use, not on provider-specific storage jargon
 
 ### Archival Storage Support
@@ -240,6 +242,7 @@ CloudEasyFiles is designed to make archived storage easier to work with.
 - The current AWS implementation detects when a file is archived
 - The current AWS implementation shows when a file is still restoring
 - The current AWS implementation recognizes when AWS reports a temporarily restored archival object as available again
+- The current AWS implementation keeps the archival context visible while the temporary restored copy remains available
 - The current AWS implementation allows download when the file becomes available
 - Provider-specific restore request flows are still documented separately from the current delivered UI
 
@@ -255,7 +258,9 @@ The planned experience is intended to be direct and understandable:
 4. The user confirms the restore request
 5. The file enters the `Restoring` state
 6. The user tracks progress directly in the file list
-7. When the restore is complete, the file becomes available for download
+7. When the restore is complete, the file becomes available for download for a limited time defined by AWS
+8. While that temporary window is active and the tracked download has not happened yet, the UI can show both `Available` and `Archived`
+9. After a tracked download completes, the file row shows `Downloaded`
 
 ### Local Cache (Optional)
 
@@ -266,6 +271,7 @@ When local cache is enabled:
 - Tracked downloads are stored under `<cache>/<connection-id>/<bucket-name>/<object-key>`
 - The app checks whether listed AWS objects already exist in that cache path
 - The UI can show whether a file is not downloaded, available to download, restoring, or downloaded
+- A temporarily restored archival file can still show archival context in the list while remaining eligible for tracked download
 - Cached files can expose an action to open their local parent folder
 
 When local cache is disabled:
