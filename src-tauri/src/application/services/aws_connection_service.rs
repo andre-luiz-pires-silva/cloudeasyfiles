@@ -122,6 +122,22 @@ where
     format!("{}: {}", error_code, error_message)
 }
 
+fn is_fatal_aws_identity_error_code(error_code: Option<&str>) -> bool {
+    matches!(
+        error_code,
+        Some(
+            "InvalidClientTokenId"
+                | "InvalidAccessKeyId"
+                | "UnrecognizedClientException"
+                | "ExpiredToken"
+                | "ExpiredTokenException"
+                | "IncompleteSignature"
+                | "SignatureDoesNotMatch"
+                | "AuthFailure"
+        )
+    )
+}
+
 fn normalize_bucket_region(location_constraint: Option<&BucketLocationConstraint>) -> String {
     match location_constraint {
         None => "us-east-1".to_string(),
@@ -446,6 +462,9 @@ impl AwsConnectionService {
             let identity_response = match client.get_caller_identity().send().await {
                 Ok(response) => response,
                 Err(error) => {
+                    let error_code = error
+                        .as_service_error()
+                        .and_then(ProvideErrorMetadata::code);
                     let error_message = error
                         .as_service_error()
                         .map(format_provider_service_error)
@@ -457,6 +476,11 @@ impl AwsConnectionService {
                     );
 
                     last_error_message = Some(error_message);
+
+                    if is_fatal_aws_identity_error_code(error_code) {
+                        break;
+                    }
+
                     continue;
                 }
             };

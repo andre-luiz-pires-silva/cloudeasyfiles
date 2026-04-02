@@ -1,10 +1,30 @@
 export type ConnectionProvider = "aws" | "azure";
 
-export type SavedConnectionSummary = {
+export type AwsUploadStorageClass =
+  | "STANDARD"
+  | "STANDARD_IA"
+  | "ONEZONE_IA"
+  | "INTELLIGENT_TIERING"
+  | "GLACIER_IR"
+  | "GLACIER"
+  | "DEEP_ARCHIVE";
+
+type SavedConnectionBase = {
   id: string;
   name: string;
   provider: ConnectionProvider;
 };
+
+export type SavedAwsConnectionSummary = SavedConnectionBase & {
+  provider: "aws";
+  defaultUploadStorageClass?: AwsUploadStorageClass;
+};
+
+export type SavedAzureConnectionSummary = SavedConnectionBase & {
+  provider: "azure";
+};
+
+export type SavedConnectionSummary = SavedAwsConnectionSummary | SavedAzureConnectionSummary;
 
 export type AwsConnectionDraft = {
   id?: string;
@@ -12,6 +32,7 @@ export type AwsConnectionDraft = {
   provider: "aws";
   accessKeyId: string;
   secretAccessKey: string;
+  defaultUploadStorageClass?: AwsUploadStorageClass;
 };
 
 export type ConnectionFormMode = "create" | "edit";

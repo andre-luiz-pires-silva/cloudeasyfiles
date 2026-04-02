@@ -1,4 +1,5 @@
 import type { SavedConnectionSummary } from "../models";
+import { normalizeAwsUploadStorageClass } from "../awsUploadStorageClasses";
 
 const STORAGE_KEY = "cloudeasyfiles.connection-metadata";
 
@@ -9,10 +10,24 @@ function isSavedConnectionSummary(value: unknown): value is SavedConnectionSumma
 
   const candidate = value as Record<string, unknown>;
 
-  return (
+  const hasBaseShape =
     typeof candidate.id === "string" &&
     typeof candidate.name === "string" &&
-    (candidate.provider === "aws" || candidate.provider === "azure")
+    (candidate.provider === "aws" || candidate.provider === "azure");
+
+  if (!hasBaseShape) {
+    return false;
+  }
+
+  if (candidate.provider === "azure") {
+    return true;
+  }
+
+  return (
+    typeof candidate.defaultUploadStorageClass === "undefined" ||
+    (typeof candidate.defaultUploadStorageClass === "string" &&
+      normalizeAwsUploadStorageClass(candidate.defaultUploadStorageClass) ===
+        candidate.defaultUploadStorageClass.trim().toUpperCase())
   );
 }
 

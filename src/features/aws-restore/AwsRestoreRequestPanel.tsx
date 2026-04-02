@@ -1,12 +1,11 @@
 import { LoaderCircle } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import type { Locale } from "../../lib/i18n/I18nProvider";
 import { openExternalUrl, type AwsRestoreTier } from "../../lib/tauri/awsConnections";
-
-const AWS_RESTORE_DOCUMENTATION_URL =
-  "https://docs.aws.amazon.com/AmazonS3/latest/userguide/restoring-objects.html";
-const AWS_PRICING_DOCUMENTATION_URL = "https://aws.amazon.com/s3/pricing/";
+import { getAwsRestoreTierContent } from "../aws/awsProviderContent";
 
 type AwsRestoreRequestPanelProps = {
+  locale: Locale;
   storageClass?: string | null;
   isSubmitting: boolean;
   submitError: string | null;
@@ -15,39 +14,8 @@ type AwsRestoreRequestPanelProps = {
   t: (key: string) => string;
 };
 
-type TierDescriptor = {
-  value: AwsRestoreTier;
-  titleKey: string;
-  etaKey: string;
-  costKey: string;
-  useCaseKey: string;
-};
-
-const TIER_DESCRIPTORS: TierDescriptor[] = [
-  {
-    value: "expedited",
-    titleKey: "restore.modal.aws.tier.expedited.title",
-    etaKey: "restore.modal.aws.tier.expedited.eta",
-    costKey: "restore.modal.aws.tier.expedited.cost",
-    useCaseKey: "restore.modal.aws.tier.expedited.use_case"
-  },
-  {
-    value: "standard",
-    titleKey: "restore.modal.aws.tier.standard.title",
-    etaKey: "restore.modal.aws.tier.standard.eta",
-    costKey: "restore.modal.aws.tier.standard.cost",
-    useCaseKey: "restore.modal.aws.tier.standard.use_case"
-  },
-  {
-    value: "bulk",
-    titleKey: "restore.modal.aws.tier.bulk.title",
-    etaKey: "restore.modal.aws.tier.bulk.eta",
-    costKey: "restore.modal.aws.tier.bulk.cost",
-    useCaseKey: "restore.modal.aws.tier.bulk.use_case"
-  }
-];
-
 export function AwsRestoreRequestPanel({
+  locale,
   storageClass,
   isSubmitting,
   submitError,
@@ -55,19 +23,20 @@ export function AwsRestoreRequestPanel({
   onSubmit,
   t
 }: AwsRestoreRequestPanelProps) {
+  const content = getAwsRestoreTierContent(locale);
   const availableTierDescriptors = useMemo(() => {
     const normalizedStorageClass = storageClass?.trim().toUpperCase() ?? "";
 
     if (normalizedStorageClass.includes("DEEP_ARCHIVE")) {
-      return TIER_DESCRIPTORS.filter((descriptor) => descriptor.value !== "expedited");
+      return content.options.filter((descriptor) => descriptor.tier !== "expedited");
     }
 
-    return TIER_DESCRIPTORS;
-  }, [storageClass]);
+    return content.options;
+  }, [content.options, storageClass]);
   const [selectedTier, setSelectedTier] = useState<AwsRestoreTier>(
-    availableTierDescriptors.some((descriptor) => descriptor.value === "standard")
+    availableTierDescriptors.some((descriptor) => descriptor.tier === "standard")
       ? "standard"
-      : availableTierDescriptors[0]?.value ?? "bulk"
+      : availableTierDescriptors[0]?.tier ?? "bulk"
   );
   const [retentionDays, setRetentionDays] = useState("7");
 
@@ -75,21 +44,22 @@ export function AwsRestoreRequestPanel({
   const isRetentionDaysValid = Number.isInteger(parsedRetentionDays) && parsedRetentionDays >= 1 && parsedRetentionDays <= 365;
   const selectedTierDescriptor = useMemo(
     () =>
-      availableTierDescriptors.find((descriptor) => descriptor.value === selectedTier) ??
+      availableTierDescriptors.find((descriptor) => descriptor.tier === selectedTier) ??
       availableTierDescriptors[0],
     [availableTierDescriptors, selectedTier]
   );
 
   useEffect(() => {
-    if (availableTierDescriptors.some((descriptor) => descriptor.value === selectedTier)) {
+    if (availableTierDescriptors.some((descriptor) => descriptor.tier === selectedTier)) {
       return;
     }
 
-    setSelectedTier(availableTierDescriptors[0]?.value ?? "bulk");
+    setSelectedTier(availableTierDescriptors[0]?.tier ?? "bulk");
   }, [availableTierDescriptors, selectedTier]);
 
   return (
     <form
+      className="modal-form"
       onSubmit={(event) => {
         event.preventDefault();
 
@@ -103,100 +73,112 @@ export function AwsRestoreRequestPanel({
         });
       }}
     >
-      <div className="restore-modal-section">
-        <div className="restore-modal-section-header">
-          <strong>{t("restore.modal.aws.tier_label")}</strong>
-          <span>{t("restore.modal.aws.tier_helper")}</span>
-        </div>
+      <div className="modal-scroll-panel">
+        <div className="modal-scroll-viewport">
+          <div className="restore-modal-section">
+            <div className="restore-modal-section-header">
+              <strong>{t("restore.modal.aws.tier_label")}</strong>
+              <span>{t("restore.modal.aws.tier_helper")}</span>
+            </div>
 
-        <div className="restore-tier-list">
-          {availableTierDescriptors.map((descriptor) => {
-            const checked = descriptor.value === selectedTier;
+            <div className="restore-tier-list">
+              {availableTierDescriptors.map((descriptor) => {
+                const checked = descriptor.tier === selectedTier;
 
-            return (
-              <label
-                key={descriptor.value}
-                className={`restore-tier-card${checked ? " is-selected" : ""}`}
+                return (
+                  <label
+                    key={descriptor.tier}
+                    className={`restore-tier-card${checked ? " is-selected" : ""}`}
+                  >
+                    <input
+                      type="radio"
+                      name="restore-tier"
+                      value={descriptor.tier}
+                      checked={checked}
+                      onChange={() => setSelectedTier(descriptor.tier)}
+                    />
+                    <span className={`restore-tier-card-indicator${checked ? " is-selected" : ""}`}>
+                      <span className="restore-tier-card-indicator-dot" />
+                    </span>
+                    <span className="restore-tier-card-content">
+                      <span className="restore-tier-card-copy">
+                        <strong>{descriptor.title}</strong>
+                        <span>{descriptor.useCase}</span>
+                      </span>
+                      <span className="restore-tier-card-meta">
+                        <span>{t("restore.modal.aws.eta_label")}: {descriptor.eta}</span>
+                        <span>{t("restore.modal.aws.cost_label")}: {descriptor.cost}</span>
+                      </span>
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+          </div>
+
+          <label className="field-group" htmlFor="restore-retention-days">
+            <span>{t("restore.modal.aws.days_label")}</span>
+            <input
+              id="restore-retention-days"
+              type="number"
+              min={1}
+              max={365}
+              inputMode="numeric"
+              value={retentionDays}
+              onChange={(event) => setRetentionDays(event.target.value)}
+            />
+            <span className="field-helper">{t("restore.modal.aws.days_helper")}</span>
+            {isRetentionDaysValid ? null : (
+              <span className="field-error">{t("restore.modal.aws.days_validation")}</span>
+            )}
+          </label>
+
+          <div className="restore-modal-section restore-modal-note">
+            <strong>{t("restore.modal.aws.cost_note_title")}</strong>
+            <p>
+              {t("restore.modal.aws.cost_note_body")}{" "}
+              <button
+                type="button"
+                className="restore-inline-link"
+                onClick={() => {
+                  void openExternalUrl(content.pricingDocumentationUrl);
+                }}
               >
-                <input
-                  type="radio"
-                  name="restore-tier"
-                  value={descriptor.value}
-                  checked={checked}
-                  onChange={() => setSelectedTier(descriptor.value)}
-                />
-                <span className="restore-tier-card-copy">
-                  <strong>{t(descriptor.titleKey)}</strong>
-                  <span>{t(descriptor.useCaseKey)}</span>
-                </span>
-                <span className="restore-tier-card-meta">
-                  <span>{t("restore.modal.aws.eta_label")}: {t(descriptor.etaKey)}</span>
-                  <span>{t("restore.modal.aws.cost_label")}: {t(descriptor.costKey)}</span>
-                </span>
-              </label>
-            );
-          })}
+                {t("restore.modal.aws.docs.pricing")}
+              </button>
+              .
+            </p>
+            <p>
+              {t("restore.modal.aws.retention_note_body")}{" "}
+              <button
+                type="button"
+                className="restore-inline-link"
+                onClick={() => {
+                  void openExternalUrl(content.restoreDocumentationUrl);
+                }}
+              >
+                {t("restore.modal.aws.docs.restore")}
+              </button>
+              .
+            </p>
+          </div>
+
+          <div className="restore-modal-section restore-modal-confirmation">
+            <strong>{t("restore.modal.confirmation_title")}</strong>
+            <p>
+              {t("restore.modal.aws.confirmation_summary")
+                .replace("{tier}", selectedTierDescriptor ? selectedTierDescriptor.title : selectedTier)
+                .replace(
+                  "{days}",
+                  String(isRetentionDaysValid ? parsedRetentionDays : retentionDays || "-")
+                )}
+            </p>
+            <p>{t("restore.modal.aws.confirmation_warning")}</p>
+          </div>
+
+          {submitError ? <p className="status-message-error">{submitError}</p> : null}
         </div>
       </div>
-
-      <label className="field-group" htmlFor="restore-retention-days">
-        <span>{t("restore.modal.aws.days_label")}</span>
-        <input
-          id="restore-retention-days"
-          type="number"
-          min={1}
-          max={365}
-          inputMode="numeric"
-          value={retentionDays}
-          onChange={(event) => setRetentionDays(event.target.value)}
-        />
-        <span className="field-helper">{t("restore.modal.aws.days_helper")}</span>
-        {isRetentionDaysValid ? null : (
-          <span className="field-error">{t("restore.modal.aws.days_validation")}</span>
-        )}
-      </label>
-
-      <div className="restore-modal-section restore-modal-note">
-        <strong>{t("restore.modal.aws.cost_note_title")}</strong>
-        <p>
-          {t("restore.modal.aws.cost_note_body")}{" "}
-          <button
-            type="button"
-            className="restore-inline-link"
-            onClick={() => {
-              void openExternalUrl(AWS_PRICING_DOCUMENTATION_URL);
-            }}
-          >
-            {t("restore.modal.aws.docs.pricing")}
-          </button>
-          .
-        </p>
-        <p>
-          {t("restore.modal.aws.retention_note_body")}{" "}
-          <button
-            type="button"
-            className="restore-inline-link"
-            onClick={() => {
-              void openExternalUrl(AWS_RESTORE_DOCUMENTATION_URL);
-            }}
-          >
-            {t("restore.modal.aws.docs.restore")}
-          </button>
-          .
-        </p>
-      </div>
-
-      <div className="restore-modal-section restore-modal-confirmation">
-        <strong>{t("restore.modal.confirmation_title")}</strong>
-        <p>
-          {t("restore.modal.aws.confirmation_summary")
-            .replace("{tier}", selectedTierDescriptor ? t(selectedTierDescriptor.titleKey) : selectedTier)
-            .replace("{days}", String(isRetentionDaysValid ? parsedRetentionDays : retentionDays || "-"))}
-        </p>
-        <p>{t("restore.modal.aws.confirmation_warning")}</p>
-      </div>
-
-      {submitError ? <p className="status-message-error">{submitError}</p> : null}
 
       <div className="modal-actions">
         <button type="button" className="secondary-button" onClick={onCancel}>

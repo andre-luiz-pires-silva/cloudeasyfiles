@@ -2,7 +2,7 @@
 
 ## Objective
 
-Define the first upload workflow as a simple way to send one or more local files to the currently open AWS bucket folder.
+Define the upload workflow in the app as a simple way to send one or more local files to the currently open AWS bucket folder.
 
 ## Context
 
@@ -14,8 +14,8 @@ The product already supports cloud browsing, download monitoring, and provider-s
 - Upload must be triggerable by a toolbar button and by drag and drop onto the open content area.
 - The current simple upload must accept one or more files from the picker or drag-and-drop payload.
 - The destination key must be derived from the currently open bucket path plus the original file name.
-- Upload must use globally configured default AWS parameters.
-- The current simple upload MVP must support exactly one global AWS parameter: `StorageClass`.
+- Upload must use the default AWS parameters configured for the active connection.
+- The current simple upload MVP must support exactly one AWS upload parameter: `StorageClass`, configured per connection.
 - If one or more destination keys already exist, the UI must detect those conflicts before upload start and present a unified overwrite-resolution flow.
 - Upload progress must appear in the existing transfer summary and transfer modal.
 - Active uploads must support cancelation.
@@ -24,8 +24,9 @@ The product already supports cloud browsing, download monitoring, and provider-s
 ## Business Rules
 
 - The current simple upload workflow is AWS-only.
-- The current simple upload workflow does not open a dedicated advanced-parameter window.
+- The app offers only the simple upload workflow and does not open a dedicated advanced-parameter window.
 - The current simple upload workflow does not expose ACL, metadata, tags, encryption overrides, or custom content-type fields.
+- The UI must make it clear that advanced upload parameterization belongs in the provider console rather than in the app.
 - The current upload monitor does not introduce a local queue or `pending` state.
 - The current upload monitor does not impose a configurable concurrency limit.
 - A single drag or picker action may start multiple uploads immediately.
@@ -53,7 +54,6 @@ The product already supports cloud browsing, download monitoring, and provider-s
 
 ## Out of Scope
 
-- Advanced upload window
 - Local upload queue
 - Pending upload state
 - Explicit parallelism limit

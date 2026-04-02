@@ -171,7 +171,8 @@ Rules:
 - `SimpleUpload` sends one or more local files to the currently open bucket root or folder path.
 - the object key is derived from the current logical path plus the original local file name
 - the current AWS implementation uses `PutObject` for smaller files and multipart upload when needed internally
-- the current upload flow uses a single global AWS `StorageClass` default configured in app settings
+- the current upload flow uses a per-connection AWS `StorageClass` default configured in the connection settings
+- the app does not expose advanced upload parameterization; provider-specific options beyond the default flow belong in the provider console
 - the current upload flow preflights destination conflicts and resolves them in a dedicated batch modal with per-item and apply-to-all decisions
 - uploads participate in the same transfer monitor used for downloads, including progress and cancelation
 - the current upload MVP does not implement a local queue, `pending` state, or explicit concurrency cap

@@ -1,5 +1,6 @@
 import { AwsRestoreRequestPanel } from "../aws-restore/AwsRestoreRequestPanel";
 import type { ConnectionProvider } from "../connections/models";
+import type { Locale } from "../../lib/i18n/I18nProvider";
 import type { AwsRestoreTier } from "../../lib/tauri/awsConnections";
 
 export type RestoreRequestTarget = {
@@ -10,6 +11,7 @@ export type RestoreRequestTarget = {
 };
 
 type RestoreRequestModalProps = {
+  locale: Locale;
   request: RestoreRequestTarget;
   isSubmitting: boolean;
   submitError: string | null;
@@ -19,6 +21,7 @@ type RestoreRequestModalProps = {
 };
 
 export function RestoreRequestModal({
+  locale,
   request,
   isSubmitting,
   submitError,
@@ -55,6 +58,7 @@ export function RestoreRequestModal({
 
         {request.provider === "aws" ? (
           <AwsRestoreRequestPanel
+            locale={locale}
             storageClass={request.storageClass}
             isSubmitting={isSubmitting}
             submitError={submitError}

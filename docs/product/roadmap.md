@@ -25,7 +25,6 @@ Current emphasis:
 
 ## Follow-Up Opportunities
 
-- advanced upload window with richer parameters
 - richer file preview capabilities
 - additional providers such as Google Cloud Storage
 - cache ergonomics and performance improvements

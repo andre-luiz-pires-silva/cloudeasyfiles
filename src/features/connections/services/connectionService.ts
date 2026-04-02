@@ -1,6 +1,7 @@
 import type { AwsConnectionDraft, SavedConnectionSummary } from "../models";
 import { ConnectionMetadataStore } from "../persistence/connectionMetadataStore";
 import { ConnectionSecretsVault } from "../persistence/connectionSecretsVault";
+import { normalizeAwsUploadStorageClass } from "../awsUploadStorageClasses";
 
 export const MAX_CONNECTION_NAME_LENGTH = 48;
 const SIMPLE_CONNECTION_NAME_PATTERN = /^[\p{L}\p{N}][\p{L}\p{N} _-]*$/u;
@@ -64,7 +65,10 @@ export class ConnectionService {
       name: metadata.name,
       provider: "aws",
       accessKeyId: secrets.accessKeyId,
-      secretAccessKey: secrets.secretAccessKey
+      secretAccessKey: secrets.secretAccessKey,
+      defaultUploadStorageClass: normalizeAwsUploadStorageClass(
+        metadata.defaultUploadStorageClass
+      )
     };
   }
 
@@ -93,7 +97,8 @@ export class ConnectionService {
     const nextConnection: SavedConnectionSummary = {
       id: connectionId,
       name: normalizedName,
-      provider: "aws"
+      provider: "aws",
+      defaultUploadStorageClass: normalizeAwsUploadStorageClass(draft.defaultUploadStorageClass)
     };
 
     const nextConnections = sortConnections(

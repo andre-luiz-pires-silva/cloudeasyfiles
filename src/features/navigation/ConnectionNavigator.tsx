@@ -4,8 +4,10 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { isTauri } from "@tauri-apps/api/core";
 import {
+  AlertCircle,
   Archive,
   ChevronRight,
+  CheckCircle2,
   CircleAlert,
   Cloud,
   Download,
@@ -20,11 +22,17 @@ import {
   Search,
   Settings,
   Upload,
+  XCircle,
   X
 } from "lucide-react";
 import logoPrimary from "../../assets/logo-primary.svg";
 import { AwsConnectionFields } from "../connections/components/AwsConnectionFields";
 import { AzureConnectionPlaceholder } from "../connections/components/AzureConnectionPlaceholder";
+import {
+  DEFAULT_AWS_UPLOAD_STORAGE_CLASS,
+  normalizeAwsUploadStorageClass,
+  type AwsUploadStorageClass
+} from "../connections/awsUploadStorageClasses";
 import { appSettingsStore } from "../settings/persistence/appSettingsStore";
 import type {
   AwsConnectionDraft,
@@ -94,17 +102,6 @@ const ALL_CONTENT_STATUS_FILTERS: Array<"downloaded" | "available" | "restoring"
   "restoring",
   "archived"
 ];
-const DEFAULT_AWS_UPLOAD_STORAGE_CLASS = "STANDARD";
-const AWS_UPLOAD_STORAGE_CLASS_OPTIONS = [
-  "STANDARD",
-  "STANDARD_IA",
-  "ONEZONE_IA",
-  "INTELLIGENT_TIERING",
-  "GLACIER_IR",
-  "GLACIER",
-  "DEEP_ARCHIVE"
-] as const;
-
 type ConnectionIndicator = {
   status: ConnectionIndicatorStatus;
   message?: string;
@@ -914,7 +911,6 @@ export function ConnectionNavigator({
   const secretKeyFieldId = useId();
   const localeFieldId = useId();
   const globalCacheDirectoryFieldId = useId();
-  const uploadStorageClassFieldId = useId();
   const [connections, setConnections] = useState<SavedConnectionSummary[]>([]);
   const [selectedView, setSelectedView] = useState<NavigatorView>("home");
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
@@ -925,19 +921,11 @@ export function ConnectionNavigator({
   const [connectionProvider, setConnectionProvider] = useState<ConnectionProvider>("aws");
   const [accessKeyId, setAccessKeyId] = useState("");
   const [secretAccessKey, setSecretAccessKey] = useState("");
+  const [defaultAwsUploadStorageClass, setDefaultAwsUploadStorageClass] =
+    useState<AwsUploadStorageClass>(DEFAULT_AWS_UPLOAD_STORAGE_CLASS);
   const [globalLocalCacheDirectory, setGlobalLocalCacheDirectory] = useState(
     loadInitialGlobalCacheDirectory
   );
-  const [defaultAwsUploadStorageClass, setDefaultAwsUploadStorageClass] = useState(() => {
-    const appSettings = appSettingsStore.load();
-    const configuredStorageClass = appSettings.defaultAwsUploadStorageClass?.trim().toUpperCase();
-
-    return configuredStorageClass && AWS_UPLOAD_STORAGE_CLASS_OPTIONS.includes(
-      configuredStorageClass as (typeof AWS_UPLOAD_STORAGE_CLASS_OPTIONS)[number]
-    )
-      ? configuredStorageClass
-      : DEFAULT_AWS_UPLOAD_STORAGE_CLASS;
-  });
   const [connectionTestStatus, setConnectionTestStatus] =
     useState<ConnectionTestStatus>("idle");
   const [connectionTestMessage, setConnectionTestMessage] = useState<string | null>(null);
@@ -1572,7 +1560,7 @@ export function ConnectionNavigator({
             selectedBucketName!,
             objectKey,
             normalizedFilePath,
-            defaultAwsUploadStorageClass,
+            draft.defaultUploadStorageClass,
             selectedBucketRegion && selectedBucketRegion !== BUCKET_REGION_PLACEHOLDER
               ? selectedBucketRegion
               : undefined
@@ -1600,7 +1588,7 @@ export function ConnectionNavigator({
             selectedBucketName!,
             objectKey,
             localFilePath,
-            defaultAwsUploadStorageClass,
+            draft.defaultUploadStorageClass,
             selectedBucketRegion && selectedBucketRegion !== BUCKET_REGION_PLACEHOLDER
               ? selectedBucketRegion
               : undefined
@@ -1632,7 +1620,7 @@ export function ConnectionNavigator({
               selectedBucketName!,
               objectKey,
               candidatePath,
-              defaultAwsUploadStorageClass,
+              draft.defaultUploadStorageClass,
               selectedBucketRegion && selectedBucketRegion !== BUCKET_REGION_PLACEHOLDER
                 ? selectedBucketRegion
                 : undefined
@@ -1652,7 +1640,7 @@ export function ConnectionNavigator({
             objectKey,
             file.name,
             fileBytes,
-            defaultAwsUploadStorageClass,
+            draft.defaultUploadStorageClass,
             selectedBucketRegion && selectedBucketRegion !== BUCKET_REGION_PLACEHOLDER
               ? selectedBucketRegion
               : undefined
@@ -2255,7 +2243,6 @@ export function ConnectionNavigator({
     selectedBucketProvider,
     selectedBucketPath,
     activeTransferIdentityMap,
-    defaultAwsUploadStorageClass,
     t
   ]);
 
@@ -2631,10 +2618,9 @@ export function ConnectionNavigator({
 
   useEffect(() => {
     appSettingsStore.save({
-      globalLocalCacheDirectory: globalLocalCacheDirectory.trim() || undefined,
-      defaultAwsUploadStorageClass: defaultAwsUploadStorageClass.trim() || undefined
+      globalLocalCacheDirectory: globalLocalCacheDirectory.trim() || undefined
     });
-  }, [defaultAwsUploadStorageClass, globalLocalCacheDirectory]);
+  }, [globalLocalCacheDirectory]);
 
   useEffect(() => {
     if (!isResizingSidebar) {
@@ -2659,6 +2645,7 @@ export function ConnectionNavigator({
     setConnectionProvider("aws");
     setAccessKeyId("");
     setSecretAccessKey("");
+    setDefaultAwsUploadStorageClass(DEFAULT_AWS_UPLOAD_STORAGE_CLASS);
     setFormErrors({});
     setSubmitError(null);
   }
@@ -2690,6 +2677,7 @@ export function ConnectionNavigator({
       setConnectionProvider(connection.provider);
       setAccessKeyId("");
       setSecretAccessKey("");
+      setDefaultAwsUploadStorageClass(DEFAULT_AWS_UPLOAD_STORAGE_CLASS);
       resetConnectionTestState();
       setFormErrors({});
       setIsModalOpen(true);
@@ -2701,6 +2689,9 @@ export function ConnectionNavigator({
       const draft = await connectionService.getAwsConnectionDraft(connectionId);
       setAccessKeyId(draft.accessKeyId);
       setSecretAccessKey(draft.secretAccessKey);
+      setDefaultAwsUploadStorageClass(
+        normalizeAwsUploadStorageClass(draft.defaultUploadStorageClass)
+      );
     } catch (error) {
       setSubmitError(
         error instanceof Error
@@ -3153,7 +3144,8 @@ export function ConnectionNavigator({
         name: connectionName,
         provider: "aws",
         accessKeyId,
-        secretAccessKey: secretAccessKey.trim()
+        secretAccessKey: secretAccessKey.trim(),
+        defaultUploadStorageClass: defaultAwsUploadStorageClass
       } satisfies AwsConnectionDraft);
 
       const savedConnections = await connectionService.listConnections();
@@ -3619,11 +3611,21 @@ export function ConnectionNavigator({
                         </button>
                       </div>
                     </div>
-                  ) : null}
+                      ) : null}
                 </div>
               ) : null}
             </div>
           )}
+
+          {selectedNode?.kind === "bucket" && selectedBucketProvider === "aws" ? (
+            <div className="content-toolbar-notice" role="note">
+              <CircleAlert size={16} strokeWidth={2} aria-hidden="true" />
+              <p>
+                <strong>{t("content.transfer.simple_upload_notice_title")}</strong>{" "}
+                {t("content.transfer.simple_upload_notice_body")}
+              </p>
+            </div>
+          ) : null}
 
           <div className="content-panel-scroll-viewport">
           <div className="content-panel-body">
@@ -3688,22 +3690,6 @@ export function ConnectionNavigator({
                   </button>
                 </div>
                 <span className="field-helper">{t("settings.download_directory_helper")}</span>
-              </label>
-
-              <label className="field-group" htmlFor={uploadStorageClassFieldId}>
-                <span>{t("settings.upload_storage_class")}</span>
-                <select
-                  id={uploadStorageClassFieldId}
-                  value={defaultAwsUploadStorageClass}
-                  onChange={(event) => setDefaultAwsUploadStorageClass(event.target.value)}
-                >
-                  {AWS_UPLOAD_STORAGE_CLASS_OPTIONS.map((storageClass) => (
-                    <option key={storageClass} value={storageClass}>
-                      {storageClass}
-                    </option>
-                  ))}
-                </select>
-                <span className="field-helper">{t("settings.upload_storage_class_helper")}</span>
               </label>
 
               {submitError ? <p className="status-message-error">{submitError}</p> : null}
@@ -4211,6 +4197,7 @@ export function ConnectionNavigator({
 
       {restoreRequest ? (
         <RestoreRequestModal
+          locale={locale}
           request={restoreRequest}
           isSubmitting={isSubmittingRestoreRequest}
           submitError={restoreSubmitError}
@@ -4333,7 +4320,12 @@ export function ConnectionNavigator({
 
       {isModalOpen ? (
         <div className="modal-backdrop" role="presentation">
-          <div className="modal-card" role="dialog" aria-modal="true" aria-labelledby="connection-modal-title">
+          <div
+            className={`modal-card${connectionProvider === "aws" ? " modal-card-wide" : ""}`}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="connection-modal-title"
+          >
             <div className="modal-header">
               <div>
                 <p className="modal-eyebrow">
@@ -4350,85 +4342,133 @@ export function ConnectionNavigator({
             </div>
 
             <form
+              className="modal-form"
               onSubmit={(event) => {
                 event.preventDefault();
                 void handleSaveConnection();
               }}
             >
-              <label className="field-group" htmlFor={nameFieldId}>
-                <span>{t("navigation.modal.name_label")}</span>
-                <input
-                  id={nameFieldId}
-                  type="text"
-                  value={connectionName}
-                  placeholder={t("navigation.modal.name_placeholder")}
-                  onChange={(event) => {
-                    setConnectionName(event.target.value);
-                    resetConnectionTestState();
-                  }}
-                  autoFocus
-                />
-                {formErrors.connectionName ? (
-                  <span className="field-error">{formErrors.connectionName}</span>
-                ) : null}
-              </label>
+              <div className="modal-scroll-panel">
+                <div className="modal-scroll-viewport">
+                  <label className="field-group" htmlFor={nameFieldId}>
+                    <span>{t("navigation.modal.name_label")}</span>
+                    <input
+                      id={nameFieldId}
+                      type="text"
+                      value={connectionName}
+                      placeholder={t("navigation.modal.name_placeholder")}
+                      onChange={(event) => {
+                        setConnectionName(event.target.value);
+                        resetConnectionTestState();
+                      }}
+                      autoFocus
+                    />
+                    {formErrors.connectionName ? (
+                      <span className="field-error">{formErrors.connectionName}</span>
+                    ) : null}
+                  </label>
 
-              <label className="field-group" htmlFor={providerFieldId}>
-                <span>{t("navigation.modal.type_label")}</span>
-                <select
-                  id={providerFieldId}
-                  value={connectionProvider}
-                  onChange={(event) => {
-                    setConnectionProvider(event.target.value as ConnectionProvider);
-                    resetConnectionTestState();
-                  }}
-                >
-                  <option value="aws">{t("content.provider.aws")}</option>
-                  <option value="azure">{t("content.provider.azure")}</option>
-                </select>
-              </label>
+                  <label className="field-group" htmlFor={providerFieldId}>
+                    <span>{t("navigation.modal.type_label")}</span>
+                    <select
+                      id={providerFieldId}
+                      value={connectionProvider}
+                      onChange={(event) => {
+                        setConnectionProvider(event.target.value as ConnectionProvider);
+                        resetConnectionTestState();
+                      }}
+                    >
+                      <option value="aws">{t("content.provider.aws")}</option>
+                      <option value="azure">{t("content.provider.azure")}</option>
+                    </select>
+                  </label>
 
-              {connectionProvider === "aws" ? (
-                <AwsConnectionFields
-                  accessKeyFieldId={accessKeyFieldId}
-                  secretKeyFieldId={secretKeyFieldId}
-                  accessKeyId={accessKeyId}
-                  secretAccessKey={secretAccessKey}
-                  errors={{
-                    accessKeyId: formErrors.accessKeyId,
-                    secretAccessKey: formErrors.secretAccessKey
-                  }}
-                  connectionTestStatus={connectionTestStatus}
-                  connectionTestMessage={connectionTestMessage}
-                  isTestButtonDisabled={isSubmitting || connectionTestStatus === "testing"}
-                  onAccessKeyIdChange={(value) => {
-                    setAccessKeyId(value);
-                    resetConnectionTestState();
-                  }}
-                  onSecretAccessKeyChange={(value) => {
-                    setSecretAccessKey(value);
-                    resetConnectionTestState();
-                  }}
-                  onTestConnection={handleTestConnection}
-                  t={t}
-                />
-              ) : (
-                <AzureConnectionPlaceholder t={t} />
-              )}
+                  {connectionProvider === "aws" ? (
+                    <AwsConnectionFields
+                      locale={locale}
+                      accessKeyFieldId={accessKeyFieldId}
+                      secretKeyFieldId={secretKeyFieldId}
+                      accessKeyId={accessKeyId}
+                      secretAccessKey={secretAccessKey}
+                      defaultUploadStorageClass={defaultAwsUploadStorageClass}
+                      errors={{
+                        accessKeyId: formErrors.accessKeyId,
+                        secretAccessKey: formErrors.secretAccessKey
+                      }}
+                      onAccessKeyIdChange={(value) => {
+                        setAccessKeyId(value);
+                        resetConnectionTestState();
+                      }}
+                      onSecretAccessKeyChange={(value) => {
+                        setSecretAccessKey(value);
+                        resetConnectionTestState();
+                      }}
+                      onDefaultUploadStorageClassChange={setDefaultAwsUploadStorageClass}
+                      t={t}
+                    />
+                  ) : (
+                    <AzureConnectionPlaceholder t={t} />
+                  )}
 
-              {submitError ? <p className="status-message-error">{submitError}</p> : null}
+                  {submitError ? <p className="status-message-error">{submitError}</p> : null}
+                </div>
+              </div>
 
-              <div className="modal-actions">
-                <button type="button" className="secondary-button" onClick={closeModal}>
-                  {t("common.cancel")}
-                </button>
-                <button
-                  type="submit"
-                  className="primary-button"
-                  disabled={isSubmitting || connectionProvider !== "aws"}
-                >
-                  {modalMode === "edit" ? t("common.update") : t("common.save")}
-                </button>
+              <div className="connection-modal-footer">
+                {connectionProvider === "aws" ? (
+                  <div className="connection-test-footer">
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      disabled={isSubmitting || connectionTestStatus === "testing"}
+                      onClick={handleTestConnection}
+                      title={t("navigation.modal.aws.test_connection_helper")}
+                    >
+                      {t("navigation.modal.aws.test_connection_button")}
+                    </button>
+
+                    {connectionTestStatus !== "idle" ? (
+                      <span
+                        className={`connection-test-status-icon is-${connectionTestStatus}`}
+                        title={`${t(`navigation.modal.aws.test_connection_status.${connectionTestStatus}`)}${
+                          connectionTestMessage ? `: ${connectionTestMessage}` : ""
+                        }`}
+                        aria-label={`${t(`navigation.modal.aws.test_connection_status.${connectionTestStatus}`)}${
+                          connectionTestMessage ? `: ${connectionTestMessage}` : ""
+                        }`}
+                      >
+                        {connectionTestStatus === "success" ? (
+                          <CheckCircle2 size={16} strokeWidth={2} />
+                        ) : connectionTestStatus === "error" ? (
+                          <XCircle size={16} strokeWidth={2} />
+                        ) : connectionTestStatus === "testing" ? (
+                          <LoaderCircle
+                            size={16}
+                            strokeWidth={2}
+                            className="connection-test-spinner"
+                          />
+                        ) : (
+                          <AlertCircle size={16} strokeWidth={2} />
+                        )}
+                      </span>
+                    ) : null}
+                  </div>
+                ) : (
+                  <div />
+                )}
+
+                <div className="modal-actions modal-actions-inline">
+                  <button type="button" className="secondary-button" onClick={closeModal}>
+                    {t("common.cancel")}
+                  </button>
+                  <button
+                    type="submit"
+                    className="primary-button"
+                    disabled={isSubmitting || connectionProvider !== "aws"}
+                  >
+                    {modalMode === "edit" ? t("common.update") : t("common.save")}
+                  </button>
+                </div>
               </div>
             </form>
           </div>

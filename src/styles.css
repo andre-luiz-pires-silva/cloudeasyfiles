@@ -707,6 +707,30 @@ body {
   background: var(--toolbar-background);
 }
 
+.content-toolbar-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--warning-border);
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+
+.content-toolbar-notice p {
+  margin: 0;
+  line-height: 1.55;
+}
+
+.content-toolbar-notice strong {
+  font-weight: 700;
+}
+
+.content-toolbar-notice svg {
+  flex: 0 0 auto;
+  margin-top: 2px;
+}
+
 .content-toolbar-copy {
   flex: 1 1 auto;
   min-width: 0;
@@ -1775,12 +1799,21 @@ body {
 }
 
 .modal-card {
-  width: min(460px, 100%);
+  width: min(640px, 100%);
   padding: 24px;
   border-radius: 12px;
   background: white;
   border: 1px solid var(--panel-border);
   box-shadow: var(--shadow);
+  max-height: min(860px, calc(100vh - 48px));
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.modal-card-wide {
+  width: min(920px, 100%);
 }
 
 .modal-card-compact {
@@ -1788,7 +1821,7 @@ body {
 }
 
 .restore-modal-card {
-  width: min(720px, 100%);
+  width: min(920px, 100%);
 }
 
 .restore-modal-header-meta {
@@ -1818,10 +1851,50 @@ body {
   color: var(--text-muted);
 }
 
+.modal-form {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  min-height: 0;
+}
+
+.modal-scroll-panel {
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-gutter: stable;
+  min-width: 0;
+  padding: 0 10px 0 2px;
+}
+
+.modal-scroll-viewport {
+  min-width: 0;
+}
+
 .restore-modal-section {
   display: grid;
   gap: 12px;
   margin-top: 18px;
+}
+
+.connection-form-section {
+  display: grid;
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.connection-form-section-header {
+  display: grid;
+  gap: 4px;
+}
+
+.connection-form-section-header strong {
+  font-size: 0.96rem;
+}
+
+.connection-form-section-header span {
+  color: var(--text-muted);
+  font-size: 0.88rem;
+  line-height: 1.5;
 }
 
 .restore-modal-section-header {
@@ -1879,12 +1952,15 @@ body {
 
 .restore-tier-card {
   display: grid;
-  gap: 10px;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 12px;
   padding: 14px;
   border: 1px solid var(--panel-border);
   border-radius: 12px;
   background: #fff;
   cursor: pointer;
+  transition: border-color 0.18s ease, background-color 0.18s ease, box-shadow 0.18s ease;
 }
 
 .restore-tier-card input {
@@ -1895,28 +1971,163 @@ body {
 
 .restore-tier-card:hover {
   border-color: var(--accent-border-soft);
-  background: rgba(255, 255, 255, 0.98);
+  background: rgba(11, 87, 208, 0.04);
+  box-shadow: inset 0 0 0 1px rgba(11, 87, 208, 0.08);
 }
 
 .restore-tier-card.is-selected {
-  border-color: var(--accent-border-strong);
-  background: linear-gradient(180deg, rgba(255, 255, 255, 1), rgba(235, 244, 255, 0.9));
+  border-color: var(--accent);
+  background: linear-gradient(180deg, rgba(11, 87, 208, 0.1), rgba(11, 87, 208, 0.04));
+  box-shadow:
+    inset 0 0 0 1px rgba(11, 87, 208, 0.24),
+    0 10px 24px rgba(11, 87, 208, 0.08);
+}
+
+.restore-tier-card-indicator {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  margin-top: 2px;
+  border: 2px solid rgba(94, 107, 127, 0.5);
+  border-radius: 999px;
+  background: #fff;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, background-color 0.18s ease;
+}
+
+.restore-tier-card-indicator-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: transparent;
+  transition: background-color 0.18s ease;
+}
+
+.restore-tier-card.is-selected .restore-tier-card-indicator {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 4px rgba(11, 87, 208, 0.12);
+}
+
+.restore-tier-card.is-selected .restore-tier-card-indicator-dot {
+  background: var(--accent);
+}
+
+.storage-class-card-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.storage-class-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--panel-border);
+  border-radius: 10px;
+  background: #fff;
+  cursor: pointer;
+  transition: border-color 0.18s ease, background-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.storage-class-card input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.storage-class-card:hover {
+  border-color: var(--accent-border-soft);
+  background: rgba(11, 87, 208, 0.04);
   box-shadow: inset 0 0 0 1px rgba(11, 87, 208, 0.08);
+}
+
+.storage-class-card.is-selected {
+  border-color: var(--accent);
+  background: linear-gradient(180deg, rgba(11, 87, 208, 0.1), rgba(11, 87, 208, 0.04));
+  box-shadow:
+    inset 0 0 0 1px rgba(11, 87, 208, 0.24),
+    0 10px 24px rgba(11, 87, 208, 0.08);
+}
+
+.storage-class-card-indicator {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  margin-top: 2px;
+  border: 2px solid rgba(94, 107, 127, 0.5);
+  border-radius: 999px;
+  background: #fff;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, background-color 0.18s ease;
+}
+
+.storage-class-card-indicator-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: transparent;
+  transition: background-color 0.18s ease;
+}
+
+.storage-class-card.is-selected .storage-class-card-indicator {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 4px rgba(11, 87, 208, 0.12);
+}
+
+.storage-class-card.is-selected .storage-class-card-indicator-dot {
+  background: var(--accent);
+}
+
+.storage-class-card-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.storage-class-card-copy strong {
+  font-size: 0.95rem;
+  overflow-wrap: anywhere;
+}
+
+.storage-class-card-copy span,
+.storage-class-card-meta span {
+  color: var(--text-muted);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.storage-class-card-meta {
+  display: grid;
+  gap: 6px;
+  font-size: 0.84rem;
+}
+
+.storage-class-card-content {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
 }
 
 .restore-tier-card-copy {
   display: grid;
   gap: 4px;
+  min-width: 0;
 }
 
 .restore-tier-card-copy strong {
   font-size: 0.95rem;
+  overflow-wrap: anywhere;
 }
 
 .restore-tier-card-copy span,
 .restore-tier-card-meta span {
   color: var(--text-muted);
   line-height: 1.5;
+  overflow-wrap: anywhere;
 }
 
 .restore-tier-card-meta {
@@ -1924,6 +2135,12 @@ body {
   flex-wrap: wrap;
   gap: 8px 16px;
   font-size: 0.86rem;
+}
+
+.restore-tier-card-content {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
 }
 
 .restore-modal-note {
@@ -1937,11 +2154,45 @@ body {
   font-size: 0.92rem;
 }
 
+.connection-form-note {
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--panel-border);
+  border-radius: 10px;
+  background: var(--panel-alt);
+}
+
+.connection-form-note strong {
+  font-size: 0.94rem;
+}
+
+.connection-form-note p {
+  margin: 0;
+  color: var(--text-muted);
+  line-height: 1.6;
+}
+
 .restore-modal-note p,
 .restore-modal-confirmation p {
   margin: 0;
   color: var(--text-muted);
   line-height: 1.6;
+}
+
+.inline-link-button,
+.restore-inline-link {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
+}
+
+.inline-link-button:hover,
+.restore-inline-link:hover {
+  text-decoration: underline;
 }
 
 .restore-inline-link {
@@ -2113,6 +2364,38 @@ body {
   line-height: 1.6;
 }
 
+.connection-test-message-inline {
+  max-width: 420px;
+}
+
+.connection-test-status-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+}
+
+.connection-test-status-icon.is-testing {
+  color: var(--connected-color);
+  background: var(--button-active-surface);
+  border-color: rgba(11, 87, 208, 0.12);
+}
+
+.connection-test-status-icon.is-success {
+  color: #166534;
+  background: rgba(22, 101, 52, 0.08);
+  border-color: rgba(22, 101, 52, 0.16);
+}
+
+.connection-test-status-icon.is-error {
+  color: #b42318;
+  background: rgba(180, 35, 24, 0.08);
+  border-color: rgba(180, 35, 24, 0.16);
+}
+
 .connection-test-spinner {
   animation: connection-test-spin 0.9s linear infinite;
 }
@@ -2132,6 +2415,37 @@ body {
   justify-content: end;
   gap: 12px;
   margin-top: 24px;
+}
+
+.connection-modal-footer {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 24px;
+  padding-top: 18px;
+  border-top: 1px solid var(--panel-border);
+}
+
+.connection-test-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+  min-width: 0;
+  flex: 1;
+}
+
+.connection-test-footer-copy {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  justify-items: start;
+}
+
+.modal-actions-inline {
+  margin-top: 0;
+  flex-shrink: 0;
 }
 
 @media (max-width: 720px) {
@@ -2196,6 +2510,10 @@ body {
     align-items: stretch;
   }
 
+  .storage-class-card-list {
+    grid-template-columns: 1fr;
+  }
+
   .content-list-counter {
     white-space: normal;
   }
@@ -2218,8 +2536,15 @@ body {
     justify-content: flex-start;
   }
 
-  .connection-test-header {
+  .connection-test-header,
+  .connection-modal-footer,
+  .connection-test-footer {
     flex-direction: column;
+    align-items: stretch;
+  }
+
+  .connection-test-footer-copy {
+    justify-items: stretch;
   }
 
   .home-brand {
@@ -2239,6 +2564,15 @@ body {
   .details-grid,
   .modal-actions {
     grid-template-columns: 1fr;
+  }
+
+  .modal-card {
+    max-height: calc(100vh - 24px);
+    padding: 20px;
+  }
+
+  .modal-scroll-viewport {
+    min-width: 0;
   }
 
   .modal-actions {

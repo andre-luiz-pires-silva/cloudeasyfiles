@@ -2,12 +2,12 @@
 
 ## Summary
 
-Implement a simple AWS upload flow in the navigator using the existing Tauri bridge and transfer-monitor pattern. The workflow sends one or more local files to the open bucket path, uses a global default AWS storage class, resolves overwrite conflicts in a unified batch modal, supports cancelation, and refreshes the current listing on success.
+Implement a simple AWS upload flow in the navigator using the existing Tauri bridge and transfer-monitor pattern. The workflow sends one or more local files to the open bucket path, uses the connection's default AWS storage class, resolves overwrite conflicts in a unified batch modal, supports cancelation, and refreshes the current listing on success.
 
 ## Frontend
 
-- Extend global app settings with `defaultAwsUploadStorageClass`.
-- Add a settings control on the home screen for the default AWS upload storage class.
+- Extend AWS connection settings with `defaultUploadStorageClass`.
+- Add an AWS connection form control for the default upload storage class.
 - Add a toolbar upload button for AWS bucket contexts.
 - Register native drag-and-drop handling for the content panel and support multi-file drops.
 - Reuse the existing transfer footer and modal to display active uploads beside downloads.

@@ -1,19 +1,18 @@
-import { AlertCircle, CheckCircle2, LoaderCircle, XCircle } from "lucide-react";
-
-type ConnectionTestStatus = "idle" | "testing" | "success" | "error";
+import type { Locale } from "../../../lib/i18n/I18nProvider";
+import { type AwsUploadStorageClass } from "../awsUploadStorageClasses";
+import { AwsUploadStorageClassField } from "./AwsUploadStorageClassField";
 
 type AwsConnectionFieldsProps = {
+  locale: Locale;
   accessKeyFieldId: string;
   secretKeyFieldId: string;
   accessKeyId: string;
   secretAccessKey: string;
+  defaultUploadStorageClass: AwsUploadStorageClass;
   errors: Partial<Record<"accessKeyId" | "secretAccessKey", string>>;
-  connectionTestStatus: ConnectionTestStatus;
-  connectionTestMessage: string | null;
-  isTestButtonDisabled: boolean;
   onAccessKeyIdChange: (value: string) => void;
   onSecretAccessKeyChange: (value: string) => void;
-  onTestConnection: () => void;
+  onDefaultUploadStorageClassChange: (value: AwsUploadStorageClass) => void;
   t: (key: string) => string;
 };
 
@@ -22,13 +21,12 @@ export function AwsConnectionFields({
   secretKeyFieldId,
   accessKeyId,
   secretAccessKey,
+  locale,
+  defaultUploadStorageClass,
   errors,
-  connectionTestStatus,
-  connectionTestMessage,
-  isTestButtonDisabled,
   onAccessKeyIdChange,
   onSecretAccessKeyChange,
-  onTestConnection,
+  onDefaultUploadStorageClassChange,
   t
 }: AwsConnectionFieldsProps) {
   return (
@@ -59,40 +57,11 @@ export function AwsConnectionFields({
         ) : null}
       </label>
 
-      <div className="connection-test-panel">
-        <div className="connection-test-header">
-          <div>
-            <span className="connection-test-label">
-              {t("navigation.modal.aws.test_connection_label")}
-            </span>
-            <span className={`connection-test-status is-${connectionTestStatus}`}>
-              {connectionTestStatus === "success" ? (
-                <CheckCircle2 size={16} strokeWidth={2} />
-              ) : connectionTestStatus === "error" ? (
-                <XCircle size={16} strokeWidth={2} />
-              ) : connectionTestStatus === "testing" ? (
-                <LoaderCircle size={16} strokeWidth={2} className="connection-test-spinner" />
-              ) : (
-                <AlertCircle size={16} strokeWidth={2} />
-              )}
-              <span>{t(`navigation.modal.aws.test_connection_status.${connectionTestStatus}`)}</span>
-            </span>
-          </div>
-
-          <button
-            type="button"
-            className="secondary-button"
-            disabled={isTestButtonDisabled}
-            onClick={onTestConnection}
-          >
-            {t("navigation.modal.aws.test_connection_button")}
-          </button>
-        </div>
-
-        <p className="connection-test-message">
-          {connectionTestMessage ?? t("navigation.modal.aws.test_connection_helper")}
-        </p>
-      </div>
+      <AwsUploadStorageClassField
+        locale={locale}
+        value={defaultUploadStorageClass}
+        onChange={onDefaultUploadStorageClassChange}
+      />
     </>
   );
 }
