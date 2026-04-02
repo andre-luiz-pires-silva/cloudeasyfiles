@@ -123,6 +123,33 @@ export class ConnectionService {
     return nextConnection;
   }
 
+  async updateAwsUploadStorageClass(
+    connectionId: string,
+    storageClass: AwsConnectionDraft["defaultUploadStorageClass"]
+  ): Promise<SavedConnectionSummary> {
+    const previousConnections = this.metadataStore.load();
+    const existingConnection = previousConnections.find((connection) => connection.id === connectionId);
+
+    if (!existingConnection || existingConnection.provider !== "aws") {
+      throw new Error("AWS connection not found");
+    }
+
+    const nextConnection: SavedConnectionSummary = {
+      ...existingConnection,
+      defaultUploadStorageClass: normalizeAwsUploadStorageClass(storageClass)
+    };
+
+    const nextConnections = sortConnections(
+      previousConnections
+        .filter((connection) => connection.id !== connectionId)
+        .concat(nextConnection)
+    );
+
+    this.metadataStore.save(nextConnections);
+
+    return nextConnection;
+  }
+
   async deleteConnection(connectionId: string): Promise<void> {
     const previousConnections = this.metadataStore.load();
     const connectionToDelete = previousConnections.find((connection) => connection.id === connectionId);

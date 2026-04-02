@@ -10,6 +10,7 @@ import {
   CheckCircle2,
   CircleAlert,
   Cloud,
+  Database,
   Download,
   Ellipsis,
   File,
@@ -27,6 +28,7 @@ import {
 } from "lucide-react";
 import logoPrimary from "../../assets/logo-primary.svg";
 import { AwsConnectionFields } from "../connections/components/AwsConnectionFields";
+import { AwsUploadStorageClassField } from "../connections/components/AwsUploadStorageClassField";
 import { AzureConnectionPlaceholder } from "../connections/components/AzureConnectionPlaceholder";
 import {
   DEFAULT_AWS_UPLOAD_STORAGE_CLASS,
@@ -704,20 +706,6 @@ function buildFileIdentity(connectionId: string, bucketName: string, objectKey: 
   return `${connectionId}:${bucketName}:${objectKey}`;
 }
 
-function buildConnectionCacheDirectory(
-  globalLocalCacheDirectory: string,
-  connectionName: string
-): string | null {
-  const normalizedRoot = globalLocalCacheDirectory.trim().replace(/[\\/]+$/, "");
-  const normalizedConnectionName = connectionName.trim();
-
-  if (!normalizedRoot || !normalizedConnectionName) {
-    return null;
-  }
-
-  return `${normalizedRoot}/${normalizedConnectionName}`;
-}
-
 function isFileIdentityInContext(
   fileIdentity: string,
   connectionId: string,
@@ -971,6 +959,11 @@ export function ConnectionNavigator({
   const [contentMenuAnchor, setContentMenuAnchor] = useState<ContentMenuAnchor | null>(null);
   const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
   const [isUploadDropTargetActive, setIsUploadDropTargetActive] = useState(false);
+  const [isUploadSettingsModalOpen, setIsUploadSettingsModalOpen] = useState(false);
+  const [uploadSettingsStorageClass, setUploadSettingsStorageClass] =
+    useState<AwsUploadStorageClass>(DEFAULT_AWS_UPLOAD_STORAGE_CLASS);
+  const [uploadSettingsSubmitError, setUploadSettingsSubmitError] = useState<string | null>(null);
+  const [isSavingUploadSettings, setIsSavingUploadSettings] = useState(false);
   const [contentRefreshNonce, setContentRefreshNonce] = useState(0);
   const [contentViewMode, setContentViewMode] = useState<ContentViewMode>(() => {
     if (typeof window === "undefined") {
@@ -3071,6 +3064,24 @@ export function ConnectionNavigator({
     resetForm();
   }
 
+  function openUploadSettingsModal() {
+    if (!selectedConnection || selectedConnection.provider !== "aws") {
+      return;
+    }
+
+    setUploadSettingsStorageClass(
+      normalizeAwsUploadStorageClass(selectedConnection.defaultUploadStorageClass)
+    );
+    setUploadSettingsSubmitError(null);
+    setIsUploadSettingsModalOpen(true);
+  }
+
+  function closeUploadSettingsModal() {
+    setIsUploadSettingsModalOpen(false);
+    setUploadSettingsSubmitError(null);
+    setIsSavingUploadSettings(false);
+  }
+
   function handleSelectHome() {
     setSelectedView("home");
     setSelectedNodeId(null);
@@ -3159,6 +3170,30 @@ export function ConnectionNavigator({
     } catch (error) {
       setSubmitError(error instanceof Error ? error.message : t("navigation.modal.save_error"));
       setIsSubmitting(false);
+    }
+  }
+
+  async function handleSaveUploadSettings() {
+    if (!selectedConnection || selectedConnection.provider !== "aws") {
+      return;
+    }
+
+    setIsSavingUploadSettings(true);
+    setUploadSettingsSubmitError(null);
+
+    try {
+      await connectionService.updateAwsUploadStorageClass(
+        selectedConnection.id,
+        uploadSettingsStorageClass
+      );
+      const savedConnections = await connectionService.listConnections();
+      setConnections(savedConnections);
+      closeUploadSettingsModal();
+    } catch (error) {
+      setUploadSettingsSubmitError(
+        error instanceof Error ? error.message : t("navigation.modal.save_error")
+      );
+      setIsSavingUploadSettings(false);
     }
   }
 
@@ -3518,7 +3553,11 @@ export function ConnectionNavigator({
                           className="filter-field-input"
                           value={contentFilterText}
                           onChange={(event) => setContentFilterText(event.target.value)}
-                          placeholder={t("content.filter.placeholder")}
+                          placeholder={t(
+                            selectedNode.kind === "connection"
+                              ? "content.filter.placeholder_buckets"
+                              : "content.filter.placeholder"
+                          )}
                           aria-label={t("content.filter.label")}
                         />
                         {contentFilterText ? (
@@ -3582,6 +3621,18 @@ export function ConnectionNavigator({
                             <span>{t("content.transfer.upload_button")}</span>
                           </button>
 
+                          {selectedBucketProvider === "aws" ? (
+                            <button
+                              type="button"
+                              className="content-load-more-button content-load-more-button-icon"
+                              onClick={openUploadSettingsModal}
+                              title={t("content.transfer.upload_settings_button")}
+                              aria-label={t("content.transfer.upload_settings_button")}
+                            >
+                              <Settings size={15} strokeWidth={2} />
+                            </button>
+                          ) : null}
+
                           <span className="content-toolbar-divider" aria-hidden="true" />
                         </>
                       ) : null}
@@ -3616,16 +3667,6 @@ export function ConnectionNavigator({
               ) : null}
             </div>
           )}
-
-          {selectedNode?.kind === "bucket" && selectedBucketProvider === "aws" ? (
-            <div className="content-toolbar-notice" role="note">
-              <CircleAlert size={16} strokeWidth={2} aria-hidden="true" />
-              <p>
-                <strong>{t("content.transfer.simple_upload_notice_title")}</strong>{" "}
-                {t("content.transfer.simple_upload_notice_body")}
-              </p>
-            </div>
-          ) : null}
 
           <div className="content-panel-scroll-viewport">
           <div className="content-panel-body">
@@ -3698,63 +3739,39 @@ export function ConnectionNavigator({
             <div className="content-card">
               {selectedNode.kind === "connection" ? (
                 <>
-                  <div className="details-grid">
-                    <article className="detail-card">
-                      <span className="detail-label">{t("content.detail.type")}</span>
-                      <strong>{t(`content.type.${selectedNode.kind}`)}</strong>
-                    </article>
-
-                    <article className="detail-card">
-                      <span className="detail-label">{t("content.detail.provider")}</span>
-                      <strong>{t(`content.provider.${selectedNode.provider}`)}</strong>
-                    </article>
-
-                    <article className="detail-card">
-                      <span className="detail-label">{t("content.detail.identifier")}</span>
-                      <strong>
-                        {connectionProviderAccountIds[selectedNode.id] ??
-                          t("content.detail.identifier_unavailable")}
-                      </strong>
-                    </article>
-
-                    <article className="detail-card detail-card-wide">
-                      <span className="detail-label">{t("content.detail.cache_path")}</span>
-                      <strong>
-                        {buildConnectionCacheDirectory(globalLocalCacheDirectory, selectedNode.name) ??
-                          t("content.local_cache.not_configured")}
-                      </strong>
-                    </article>
-                  </div>
-
-                  <div className="action-row">
-                    {getConnectionActions(
-                      t,
-                      connectionIndicators[selectedNode.id] ?? { status: "disconnected" }
-                    ).map((action) => (
-                      <button
-                        key={action.id}
-                        type="button"
-                        className={`secondary-button${action.variant === "danger" ? " secondary-button-danger" : ""}`}
-                        disabled={action.disabled}
-                        onClick={() => {
-                          void handleConnectionAction(action.id, selectedNode.id);
-                        }}
-                      >
-                        {action.label}
-                      </button>
-                    ))}
-                  </div>
-
-                  <div className="content-list-section content-list-section-nested">
+                  <div className="content-list-section">
                     {selectedConnectionIndicator.status === "connecting" ? (
                       <p className="content-list-state">{t("content.list.loading_containers")}</p>
                     ) : selectedConnectionIndicator.status === "error" ? (
-                      <p className="status-message-error">
-                        {selectedConnectionIndicator.message ??
-                          t("navigation.connection_status.error")}
-                      </p>
+                      <div className="content-empty connection-empty-state">
+                        <p className="status-message-error">
+                          {selectedConnectionIndicator.message ??
+                            t("navigation.connection_status.error")}
+                        </p>
+                        <p className="content-list-state">{t("content.list.connect_to_load")}</p>
+                        <button
+                          type="button"
+                          className="secondary-button"
+                          onClick={() => {
+                            void handleConnectionAction("connect", selectedNode.id);
+                          }}
+                        >
+                          {t("navigation.menu.connect")}
+                        </button>
+                      </div>
                     ) : selectedConnectionIndicator.status !== "connected" ? (
-                      <p className="content-list-state">{t("content.list.connect_to_load")}</p>
+                      <div className="content-empty connection-empty-state">
+                        <p className="content-list-state">{t("content.list.connect_to_load")}</p>
+                        <button
+                          type="button"
+                          className="secondary-button"
+                          onClick={() => {
+                            void handleConnectionAction("connect", selectedNode.id);
+                          }}
+                        >
+                          {t("navigation.menu.connect")}
+                        </button>
+                      </div>
                     ) : (connectionBuckets[selectedNode.id] ?? []).length === 0 ? (
                       <p className="content-list-state">{t("content.list.empty_connection")}</p>
                     ) : filteredConnectionBuckets.length === 0 ? (
@@ -3780,8 +3797,8 @@ export function ConnectionNavigator({
                               onClick={() => handleSelectNode(bucketNode)}
                             >
                               <span className="content-list-item-main">
-                                <span className="content-list-item-icon content-list-item-icon-directory">
-                                  <Folder size={18} strokeWidth={1.9} />
+                                <span className="content-list-item-icon content-list-item-icon-bucket">
+                                  <Database size={18} strokeWidth={1.9} />
                                 </span>
                                 <span className="content-list-item-copy">
                                   <strong>{bucketNode.name}</strong>
@@ -4475,6 +4492,64 @@ export function ConnectionNavigator({
         </div>
       ) : null}
 
+      {isUploadSettingsModalOpen && selectedConnection?.provider === "aws" ? (
+        <div className="modal-backdrop" role="presentation">
+          <div
+            className="modal-card modal-card-wide"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="upload-settings-modal-title"
+          >
+            <div className="modal-header">
+              <div>
+                <p className="modal-eyebrow">{t("content.transfer.upload_settings_eyebrow")}</p>
+                <h2 id="upload-settings-modal-title" className="modal-title">
+                  {t("content.transfer.upload_settings_title").replace(
+                    "{name}",
+                    selectedConnection.name
+                  )}
+                </h2>
+              </div>
+            </div>
+
+            <form
+              className="modal-form"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void handleSaveUploadSettings();
+              }}
+            >
+              <div className="modal-scroll-panel">
+                <div className="modal-scroll-viewport">
+                  <AwsUploadStorageClassField
+                    locale={locale}
+                    value={uploadSettingsStorageClass}
+                    onChange={setUploadSettingsStorageClass}
+                  />
+
+                  {uploadSettingsSubmitError ? (
+                    <p className="status-message-error">{uploadSettingsSubmitError}</p>
+                  ) : null}
+                </div>
+              </div>
+
+              <div className="modal-actions">
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={closeUploadSettingsModal}
+                >
+                  {t("common.cancel")}
+                </button>
+                <button type="submit" className="primary-button" disabled={isSavingUploadSettings}>
+                  {t("common.save")}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
+
       {pendingDeleteConnection ? (
         <div className="modal-backdrop" role="presentation">
           <div
@@ -4636,7 +4711,7 @@ function ConnectionTreeNodeItem({
               disconnectedTitle={t(DISCONNECTED_CONNECTION_TITLE_KEY)}
             />
           ) : (
-            <TreeNodeIcon />
+            <TreeNodeIcon kind={node.kind} />
           )}
 
           <span className="tree-node-copy">
@@ -4673,10 +4748,19 @@ function ConnectionTreeNodeItem({
   );
 }
 
-function TreeNodeIcon() {
+function TreeNodeIcon({ kind }: { kind: TreeNodeKind }) {
   return (
-    <span className="tree-node-glyph tree-node-glyph-folder" aria-hidden="true">
-      <Folder size={16} strokeWidth={1.9} />
+    <span
+      className={`tree-node-glyph ${
+        kind === "bucket" ? "tree-node-glyph-bucket" : "tree-node-glyph-folder"
+      }`}
+      aria-hidden="true"
+    >
+      {kind === "bucket" ? (
+        <Database size={16} strokeWidth={1.9} />
+      ) : (
+        <Folder size={16} strokeWidth={1.9} />
+      )}
     </span>
   );
 }

@@ -577,6 +577,10 @@ body {
   color: var(--folder-color);
 }
 
+.tree-node-glyph-bucket {
+  color: var(--accent);
+}
+
 .tree-node-glyph-file {
   color: #475569;
 }
@@ -932,39 +936,9 @@ body {
   place-items: center;
 }
 
-.details-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
-  margin-top: 4px;
-}
-
-.detail-card {
-  padding: 12px;
-  border-radius: 8px;
-  background: var(--panel-alt);
-  border: 1px solid var(--panel-border);
-}
-
-.detail-card-wide {
-  grid-column: 1 / -1;
-}
-
-.detail-label {
-  display: inline-block;
-  margin-bottom: 6px;
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--text-muted);
-}
-
-.detail-card strong {
-  display: block;
-  font-size: 1rem;
-  line-height: 1.5;
-  overflow-wrap: anywhere;
+.connection-empty-state {
+  gap: 12px;
+  text-align: center;
 }
 
 .action-row {
@@ -1105,6 +1079,12 @@ body {
   color: rgba(71, 85, 105, 0.72);
 }
 
+.content-load-more-button-icon {
+  min-width: 36px;
+  padding: 0;
+  justify-content: center;
+}
+
 .content-list {
   display: grid;
   gap: 1px;
@@ -1241,6 +1221,10 @@ body {
 
 .content-list-item-icon-directory {
   color: var(--folder-color);
+}
+
+.content-list-item-icon-bucket {
+  color: var(--accent);
 }
 
 .content-list-item-icon-file {
@@ -2561,7 +2545,6 @@ body {
     width: 100%;
   }
 
-  .details-grid,
   .modal-actions {
     grid-template-columns: 1fr;
   }
