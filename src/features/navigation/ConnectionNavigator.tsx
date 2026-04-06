@@ -928,6 +928,7 @@ export function ConnectionNavigator({
   const [connectionIndicators, setConnectionIndicators] = useState<
     Record<string, ConnectionIndicator>
   >({});
+  const [collapsedConnectionIds, setCollapsedConnectionIds] = useState<Record<string, boolean>>({});
   const [connectionProviderAccountIds, setConnectionProviderAccountIds] = useState<
     Record<string, string>
   >({});
@@ -2456,6 +2457,20 @@ export function ConnectionNavigator({
   }, [connections]);
 
   useEffect(() => {
+    setCollapsedConnectionIds((previousCollapsedConnectionIds) => {
+      const nextCollapsedConnectionIds: Record<string, boolean> = {};
+
+      for (const connection of connections) {
+        if (previousCollapsedConnectionIds[connection.id]) {
+          nextCollapsedConnectionIds[connection.id] = true;
+        }
+      }
+
+      return nextCollapsedConnectionIds;
+    });
+  }, [connections]);
+
+  useEffect(() => {
     setBucketContentPaths((previousBucketContentPaths) => {
       const nextBucketContentPaths: Record<string, string> = {};
 
@@ -3013,6 +3028,13 @@ export function ConnectionNavigator({
     updateConnectionIndicator(connectionId, { status: "disconnected" });
   }
 
+  function toggleConnectionCollapsed(connectionId: string) {
+    setCollapsedConnectionIds((currentCollapsedConnectionIds) => ({
+      ...currentCollapsedConnectionIds,
+      [connectionId]: !currentCollapsedConnectionIds[connectionId]
+    }));
+  }
+
   function validateConnectionTestFields(): FormErrors {
     const nextErrors: FormErrors = {};
 
@@ -3373,7 +3395,10 @@ export function ConnectionNavigator({
                         node={connection}
                         selectedNodeId={selectedNodeId}
                         connectionIndicators={connectionIndicators}
+                        isCollapsed={collapsedConnectionIds[connection.id] === true}
+                        shouldForceExpand={normalizedSidebarFilter.length > 0}
                         onSelect={handleSelectNode}
+                        onToggleCollapsed={toggleConnectionCollapsed}
                         onConnectionDoubleClick={(connectionId) => {
                           void handleDefaultConnectionAction(connectionId);
                         }}
@@ -4696,7 +4721,10 @@ type ConnectionTreeNodeItemProps = {
   node: ExplorerTreeNode;
   selectedNodeId: string | null;
   connectionIndicators: Record<string, ConnectionIndicator>;
+  isCollapsed?: boolean;
+  shouldForceExpand?: boolean;
   onSelect: (node: ExplorerTreeNode) => void;
+  onToggleCollapsed: (connectionId: string) => void;
   onConnectionDoubleClick: (connectionId: string) => void;
   t: (key: string) => string;
 };
@@ -4705,60 +4733,88 @@ function ConnectionTreeNodeItem({
   node,
   selectedNodeId,
   connectionIndicators,
+  isCollapsed = false,
+  shouldForceExpand = false,
   onSelect,
+  onToggleCollapsed,
   onConnectionDoubleClick,
   t
 }: ConnectionTreeNodeItemProps) {
   const isSelected = selectedNodeId === node.id;
   const isConnectionNode = node.kind === "connection";
   const indicator = connectionIndicators[node.connectionId] ?? { status: "disconnected" };
+  const hasChildren = Boolean(node.children && node.children.length > 0);
+  const isExpanded = !isCollapsed || shouldForceExpand;
 
   return (
     <div className="tree-node-branch">
-      <button
-        type="button"
-        className={`tree-node-button${!isConnectionNode ? " tree-node-nested" : ""}${isSelected ? " is-selected" : ""}`}
-        onClick={() => onSelect(node)}
-        onDoubleClick={() => {
-          if (isConnectionNode) {
-            onConnectionDoubleClick(node.connectionId);
-          }
-        }}
-      >
-        <span className="tree-node-main">
-          {isConnectionNode ? (
-            <ConnectionStatusIcon
-              indicator={indicator}
-              connectingTitle={t(CONNECTING_CONNECTION_TITLE_KEY)}
-              connectedTitle={t(CONNECTED_CONNECTION_TITLE_KEY)}
-              disconnectedTitle={t(DISCONNECTED_CONNECTION_TITLE_KEY)}
-            />
+      <div className="tree-node-row">
+        {isConnectionNode ? (
+          hasChildren ? (
+            <button
+              type="button"
+              className="tree-toggle-button"
+              aria-label={t(isExpanded ? "navigation.collapse" : "navigation.expand")}
+              aria-expanded={isExpanded}
+              onClick={() => onToggleCollapsed(node.connectionId)}
+            >
+              <ChevronRight
+                size={16}
+                strokeWidth={2}
+                className={`tree-toggle-icon${isExpanded ? " is-expanded" : ""}`}
+              />
+            </button>
           ) : (
-            <TreeNodeIcon kind={node.kind} />
-          )}
+            <span className="tree-toggle-spacer" aria-hidden="true" />
+          )
+        ) : null}
 
-          <span className="tree-node-copy">
-            <span>{node.name}</span>
-            {node.kind === "bucket" && node.region ? (
-              <span className="tree-node-meta">{node.region}</span>
+        <button
+          type="button"
+          className={`tree-node-button${!isConnectionNode ? " tree-node-nested" : ""}${isSelected ? " is-selected" : ""}`}
+          onClick={() => onSelect(node)}
+          onDoubleClick={() => {
+            if (isConnectionNode) {
+              onConnectionDoubleClick(node.connectionId);
+            }
+          }}
+        >
+          <span className="tree-node-main">
+            {isConnectionNode ? (
+              <ConnectionStatusIcon
+                indicator={indicator}
+                connectingTitle={t(CONNECTING_CONNECTION_TITLE_KEY)}
+                connectedTitle={t(CONNECTED_CONNECTION_TITLE_KEY)}
+                disconnectedTitle={t(DISCONNECTED_CONNECTION_TITLE_KEY)}
+              />
+            ) : (
+              <TreeNodeIcon kind={node.kind} />
+            )}
+
+            <span className="tree-node-copy">
+              <span>{node.name}</span>
+              {node.kind === "bucket" && node.region ? (
+                <span className="tree-node-meta">{node.region}</span>
+              ) : null}
+            </span>
+            {node.kind === "connection" ? (
+              <span className={`provider-badge provider-${node.provider}`}>
+                {node.provider.toUpperCase()}
+              </span>
             ) : null}
           </span>
-          {node.kind === "connection" ? (
-            <span className={`provider-badge provider-${node.provider}`}>
-              {node.provider.toUpperCase()}
-            </span>
-          ) : null}
-        </span>
-      </button>
+        </button>
+      </div>
 
-      {node.children && node.children.length > 0 ? (
+      {hasChildren && isExpanded ? (
         <ul className="tree-children">
-          {node.children.map((childNode) => (
+          {(node.children ?? []).map((childNode) => (
             <li key={childNode.id} className="tree-item">
               <ConnectionTreeNodeItem
                 node={childNode}
                 selectedNodeId={selectedNodeId}
                 connectionIndicators={connectionIndicators}
+                onToggleCollapsed={onToggleCollapsed}
                 onSelect={onSelect}
                 onConnectionDoubleClick={onConnectionDoubleClick}
                 t={t}

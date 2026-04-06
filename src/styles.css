@@ -431,6 +431,14 @@ body {
   background: var(--hover-soft);
 }
 
+.tree-toggle-icon {
+  transition: transform 150ms ease;
+}
+
+.tree-toggle-icon.is-expanded {
+  transform: rotate(90deg);
+}
+
 .tree-toggle-spacer {
   display: inline-block;
 }
