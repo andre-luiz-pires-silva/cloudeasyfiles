@@ -946,9 +946,7 @@ export function ConnectionNavigator({
   const [isSubmittingRestoreRequest, setIsSubmittingRestoreRequest] = useState(false);
   const [sidebarFilterText, setSidebarFilterText] = useState("");
   const [contentFilterText, setContentFilterText] = useState("");
-  const [contentStatusFilters, setContentStatusFilters] = useState<ContentStatusFilter[]>(
-    ALL_CONTENT_STATUS_FILTERS
-  );
+  const [contentStatusFilters, setContentStatusFilters] = useState<ContentStatusFilter[]>([]);
   const [downloadedFilePaths, setDownloadedFilePaths] = useState<string[]>([]);
   const [activeTransfers, setActiveTransfers] = useState<Record<string, ActiveTransfer>>({});
   const [activeDirectDownloadItemIds, setActiveDirectDownloadItemIds] = useState<string[]>([]);
@@ -1084,6 +1082,9 @@ export function ConnectionNavigator({
       matchesFilter([bucketNode.name, bucketNode.region, bucketNode.bucketName], normalizedContentFilter)
     );
   }, [connectionBuckets, normalizedContentFilter, selectedNode]);
+  const isStatusFilterInactive =
+    contentStatusFilters.length === 0 ||
+    contentStatusFilters.length === ALL_CONTENT_STATUS_FILTERS.length;
   const filteredContentItems = useMemo(
     () =>
       contentItems.filter((item) => {
@@ -1098,17 +1099,15 @@ export function ConnectionNavigator({
 
         const itemStatuses = getSummaryContentStatuses(item);
 
-        if (contentStatusFilters.length === ALL_CONTENT_STATUS_FILTERS.length) {
+        if (isStatusFilterInactive) {
           return true;
         }
 
         return itemStatuses.some((status) => contentStatusFilters.includes(status));
       }),
-    [contentItems, normalizedContentFilter, contentStatusFilters]
+    [contentItems, normalizedContentFilter, contentStatusFilters, isStatusFilterInactive]
   );
-  const isContentFilterActive =
-    normalizedContentFilter.length > 0 ||
-    contentStatusFilters.length !== ALL_CONTENT_STATUS_FILTERS.length;
+  const isContentFilterActive = normalizedContentFilter.length > 0 || !isStatusFilterInactive;
   const loadedFileItems = useMemo(
     () => contentItems.filter((item) => item.kind === "file"),
     [contentItems]
@@ -2495,7 +2494,7 @@ export function ConnectionNavigator({
 
   useEffect(() => {
     setContentFilterText("");
-    setContentStatusFilters(ALL_CONTENT_STATUS_FILTERS);
+    setContentStatusFilters([]);
   }, [selectedNodeId]);
 
   useEffect(() => {

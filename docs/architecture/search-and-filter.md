@@ -23,6 +23,13 @@ Rules:
 - does not reset or redefine the loaded universe
 - does not change continuation cursor state or listing pagination logic
 
+For the main explorer status buttons:
+
+- all status buttons start unselected
+- no selected status means no status filter
+- a partial selection applies status refinement to the loaded file set
+- selecting all statuses is equivalent to no status filter
+
 For the main content area, the filter applies only to the normalized loaded explorer entries for the active path.
 
 ## Main Explorer Counter Semantics
@@ -33,6 +40,8 @@ Rules:
 
 - without local filter, the counter uses `X itens carregados`
 - with local filter, the counter uses `X itens filtrados de Y carregados`
+- no selected status buttons still counts as without local filter
+- all selected status buttons still counts as without local filter
 - `Y` is the number of normalized navigable entries already loaded for the current context
 - `X` is the subset currently shown after local filtering
 - the counter does not claim a global total of items in the provider directory or container

@@ -121,7 +121,6 @@
   "content.filter.placeholder": "Filter visible folders and files",
   "content.filter.placeholder_buckets": "Filter visible buckets",
   "content.filter.status_label": "Filter by status",
-  "content.filter.status.all": "All",
   "content.filter.status.available": "Available",
   "content.filter.status.downloaded": "Downloaded",
   "content.filter.status.archived": "Archived",

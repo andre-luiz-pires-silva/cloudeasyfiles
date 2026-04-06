@@ -220,6 +220,13 @@ In the main explorer, the counter language is:
 
 The current AWS explorer also supports status-only refinement for the already loaded file set. The toolbar can narrow visible files by normalized status such as `Downloaded`, `Available`, `Restoring`, and `Archived`, while folders remain visible for navigation.
 
+Status-filter semantics:
+
+- all status buttons start unselected
+- no selected status means no status filter
+- a partial status selection applies the status filter to the loaded file set
+- selecting all available statuses also returns to the same no-filter result
+
 When the current loaded context contains files with known statuses, the footer counter adds a compact breakdown beside the loaded-count label so the user can understand the mix of downloaded, available, restoring, and archived items without leaving the current view.
 
 The UI does not promise a total number of pages or a reliable global total of items for the directory based only on native provider listing.
