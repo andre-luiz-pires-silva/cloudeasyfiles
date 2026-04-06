@@ -4,7 +4,7 @@
 
 CloudEasyFiles is a desktop application that provides a clean, intuitive interface for managing files across cloud storage providers. It is designed to reduce the complexity of working directly with provider-specific APIs and workflows, offering a consistent experience for browsing, transferring, and managing cloud files with an emphasis on simplicity and ease of use.
 
-The current working build is AWS-first. It already supports saved AWS connections, bucket browsing, incremental listing, manual refresh, tracked cache downloads with progress, `Download As`, transfer tracking in the footer and modal, download cancelation, local-cache-aware file state in the explorer, and provider-driven restore-state detection for archived S3 objects. Azure remains part of the product direction, but is not wired into the current implementation yet. AWS restore request submission is still documented as the next archival workflow step rather than a delivered UI flow.
+The current working build is AWS-first. It already supports saved AWS connections, bucket browsing, incremental listing, manual refresh, explicit folder creation in the current bucket path, tracked cache downloads with progress, `Download As`, transfer tracking in the footer and modal, download cancelation, local-cache-aware file state in the explorer, opening cached files with the OS default app or in the local file explorer, and provider-driven restore-state detection for archived S3 objects. Azure remains part of the product direction, but is not wired into the current implementation yet. AWS restore request submission is still documented as the next archival workflow step rather than a delivered UI flow.
 
 For the project documentation map, architecture references, ADRs, and feature specs, see [PROJECT.md](./PROJECT.md) and the documents under [`/docs`](./docs).
 
@@ -50,8 +50,10 @@ The repository currently includes SVG placeholders that can later be replaced by
 - Update the main content area based on the selected tree node, showing relevant details and contextual actions
 - Keep the sidebar intentionally simplified, showing only saved connections and cloud containers
 - Explore files and folders in the main content area, where object browsing happens level by level
+- Create folders in the current AWS bucket path from the toolbar or the empty-list context menu
 - Run tracked AWS cache downloads with progress indicators
 - Export files with `Download As` to a user-selected destination
+- Open tracked cached files with the OS default application when available
 - Track active downloads from the bottom bar and an active-transfer modal
 - Cancel active `Download` and `Download As` operations from the file menu or transfer modal
 - Use a unified interface across supported providers
@@ -172,7 +174,7 @@ Typical workflow:
 6. Browse immediate folders and files in the main panel, one level at a time
 7. Use `Filter` to quickly refine the items currently visible on screen
 8. Use `Advanced Search` when you need more powerful search options
-9. Perform available file operations such as tracked download and local cache inspection
+9. Perform available file operations such as folder creation, tracked download, cached-file opening, and local cache inspection
 10. Monitor operation progress and file state changes in the UI
 11. Refresh the current listing when needed to rediscover archived, restoring, or temporarily available content
 
@@ -184,6 +186,7 @@ Typical workflow:
 - Folders are backed by a hybrid object-storage model:
   - a folder may exist implicitly when descendant objects share its prefix
   - a folder created explicitly in the app creates an empty sentinel object whose key ends with `/`
+- In AWS bucket contexts, the explorer can create a new folder from the toolbar or from the empty-area context menu in the main panel
 - Listing consolidates prefix-derived folders and explicit folder sentinels into one visible folder entry
 - The app resolves and lists only the immediate level for the current path
 - The explorer uses incremental loading with `Carregar mais` instead of numbered pages
@@ -301,6 +304,8 @@ CloudEasyFiles supports two user-facing download flows:
   - Still participates in active transfer monitoring while the export is running
 
 The current transfer monitor is download-focused. The bottom bar shows persistent download and upload summary buttons, but only downloads are active today. When at least one `Download` or `Download As` operation is running, the download summary opens a modal with active transfer progress. Active downloads can be canceled from the file context menu or from the transfer modal. Pause and resume are not implemented in the current build. When `Download As` completes successfully, the app shows a subtle confirmation toast with the saved destination path.
+
+For files already present in the tracked cache, the file context menu can also open the cached file directly with the operating system's default application or reveal its local parent folder in the file explorer.
 
 ### Explicit Non-Goals
 

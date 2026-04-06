@@ -13,10 +13,11 @@ Current initial focus:
 - archival storage awareness and restore workflows
 - optional global local cache for tracked downloads
 - simple monitored upload to the current AWS bucket folder
+- explicit folder creation in the current AWS bucket path
 
 ## Current Status
 
-The project is in active architecture and implementation mode. AWS is the first wired provider and currently covers connection management, bucket browsing, incremental listing, manual refresh, tracked cache download progress, `Download As`, simple monitored upload to the current bucket folder, transfer tracking in the footer and modal, transfer cancelation, cached-file detection, opening cached files in the local file explorer, and provider-driven restore-state visibility for archived S3 objects. The AWS restore request workflow itself is still documented as the next concrete archival step. Azure is still a documented target rather than an implemented provider path.
+The project is in active architecture and implementation mode. AWS is the first wired provider and currently covers connection management, bucket browsing, incremental listing, manual refresh, explicit folder creation in the current bucket path, tracked cache download progress, `Download As`, simple monitored upload to the current AWS bucket folder, transfer tracking in the footer and modal, transfer cancelation, cached-file detection, opening cached files with the OS default application or in the local file explorer, and provider-driven restore-state visibility for archived S3 objects. The AWS restore request workflow itself is still documented as the next concrete archival step. Azure is still a documented target rather than an implemented provider path.
 
 ## Main Features
 
@@ -24,10 +25,12 @@ The project is in active architecture and implementation mode. AWS is the first 
 - structural sidebar navigation
 - central content listing
 - folder navigation over flat object storage
+- explicit folder creation in the current bucket path
 - simple local filtering
 - provider-aware advanced search direction
 - archival restore-state visibility and future restore workflows
 - tracked and direct downloads
+- cached file open actions
 - simple AWS upload
 - optional global local cache
 

@@ -23,7 +23,9 @@ The sidebar is intentionally simplified, so the main panel must handle object ex
 - V1 must not expose numbered pagination.
 - The explorer counter must reflect normalized navigable entries for the active context.
 - The main panel must expose a manual refresh action for the active context.
+- The main panel must expose folder creation for supported bucket contexts.
 - The main panel must surface contextual file actions for tracked download, `Download As`, canceling active downloads, and local-cache inspection where available.
+- The main panel must surface a direct open action for tracked cached files where available.
 
 ## Non-Functional Requirements
 
@@ -50,6 +52,7 @@ The sidebar is intentionally simplified, so the main panel must handle object ex
 - Loaded-context status summaries must be derived from the currently loaded file dataset for the active bucket or folder.
 - Automatic refresh must not run continuously for ordinary browsing.
 - Manual refresh remains available even when no background monitoring is active.
+- Folder creation in supported object-storage contexts must write an explicit folder marker and rely on the refreshed provider listing as the source of truth.
 
 ## UX Expectations
 
@@ -71,6 +74,9 @@ The sidebar is intentionally simplified, so the main panel must handle object ex
 - `Carregar mais` should remain available even when a local filter is active, as long as the provider still has more data.
 - The disabled `Carregar mais` state should clearly represent that the available listing for the current context has ended.
 - A visible refresh action should make it clear that the user can update the current listing on demand.
+- In supported bucket contexts, the toolbar should expose `Nova pasta` near the other context actions.
+- The empty-area context menu in the main panel should expose `Nova pasta` and `Atualizar` for supported bucket contexts.
+- Downloaded tracked-cache files should expose both `Abrir` and `Abrir no Explorador de Arquivos local`.
 
 ## Acceptance Criteria
 
@@ -100,6 +106,9 @@ The sidebar is intentionally simplified, so the main panel must handle object ex
 - Local filter does not invalidate the ability to request more results when more provider data exists.
 - Local status filters do not invalidate the ability to request more results when more provider data exists.
 - The active context can be refreshed manually without requiring navigation away and back.
+- In supported bucket contexts, `Nova pasta` creates a folder in the current logical path and the new folder appears after the post-create refresh.
+- In supported bucket contexts, right-clicking the empty area of the listing opens a custom context menu with `Nova pasta` and `Atualizar`.
+- Downloaded tracked-cache files can be opened with the OS default app from the file context menu.
 - The listing does not poll automatically for restore completion; state updates arrive through navigation, screen open, reconnection, or explicit refresh.
 
 ## Out of Scope

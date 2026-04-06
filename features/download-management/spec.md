@@ -48,6 +48,7 @@ CloudEasyFiles distinguishes between cloud browsing and file acquisition. The cu
 - Provider metadata such as AWS restore expiry may be shown as contextual UI detail for temporary availability without creating a new normalized download state.
 - The current implementation resolves tracked cache presence by checking whether the expected cached file exists locally.
 - The current tracked cache root is configured globally in the app and uses a stable per-connection folder derived from `connection_id`.
+- When a tracked cached file exists locally, the explorer may expose both a direct `Open` action and an `Open in File Explorer` action.
 - The application must not claim a single global concurrent-download number across providers.
 - Restore state remains provider-driven and may affect download eligibility, but restore monitoring is not implemented as continuous automatic polling.
 - Manual refresh remains the standard way to update cloud state when no monitored workflow is active.
@@ -60,6 +61,7 @@ CloudEasyFiles distinguishes between cloud browsing and file acquisition. The cu
 - The modal should focus on active download details and progress.
 - Users should expect cancelation for active downloads, but not paused or resumed downloads.
 - Manual refresh should stay discoverable so users understand that normal browsing is not continuously auto-updating.
+- Users should be able to open already cached files with the operating system's default application without leaving the explorer.
 
 ## Acceptance Criteria
 
@@ -71,6 +73,7 @@ CloudEasyFiles distinguishes between cloud browsing and file acquisition. The cu
 - Active `Download` and `Download As` operations produce a bottom-bar summary affordance.
 - Opening the summary affordance reveals a modal with active download details and progress.
 - The file context menu and transfer modal both expose cancel controls for active downloads.
+- Downloaded tracked-cache files can expose `Open` and `Open in File Explorer` from the file context menu.
 - The documented refresh model uses manual refresh and interaction-driven state refresh rather than continuous polling.
 
 ## Out of Scope
