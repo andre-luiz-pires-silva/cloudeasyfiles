@@ -13,7 +13,9 @@ function isSavedConnectionSummary(value: unknown): value is SavedConnectionSumma
   const hasBaseShape =
     typeof candidate.id === "string" &&
     typeof candidate.name === "string" &&
-    (candidate.provider === "aws" || candidate.provider === "azure");
+    (candidate.provider === "aws" || candidate.provider === "azure") &&
+    (typeof candidate.connectOnStartup === "undefined" ||
+      typeof candidate.connectOnStartup === "boolean");
 
   if (!hasBaseShape) {
     return false;

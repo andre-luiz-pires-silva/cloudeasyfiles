@@ -13,6 +13,7 @@ type SavedConnectionBase = {
   id: string;
   name: string;
   provider: ConnectionProvider;
+  connectOnStartup?: boolean;
 };
 
 export type SavedAwsConnectionSummary = SavedConnectionBase & {
@@ -32,6 +33,7 @@ export type AwsConnectionDraft = {
   provider: "aws";
   accessKeyId: string;
   secretAccessKey: string;
+  connectOnStartup?: boolean;
   defaultUploadStorageClass?: AwsUploadStorageClass;
 };
 

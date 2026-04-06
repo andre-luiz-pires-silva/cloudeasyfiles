@@ -897,6 +897,7 @@ export function ConnectionNavigator({
   const providerFieldId = useId();
   const accessKeyFieldId = useId();
   const secretKeyFieldId = useId();
+  const connectOnStartupFieldId = useId();
   const localeFieldId = useId();
   const globalCacheDirectoryFieldId = useId();
   const [connections, setConnections] = useState<SavedConnectionSummary[]>([]);
@@ -909,6 +910,7 @@ export function ConnectionNavigator({
   const [connectionProvider, setConnectionProvider] = useState<ConnectionProvider>("aws");
   const [accessKeyId, setAccessKeyId] = useState("");
   const [secretAccessKey, setSecretAccessKey] = useState("");
+  const [connectOnStartup, setConnectOnStartup] = useState(false);
   const [defaultAwsUploadStorageClass, setDefaultAwsUploadStorageClass] =
     useState<AwsUploadStorageClass>(DEFAULT_AWS_UPLOAD_STORAGE_CLASS);
   const [globalLocalCacheDirectory, setGlobalLocalCacheDirectory] = useState(
@@ -993,6 +995,7 @@ export function ConnectionNavigator({
   const [isResizingSidebar, setIsResizingSidebar] = useState(false);
   const workspaceRef = useRef<HTMLDivElement | null>(null);
   const contentDropZoneRef = useRef<HTMLElement | null>(null);
+  const hasProcessedStartupAutoConnectRef = useRef(false);
   const nativeDragDropPathsRef = useRef<string[]>([]);
   const uploadConflictResolverRef = useRef<((decision: UploadConflictDecision) => void) | null>(
     null
@@ -2067,6 +2070,20 @@ export function ConnectionNavigator({
   }, [t]);
 
   useEffect(() => {
+    if (isLoadingConnections || hasProcessedStartupAutoConnectRef.current) {
+      return;
+    }
+
+    hasProcessedStartupAutoConnectRef.current = true;
+
+    connections
+      .filter((connection) => connection.connectOnStartup === true)
+      .forEach((connection) => {
+        void connectConnection(connection.id, connection);
+      });
+  }, [connections, isLoadingConnections]);
+
+  useEffect(() => {
     let isActive = true;
     let cleanup: (() => void) | null = null;
 
@@ -2637,6 +2654,7 @@ export function ConnectionNavigator({
     setConnectionProvider("aws");
     setAccessKeyId("");
     setSecretAccessKey("");
+    setConnectOnStartup(false);
     setDefaultAwsUploadStorageClass(DEFAULT_AWS_UPLOAD_STORAGE_CLASS);
     setFormErrors({});
     setSubmitError(null);
@@ -2669,6 +2687,7 @@ export function ConnectionNavigator({
       setConnectionProvider(connection.provider);
       setAccessKeyId("");
       setSecretAccessKey("");
+      setConnectOnStartup(connection.connectOnStartup === true);
       setDefaultAwsUploadStorageClass(DEFAULT_AWS_UPLOAD_STORAGE_CLASS);
       resetConnectionTestState();
       setFormErrors({});
@@ -2681,6 +2700,7 @@ export function ConnectionNavigator({
       const draft = await connectionService.getAwsConnectionDraft(connectionId);
       setAccessKeyId(draft.accessKeyId);
       setSecretAccessKey(draft.secretAccessKey);
+      setConnectOnStartup(draft.connectOnStartup === true);
       setDefaultAwsUploadStorageClass(
         normalizeAwsUploadStorageClass(draft.defaultUploadStorageClass)
       );
@@ -3155,6 +3175,7 @@ export function ConnectionNavigator({
         provider: "aws",
         accessKeyId,
         secretAccessKey: secretAccessKey.trim(),
+        connectOnStartup,
         defaultUploadStorageClass: defaultAwsUploadStorageClass
       } satisfies AwsConnectionDraft);
 
@@ -4404,8 +4425,10 @@ export function ConnectionNavigator({
                       locale={locale}
                       accessKeyFieldId={accessKeyFieldId}
                       secretKeyFieldId={secretKeyFieldId}
+                      connectOnStartupFieldId={connectOnStartupFieldId}
                       accessKeyId={accessKeyId}
                       secretAccessKey={secretAccessKey}
+                      connectOnStartup={connectOnStartup}
                       defaultUploadStorageClass={defaultAwsUploadStorageClass}
                       errors={{
                         accessKeyId: formErrors.accessKeyId,
@@ -4419,6 +4442,7 @@ export function ConnectionNavigator({
                         setSecretAccessKey(value);
                         resetConnectionTestState();
                       }}
+                      onConnectOnStartupChange={setConnectOnStartup}
                       onDefaultUploadStorageClassChange={setDefaultAwsUploadStorageClass}
                       t={t}
                     />

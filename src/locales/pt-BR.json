@@ -46,6 +46,8 @@
   "navigation.modal.aws.access_key_placeholder": "Informe o Access Key ID da AWS",
   "navigation.modal.aws.secret_key_label": "Secret Access Key",
   "navigation.modal.aws.secret_key_placeholder": "Informe o Secret Access Key da AWS",
+  "navigation.modal.aws.connect_on_startup_label": "Conectar ao iniciar o app",
+  "navigation.modal.aws.connect_on_startup_helper": "Quando esta opção estiver marcada, o app tentará se conectar automaticamente a este provider durante a inicialização.",
   "navigation.modal.aws.cache_directory_label": "Diretório de cache local",
   "navigation.modal.aws.cache_directory_placeholder": "Ex.: /Users/andre/CloudEasyFiles/aws-prod",
   "navigation.modal.aws.cache_directory_helper": "Quando configurado, os arquivos baixados passam a ser rastreados localmente para exibir o status do arquivo.",

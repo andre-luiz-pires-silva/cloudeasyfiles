@@ -66,6 +66,7 @@ export class ConnectionService {
       provider: "aws",
       accessKeyId: secrets.accessKeyId,
       secretAccessKey: secrets.secretAccessKey,
+      connectOnStartup: metadata.connectOnStartup === true,
       defaultUploadStorageClass: normalizeAwsUploadStorageClass(
         metadata.defaultUploadStorageClass
       )
@@ -98,6 +99,7 @@ export class ConnectionService {
       id: connectionId,
       name: normalizedName,
       provider: "aws",
+      connectOnStartup: draft.connectOnStartup === true,
       defaultUploadStorageClass: normalizeAwsUploadStorageClass(draft.defaultUploadStorageClass)
     };
 

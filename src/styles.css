@@ -2253,6 +2253,39 @@ body {
   background: #fff;
 }
 
+.field-group-checkbox {
+  margin-top: 18px;
+  cursor: pointer;
+}
+
+.checkbox-setting-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--panel-border);
+  border-radius: 10px;
+  background: #fff;
+}
+
+.checkbox-setting-row input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  margin: 2px 0 0;
+}
+
+.checkbox-setting-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.checkbox-setting-title {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
 .path-picker-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;
