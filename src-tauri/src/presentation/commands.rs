@@ -299,6 +299,41 @@ pub async fn open_external_url(url: String) -> Result<(), String> {
     result
 }
 
+#[tauri::command]
+pub async fn create_aws_folder(
+    access_key_id: String,
+    secret_access_key: String,
+    bucket_name: String,
+    parent_path: Option<String>,
+    folder_name: String,
+    bucket_region: Option<String>,
+) -> Result<(), String> {
+    eprintln!(
+        "[commands] create_aws_folder called for bucket_name={} parent_path={} folder_name={}",
+        bucket_name,
+        parent_path.clone().unwrap_or_default(),
+        folder_name
+    );
+
+    let result = AwsConnectionService::create_folder(
+        AwsConnectionTestInput {
+            access_key_id,
+            secret_access_key,
+        },
+        bucket_name,
+        parent_path,
+        folder_name,
+        bucket_region,
+    )
+    .await;
+
+    if let Err(error) = &result {
+        eprintln!("[commands] create_aws_folder failed with error={}", error);
+    }
+
+    result
+}
+
 
 #[tauri::command]
 pub async fn start_aws_cache_download(
@@ -766,6 +801,24 @@ pub async fn open_aws_cached_object_parent(
     object_key: String,
 ) -> Result<(), String> {
     AwsConnectionService::open_cached_object_parent(
+        connection_id,
+        connection_name,
+        bucket_name,
+        global_local_cache_directory,
+        object_key,
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn open_aws_cached_object(
+    connection_id: String,
+    connection_name: String,
+    bucket_name: String,
+    global_local_cache_directory: String,
+    object_key: String,
+) -> Result<(), String> {
+    AwsConnectionService::open_cached_object(
         connection_id,
         connection_name,
         bucket_name,

@@ -55,11 +55,13 @@ import {
   awsObjectExists,
   cancelAwsUpload,
   cancelAwsDownload,
+  createAwsFolder,
   downloadAwsObjectToPath,
   findAwsCachedObjects,
   getAwsBucketRegion,
   listAwsBucketItems,
   listAwsBuckets,
+  openAwsCachedObject,
   openAwsCachedObjectParent,
   requestAwsObjectRestore,
   startAwsUpload,
@@ -113,11 +115,22 @@ type ContentViewMode = "list" | "compact";
 type FileAvailabilityStatus = "available" | "archived" | "restoring";
 type FileDownloadState = "not_downloaded" | "restoring" | "available_to_download" | "downloaded";
 type ContentStatusFilter = (typeof ALL_CONTENT_STATUS_FILTERS)[number];
-type FileActionId = "download" | "downloadAs" | "openInExplorer" | "cancelDownload" | "restore";
+type FileActionId =
+  | "download"
+  | "downloadAs"
+  | "openFile"
+  | "openInExplorer"
+  | "cancelDownload"
+  | "restore";
 type DownloadTransferState = "progress" | "completed" | "failed" | "cancelled";
 type TransferKind = "cache" | "direct" | "upload";
 type ContentMenuAnchor = {
   itemId: string;
+  x: number;
+  y: number;
+};
+
+type ContentAreaMenuAnchor = {
   x: number;
   y: number;
 };
@@ -898,6 +911,7 @@ export function ConnectionNavigator({
   const accessKeyFieldId = useId();
   const secretKeyFieldId = useId();
   const connectOnStartupFieldId = useId();
+  const newFolderNameFieldId = useId();
   const localeFieldId = useId();
   const globalCacheDirectoryFieldId = useId();
   const [connections, setConnections] = useState<SavedConnectionSummary[]>([]);
@@ -958,8 +972,15 @@ export function ConnectionNavigator({
     useState<UploadConflictPromptState | null>(null);
   const [openContentMenuItemId, setOpenContentMenuItemId] = useState<string | null>(null);
   const [contentMenuAnchor, setContentMenuAnchor] = useState<ContentMenuAnchor | null>(null);
+  const [contentAreaMenuAnchor, setContentAreaMenuAnchor] = useState<ContentAreaMenuAnchor | null>(
+    null
+  );
   const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
   const [isUploadDropTargetActive, setIsUploadDropTargetActive] = useState(false);
+  const [isCreateFolderModalOpen, setIsCreateFolderModalOpen] = useState(false);
+  const [newFolderName, setNewFolderName] = useState("");
+  const [createFolderError, setCreateFolderError] = useState<string | null>(null);
+  const [isCreatingFolder, setIsCreatingFolder] = useState(false);
   const [isUploadSettingsModalOpen, setIsUploadSettingsModalOpen] = useState(false);
   const [uploadSettingsStorageClass, setUploadSettingsStorageClass] =
     useState<AwsUploadStorageClass>(DEFAULT_AWS_UPLOAD_STORAGE_CLASS);
@@ -1056,6 +1077,8 @@ export function ConnectionNavigator({
   const selectedBucketName =
     selectedNode?.kind === "bucket" ? (selectedNode.bucketName ?? selectedNode.name) : null;
   const selectedBucketProvider = selectedNode?.kind === "bucket" ? selectedNode.provider : null;
+  const canCreateFolderInCurrentContext =
+    selectedNode?.kind === "bucket" && selectedBucketProvider === "aws";
   const selectedBucketRegion =
     selectedNode?.kind === "bucket" ? selectedNode.region ?? null : null;
   const displayedContentTitle =
@@ -1231,11 +1254,28 @@ export function ConnectionNavigator({
     return filePath.split(/[\\/]/).filter(Boolean).pop() ?? filePath;
   }
 
-  function buildUploadObjectKey(currentPath: string, fileName: string) {
-    const normalizedPath = currentPath.trim().replace(/^\/+|\/+$/g, "");
+function buildUploadObjectKey(currentPath: string, fileName: string) {
+  const normalizedPath = currentPath.trim().replace(/^\/+|\/+$/g, "");
 
-    return normalizedPath ? `${normalizedPath}/${fileName}` : fileName;
+  return normalizedPath ? `${normalizedPath}/${fileName}` : fileName;
+}
+
+function validateNewFolderNameInput(
+  folderName: string,
+  t: (key: string) => string
+): string | null {
+  const normalizedFolderName = folderName.trim();
+
+  if (!normalizedFolderName) {
+    return t("content.folder.name_required");
   }
+
+  if (normalizedFolderName.includes("/") || normalizedFolderName.includes("\\")) {
+    return t("content.folder.name_invalid");
+  }
+
+  return null;
+}
 
   function extractDroppedFiles(event: React.DragEvent<HTMLElement>) {
     const droppedFilesFromItems = Array.from(event.dataTransfer?.items ?? [])
@@ -1769,6 +1809,24 @@ export function ConnectionNavigator({
         fileSizeLabel: formatBytes(item.size, locale),
         storageClass: item.storageClass
       });
+      return;
+    }
+
+    if (
+      actionId === "openFile" &&
+      item.kind === "file" &&
+      selectedBucketConnectionId &&
+      selectedBucketName &&
+      selectedConnection &&
+      hasConfiguredGlobalCacheDirectory
+    ) {
+      void openAwsCachedObject(
+        selectedBucketConnectionId,
+        selectedConnection.name,
+        selectedBucketName,
+        globalLocalCacheDirectory,
+        item.path
+      );
       return;
     }
 
@@ -2527,6 +2585,13 @@ export function ConnectionNavigator({
   useEffect(() => {
     setContentFilterText("");
     setContentStatusFilters([]);
+    setContentAreaMenuAnchor(null);
+    setOpenContentMenuItemId(null);
+    setContentMenuAnchor(null);
+    setIsCreateFolderModalOpen(false);
+    setNewFolderName("");
+    setCreateFolderError(null);
+    setIsCreatingFolder(false);
   }, [selectedNodeId]);
 
   useEffect(() => {
@@ -3123,6 +3188,108 @@ export function ConnectionNavigator({
     setIsSavingUploadSettings(false);
   }
 
+  function openCreateFolderModal() {
+    if (selectedNode?.kind !== "bucket" || selectedBucketProvider !== "aws") {
+      return;
+    }
+
+    setContentAreaMenuAnchor(null);
+    setNewFolderName("");
+    setCreateFolderError(null);
+    setIsCreatingFolder(false);
+    setIsCreateFolderModalOpen(true);
+  }
+
+  function closeCreateFolderModal(force = false) {
+    if (isCreatingFolder && !force) {
+      return;
+    }
+
+    setIsCreateFolderModalOpen(false);
+    setNewFolderName("");
+    setCreateFolderError(null);
+  }
+
+  async function handleCreateFolder() {
+    if (
+      selectedNode?.kind !== "bucket" ||
+      selectedBucketProvider !== "aws" ||
+      !selectedBucketConnectionId ||
+      !selectedBucketName
+    ) {
+      return;
+    }
+
+    const validationError = validateNewFolderNameInput(newFolderName, t);
+    setCreateFolderError(validationError);
+
+    if (validationError) {
+      return;
+    }
+
+    setIsCreatingFolder(true);
+
+    try {
+      const draft = await connectionService.getAwsConnectionDraft(selectedBucketConnectionId);
+
+      await createAwsFolder(
+        draft.accessKeyId.trim(),
+        draft.secretAccessKey.trim(),
+        selectedBucketName,
+        selectedBucketPath || undefined,
+        newFolderName.trim(),
+        selectedBucketRegion && selectedBucketRegion !== BUCKET_REGION_PLACEHOLDER
+          ? selectedBucketRegion
+          : undefined
+      );
+
+      setIsCreatingFolder(false);
+      closeCreateFolderModal(true);
+      await handleRefreshCurrentView();
+    } catch (error) {
+      setCreateFolderError(
+        extractErrorMessage(error) ?? t("content.folder.create_failed")
+      );
+      setIsCreatingFolder(false);
+      return;
+    }
+  }
+
+  function handleOpenContentAreaContextMenu(event: React.MouseEvent<HTMLElement>) {
+    if (!selectedNode) {
+      return;
+    }
+
+    const target = event.target as HTMLElement | null;
+
+    if (
+      target?.closest(".content-list-item") ||
+      target?.closest(".content-list-header") ||
+      target?.closest(".tree-menu-popup")
+    ) {
+      return;
+    }
+
+    event.preventDefault();
+    setOpenContentMenuItemId(null);
+    setContentMenuAnchor(null);
+    setContentAreaMenuAnchor({
+      x: event.clientX,
+      y: event.clientY
+    });
+  }
+
+  async function handleContentAreaMenuAction(actionId: "createFolder" | "refresh") {
+    setContentAreaMenuAnchor(null);
+
+    if (actionId === "createFolder") {
+      openCreateFolderModal();
+      return;
+    }
+
+    await handleRefreshCurrentView();
+  }
+
   function handleSelectHome() {
     setSelectedView("home");
     setSelectedNodeId(null);
@@ -3651,13 +3818,29 @@ export function ConnectionNavigator({
                         </div>
                       ) : null}
 
+                      {canCreateFolderInCurrentContext ? (
+                        <>
+                          <span className="content-toolbar-divider" aria-hidden="true" />
+                          <button
+                            type="button"
+                            className="content-load-more-button content-toolbar-action-button"
+                            onClick={openCreateFolderModal}
+                            disabled={isLoadingContent || isLoadingMoreContent}
+                            title={t("content.folder.create_button")}
+                          >
+                            <Plus size={15} strokeWidth={2} />
+                            <span>{t("content.folder.create_button")}</span>
+                          </button>
+                        </>
+                      ) : null}
+
                       <span className="content-toolbar-divider" aria-hidden="true" />
 
                       {selectedNode.kind === "bucket" ? (
                         <>
                           <button
                             type="button"
-                            className="content-load-more-button"
+                            className="content-load-more-button content-toolbar-action-button"
                             onClick={handlePickUploadFile}
                             disabled={!isTauri() || isLoadingContent || isLoadingMoreContent}
                             title={t("content.transfer.upload_button")}
@@ -3784,7 +3967,10 @@ export function ConnectionNavigator({
             <div className="content-card">
               {selectedNode.kind === "connection" ? (
                 <>
-                  <div className="content-list-section">
+                  <div
+                    className="content-list-section"
+                    onContextMenu={handleOpenContentAreaContextMenu}
+                  >
                     {selectedConnectionIndicator.status === "connecting" ? (
                       <p className="content-list-state">{t("content.list.loading_containers")}</p>
                     ) : selectedConnectionIndicator.status === "error" ? (
@@ -3875,7 +4061,10 @@ export function ConnectionNavigator({
                   </div>
                 </>
               ) : (
-                <div className="content-list-section">
+                <div
+                  className="content-list-section"
+                  onContextMenu={handleOpenContentAreaContextMenu}
+                >
                   {isLoadingContent ? (
                     <p className="content-list-state">{t("content.list.loading")}</p>
                   ) : contentError ? (
@@ -4104,6 +4293,10 @@ export function ConnectionNavigator({
                                         )
                                       : false
                                   }
+                                  canOpenFile={
+                                    hasConfiguredGlobalCacheDirectory &&
+                                    item.downloadState === "downloaded"
+                                  }
                                   canOpenInExplorer={
                                     hasConfiguredGlobalCacheDirectory &&
                                     item.downloadState === "downloaded"
@@ -4135,6 +4328,16 @@ export function ConnectionNavigator({
                   )}
                 </div>
               )}
+
+              {contentAreaMenuAnchor ? (
+                <ContentAreaContextMenu
+                  canCreateFolder={canCreateFolderInCurrentContext}
+                  anchorPosition={contentAreaMenuAnchor}
+                  onAction={handleContentAreaMenuAction}
+                  onClose={() => setContentAreaMenuAnchor(null)}
+                  t={t}
+                />
+              ) : null}
 
               {submitError ? <p className="status-message-error">{submitError}</p> : null}
             </div>
@@ -4598,6 +4801,78 @@ export function ConnectionNavigator({
         </div>
       ) : null}
 
+      {isCreateFolderModalOpen && canCreateFolderInCurrentContext ? (
+        <div className="modal-backdrop" role="presentation">
+          <div
+            className="modal-card modal-card-compact"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="create-folder-modal-title"
+          >
+            <div className="modal-header">
+              <div>
+                <p className="modal-eyebrow">{t("content.folder.create_eyebrow")}</p>
+                <h2 id="create-folder-modal-title" className="modal-title">
+                  {t("content.folder.create_title")}
+                </h2>
+              </div>
+            </div>
+
+            <form
+              className="modal-form"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void handleCreateFolder();
+              }}
+            >
+              <label className="field-group" htmlFor={newFolderNameFieldId}>
+                <span>{t("content.folder.name_label")}</span>
+                <input
+                  id={newFolderNameFieldId}
+                  type="text"
+                  value={newFolderName}
+                  placeholder={t("content.folder.name_placeholder")}
+                  onChange={(event) => {
+                    setNewFolderName(event.target.value);
+                    if (createFolderError) {
+                      setCreateFolderError(null);
+                    }
+                  }}
+                  autoFocus
+                />
+                <span className="field-helper">
+                  {t("content.folder.name_helper").replace("{path}", [
+                    selectedBucketProvider?.toUpperCase() ?? t("content.provider.aws"),
+                    selectedBucketName ?? "",
+                    selectedBucketPath
+                  ].filter((segment) => segment.length > 0).join("/"))}
+                </span>
+              </label>
+
+              {createFolderError ? (
+                <p className="status-message-error">{createFolderError}</p>
+              ) : null}
+
+              <div className="modal-actions">
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={() => closeCreateFolderModal()}
+                  disabled={isCreatingFolder}
+                >
+                  {t("common.cancel")}
+                </button>
+                <button type="submit" className="primary-button" disabled={isCreatingFolder}>
+                  {isCreatingFolder
+                    ? t("content.folder.creating_button")
+                    : t("content.folder.create_button")}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
+
       {pendingDeleteConnection ? (
         <div className="modal-backdrop" role="presentation">
           <div
@@ -4970,6 +5245,7 @@ type ContentItemMenuProps = {
   canDownload: boolean;
   canDownloadAs: boolean;
   canCancelDownload: boolean;
+  canOpenFile: boolean;
   canOpenInExplorer: boolean;
   isOpen: boolean;
   showTrigger: boolean;
@@ -4979,12 +5255,76 @@ type ContentItemMenuProps = {
   t: (key: string) => string;
 };
 
+type ContentAreaContextMenuProps = {
+  canCreateFolder: boolean;
+  anchorPosition: { x: number; y: number };
+  onAction: (actionId: "createFolder" | "refresh") => void;
+  onClose: () => void;
+  t: (key: string) => string;
+};
+
+function ContentAreaContextMenu({
+  canCreateFolder,
+  anchorPosition,
+  onAction,
+  onClose,
+  t
+}: ContentAreaContextMenuProps) {
+  const menuRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    function handlePointerDown(event: PointerEvent) {
+      if (!menuRef.current?.contains(event.target as Node)) {
+        onClose();
+      }
+    }
+
+    window.addEventListener("pointerdown", handlePointerDown);
+
+    return () => {
+      window.removeEventListener("pointerdown", handlePointerDown);
+    };
+  }, [onClose]);
+
+  return (
+    <div
+      ref={menuRef}
+      className="tree-menu-popup tree-menu-popup-floating"
+      role="menu"
+      style={{
+        left: `${anchorPosition.x}px`,
+        top: `${anchorPosition.y}px`
+      }}
+    >
+      {canCreateFolder ? (
+        <button
+          type="button"
+          className="tree-menu-action"
+          role="menuitem"
+          onClick={() => onAction("createFolder")}
+        >
+          {t("content.folder.create_button")}
+        </button>
+      ) : null}
+      <button
+        type="button"
+        className="tree-menu-action"
+        role="menuitem"
+        onClick={() => onAction("refresh")}
+      >
+        {t("navigation.menu.refresh")}
+      </button>
+    </div>
+  );
+}
+
 function ContentItemMenu({
   item,
   canRestore,
   canDownload,
   canDownloadAs,
   canCancelDownload,
+  canOpenFile,
   canOpenInExplorer,
   isOpen,
   showTrigger,
@@ -5046,6 +5386,30 @@ function ContentItemMenu({
           }
           onClick={(event) => event.stopPropagation()}
         >
+          <button
+            type="button"
+            className="tree-menu-action"
+            role="menuitem"
+            disabled={!canOpenFile}
+            onClick={(event) => {
+              event.stopPropagation();
+              onAction("openFile", item);
+            }}
+          >
+            {t("navigation.menu.open_file")}
+          </button>
+          <button
+            type="button"
+            className="tree-menu-action"
+            role="menuitem"
+            disabled={!canOpenInExplorer}
+            onClick={(event) => {
+              event.stopPropagation();
+              onAction("openInExplorer", item);
+            }}
+          >
+            {t("navigation.menu.open_in_file_explorer")}
+          </button>
           {canRestore ? (
             <button
               type="button"
@@ -5095,18 +5459,6 @@ function ContentItemMenu({
             }}
           >
             {t("navigation.menu.download_as")}
-          </button>
-          <button
-            type="button"
-            className="tree-menu-action"
-            role="menuitem"
-            disabled={!canOpenInExplorer}
-            onClick={(event) => {
-              event.stopPropagation();
-              onAction("openInExplorer", item);
-            }}
-          >
-            {t("navigation.menu.open_in_file_explorer")}
           </button>
         </div>
       ) : null}

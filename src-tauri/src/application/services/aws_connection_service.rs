@@ -855,6 +855,81 @@ impl AwsConnectionService {
         Ok(())
     }
 
+    pub async fn create_folder(
+        input: AwsConnectionTestInput,
+        bucket_name: String,
+        parent_path: Option<String>,
+        folder_name: String,
+        bucket_region: Option<String>,
+    ) -> Result<(), String> {
+        let access_key_id = input.access_key_id.trim().to_string();
+        let secret_access_key = input.secret_access_key.trim().to_string();
+        let bucket_name = bucket_name.trim().to_string();
+        let folder_name = folder_name.trim().to_string();
+        let normalized_parent_path = parent_path
+            .unwrap_or_default()
+            .trim()
+            .trim_matches('/')
+            .to_string();
+
+        if bucket_name.is_empty() {
+            return Err("Bucket name is required for folder creation.".to_string());
+        }
+
+        if folder_name.is_empty() {
+            return Err("Folder name is required.".to_string());
+        }
+
+        if folder_name.contains('/') || folder_name.contains('\\') {
+            return Err("Folder name cannot contain path separators.".to_string());
+        }
+
+        let folder_key = if normalized_parent_path.is_empty() {
+            format!("{folder_name}/")
+        } else {
+            format!("{normalized_parent_path}/{folder_name}/")
+        };
+
+        eprintln!(
+            "[aws_connection_service] creating S3 folder marker for bucket={} key={}",
+            bucket_name, folder_key
+        );
+
+        let resolved_bucket_region = Self::resolve_bucket_region(
+            &access_key_id,
+            &secret_access_key,
+            &bucket_name,
+            bucket_region,
+        )
+        .await?;
+
+        let (_, s3_client) =
+            Self::build_clients(&resolved_bucket_region, access_key_id, secret_access_key).await;
+
+        s3_client
+            .put_object()
+            .bucket(bucket_name.clone())
+            .key(folder_key.clone())
+            .body(ByteStream::from(Vec::<u8>::new()))
+            .send()
+            .await
+            .map_err(|error| {
+                let error_message = error
+                    .as_service_error()
+                    .map(format_provider_service_error)
+                    .unwrap_or_else(|| error.to_string());
+
+                eprintln!(
+                    "[aws_connection_service] failed to create S3 folder marker for bucket={} key={} error={}",
+                    bucket_name, folder_key, error_message
+                );
+
+                error_message
+            })?;
+
+        Ok(())
+    }
+
     pub async fn download_object_to_cache<F>(
         operation_id: String,
         input: AwsConnectionTestInput,
@@ -1494,6 +1569,94 @@ impl AwsConnectionService {
         global_local_cache_directory: String,
         object_key: String,
     ) -> Result<(), String> {
+        let object_path = Self::resolve_cached_object_path(
+            connection_id,
+            connection_name,
+            bucket_name,
+            global_local_cache_directory,
+            object_key,
+        )
+        .await?;
+
+        let parent_directory = object_path
+            .parent()
+            .ok_or_else(|| "Unable to resolve the local directory for this file.".to_string())?;
+
+        #[cfg(target_os = "windows")]
+        let mut command = {
+            let mut command = Command::new("explorer");
+            command.arg(parent_directory);
+            command
+        };
+
+        #[cfg(target_os = "macos")]
+        let mut command = {
+            let mut command = Command::new("open");
+            command.arg(parent_directory);
+            command
+        };
+
+        #[cfg(all(unix, not(target_os = "macos")))]
+        let mut command = {
+            let mut command = Command::new("xdg-open");
+            command.arg(parent_directory);
+            command
+        };
+
+        command.spawn().map_err(|error| error.to_string())?;
+
+        Ok(())
+    }
+
+    pub async fn open_cached_object(
+        connection_id: String,
+        connection_name: String,
+        bucket_name: String,
+        global_local_cache_directory: String,
+        object_key: String,
+    ) -> Result<(), String> {
+        let object_path = Self::resolve_cached_object_path(
+            connection_id,
+            connection_name,
+            bucket_name,
+            global_local_cache_directory,
+            object_key,
+        )
+        .await?;
+
+        #[cfg(target_os = "windows")]
+        let mut command = {
+            let mut command = Command::new("cmd");
+            command.args(["/C", "start", "", object_path.to_string_lossy().as_ref()]);
+            command
+        };
+
+        #[cfg(target_os = "macos")]
+        let mut command = {
+            let mut command = Command::new("open");
+            command.arg(&object_path);
+            command
+        };
+
+        #[cfg(all(unix, not(target_os = "macos")))]
+        let mut command = {
+            let mut command = Command::new("xdg-open");
+            command.arg(&object_path);
+            command
+        };
+
+        command.spawn().map_err(|error| error.to_string())?;
+
+        Ok(())
+    }
+
+    async fn resolve_cached_object_path(
+        connection_id: String,
+        connection_name: String,
+        bucket_name: String,
+        global_local_cache_directory: String,
+        object_key: String,
+    ) -> Result<PathBuf, String> {
         let connection_id = connection_id.trim().to_string();
         let connection_name = connection_name.trim().to_string();
         let bucket_name = bucket_name.trim().to_string();
@@ -1526,35 +1689,7 @@ impl AwsConnectionService {
 
         let object_path = existing_object_path
             .ok_or_else(|| "The file is not available in the local cache.".to_string())?;
-
-        let parent_directory = object_path
-            .parent()
-            .ok_or_else(|| "Unable to resolve the local directory for this file.".to_string())?;
-
-        #[cfg(target_os = "windows")]
-        let mut command = {
-            let mut command = Command::new("explorer");
-            command.arg(parent_directory);
-            command
-        };
-
-        #[cfg(target_os = "macos")]
-        let mut command = {
-            let mut command = Command::new("open");
-            command.arg(parent_directory);
-            command
-        };
-
-        #[cfg(all(unix, not(target_os = "macos")))]
-        let mut command = {
-            let mut command = Command::new("xdg-open");
-            command.arg(parent_directory);
-            command
-        };
-
-        command.spawn().map_err(|error| error.to_string())?;
-
-        Ok(())
+        Ok(object_path)
     }
 
     pub fn open_external_url(url: String) -> Result<(), String> {

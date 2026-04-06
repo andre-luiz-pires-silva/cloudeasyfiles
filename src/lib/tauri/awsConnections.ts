@@ -134,6 +134,24 @@ export async function requestAwsObjectRestore(
   });
 }
 
+export async function createAwsFolder(
+  accessKeyId: string,
+  secretAccessKey: string,
+  bucketName: string,
+  parentPath: string | null | undefined,
+  folderName: string,
+  bucketRegion?: string
+): Promise<void> {
+  await invoke("create_aws_folder", {
+    accessKeyId,
+    secretAccessKey,
+    bucketName,
+    parentPath,
+    folderName,
+    bucketRegion
+  });
+}
+
 export async function openExternalUrl(url: string): Promise<void> {
   await invoke("open_external_url", { url });
 }
@@ -287,6 +305,22 @@ export async function openAwsCachedObjectParent(
   objectKey: string
 ): Promise<void> {
   await invoke("open_aws_cached_object_parent", {
+    connectionId,
+    connectionName,
+    bucketName,
+    globalLocalCacheDirectory,
+    objectKey
+  });
+}
+
+export async function openAwsCachedObject(
+  connectionId: string,
+  connectionName: string,
+  bucketName: string,
+  globalLocalCacheDirectory: string,
+  objectKey: string
+): Promise<void> {
+  await invoke("open_aws_cached_object", {
     connectionId,
     connectionName,
     bucketName,

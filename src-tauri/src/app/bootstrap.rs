@@ -21,6 +21,7 @@ pub fn run() {
             commands::list_aws_bucket_items,
             commands::aws_object_exists,
             commands::request_aws_object_restore,
+            commands::create_aws_folder,
             commands::open_external_url,
             commands::start_aws_cache_download,
             commands::download_aws_object_to_path,
@@ -29,6 +30,7 @@ pub fn run() {
             commands::cancel_aws_download,
             commands::cancel_aws_upload,
             commands::find_aws_cached_objects,
+            commands::open_aws_cached_object,
             commands::open_aws_cached_object_parent
         ])
         .run(tauri::generate_context!())

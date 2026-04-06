@@ -958,6 +958,8 @@ body {
 
 .content-list-section {
   margin-top: 0;
+  position: relative;
+  min-height: 100%;
 }
 
 .content-list-section-nested {
@@ -1091,6 +1093,10 @@ body {
   min-width: 36px;
   padding: 0;
   justify-content: center;
+}
+
+.content-toolbar-action-button {
+  min-width: 138px;
 }
 
 .content-list {
