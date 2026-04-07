@@ -126,6 +126,21 @@ pub async fn delete_aws_connection_secrets(connection_id: String) -> Result<(), 
 }
 
 #[tauri::command]
+pub async fn validate_local_mapping_directory(path: String) -> Result<bool, String> {
+    let trimmed_path = path.trim();
+
+    if trimmed_path.is_empty() {
+        return Ok(false);
+    }
+
+    let metadata = tokio::fs::metadata(trimmed_path)
+        .await
+        .map_err(|error| error.to_string())?;
+
+    Ok(metadata.is_dir())
+}
+
+#[tauri::command]
 pub async fn test_aws_connection(
     access_key_id: String,
     secret_access_key: String,

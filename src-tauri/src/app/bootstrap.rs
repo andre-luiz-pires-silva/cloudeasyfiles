@@ -23,6 +23,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::get_greeting,
+            commands::validate_local_mapping_directory,
             commands::save_aws_connection_secrets,
             commands::load_aws_connection_secrets,
             commands::delete_aws_connection_secrets,

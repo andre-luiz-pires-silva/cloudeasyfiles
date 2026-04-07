@@ -73,6 +73,7 @@ import {
 import type { AwsBucketItemsResult } from "../../lib/tauri/awsConnections";
 import type { Locale } from "../../lib/i18n/I18nProvider";
 import { useI18n } from "../../lib/i18n/useI18n";
+import { validateLocalMappingDirectory } from "../../lib/tauri/commands";
 import { type RestoreRequestTarget, RestoreRequestModal } from "../restore/RestoreRequestModal";
 
 type NavigatorView = "home" | "node";
@@ -114,6 +115,7 @@ type ConnectionIndicator = {
 };
 
 type ContentViewMode = "list" | "compact";
+type LocalMappingDirectoryStatus = "checking" | "valid" | "invalid" | "missing";
 type FileAvailabilityStatus = "available" | "archived" | "restoring";
 type FileDownloadState = "not_downloaded" | "restoring" | "available_to_download" | "downloaded";
 type ContentStatusFilter = (typeof ALL_CONTENT_STATUS_FILTERS)[number];
@@ -938,6 +940,10 @@ export function ConnectionNavigator({
   const [globalLocalCacheDirectory, setGlobalLocalCacheDirectory] = useState(
     loadInitialGlobalCacheDirectory
   );
+  const [localMappingDirectoryStatus, setLocalMappingDirectoryStatus] =
+    useState<LocalMappingDirectoryStatus>(() =>
+      loadInitialGlobalCacheDirectory().trim() ? "checking" : "missing"
+    );
   const [connectionTestStatus, setConnectionTestStatus] =
     useState<ConnectionTestStatus>("idle");
   const [connectionTestMessage, setConnectionTestMessage] = useState<string | null>(null);
@@ -1205,7 +1211,13 @@ export function ConnectionNavigator({
     () => new Set(downloadedFilePaths),
     [downloadedFilePaths]
   );
-  const hasConfiguredGlobalCacheDirectory = Boolean(globalLocalCacheDirectory.trim());
+  const hasValidGlobalLocalCacheDirectory = localMappingDirectoryStatus === "valid";
+  const localMappingDirectoryAlertKey =
+    localMappingDirectoryStatus === "invalid"
+      ? "settings.download_directory_notice_invalid"
+      : localMappingDirectoryStatus === "missing"
+      ? "settings.download_directory_notice_missing"
+      : null;
   const loadedDownloadedCount = useMemo(
     () => loadedFileItems.filter((item) => getSummaryContentStatuses(item).includes("downloaded")).length,
     [loadedFileItems]
@@ -1832,7 +1844,7 @@ function validateNewFolderNameInput(
       selectedBucketConnectionId &&
       selectedBucketName &&
       selectedConnection &&
-      hasConfiguredGlobalCacheDirectory
+      hasValidGlobalLocalCacheDirectory
     ) {
       void openAwsCachedObject(
         selectedBucketConnectionId,
@@ -1850,7 +1862,7 @@ function validateNewFolderNameInput(
       selectedBucketConnectionId &&
       selectedBucketName &&
       selectedConnection &&
-      hasConfiguredGlobalCacheDirectory
+      hasValidGlobalLocalCacheDirectory
     ) {
       void openAwsCachedObjectParent(
         selectedBucketConnectionId,
@@ -1965,7 +1977,7 @@ function validateNewFolderNameInput(
       !selectedBucketConnectionId ||
       !selectedBucketName ||
       !selectedConnection ||
-      !hasConfiguredGlobalCacheDirectory ||
+      !hasValidGlobalLocalCacheDirectory ||
       item.availabilityStatus !== "available"
     ) {
       return;
@@ -2364,7 +2376,7 @@ function validateNewFolderNameInput(
       !selectedBucketConnectionId ||
       !selectedBucketName ||
       !selectedConnection ||
-      !hasConfiguredGlobalCacheDirectory ||
+      !hasValidGlobalLocalCacheDirectory ||
       contentItems.length === 0
     ) {
       return;
@@ -2406,12 +2418,20 @@ function validateNewFolderNameInput(
   }, [
     contentItems,
     globalLocalCacheDirectory,
-    hasConfiguredGlobalCacheDirectory,
+    hasValidGlobalLocalCacheDirectory,
     selectedBucketConnectionId,
     selectedConnection,
     selectedBucketName,
     selectedBucketProvider
   ]);
+
+  useEffect(() => {
+    if (hasValidGlobalLocalCacheDirectory) {
+      return;
+    }
+
+    setDownloadedFilePaths([]);
+  }, [hasValidGlobalLocalCacheDirectory]);
 
   useEffect(() => {
     if (!selectedBucketConnectionId || !selectedBucketName || contentItems.length === 0) {
@@ -2424,13 +2444,13 @@ function validateNewFolderNameInput(
         downloadedFilePathSet,
         selectedBucketConnectionId,
         selectedBucketName,
-        hasConfiguredGlobalCacheDirectory
+        hasValidGlobalLocalCacheDirectory
       )
     );
   }, [
     downloadedFilePathSet,
     contentItems.length,
-    hasConfiguredGlobalCacheDirectory,
+    hasValidGlobalLocalCacheDirectory,
     selectedBucketConnectionId,
     selectedBucketName
   ]);
@@ -2664,7 +2684,7 @@ function validateNewFolderNameInput(
             downloadedFilePathSet,
             selectedBucketConnectionId,
             selectedBucketName,
-            hasConfiguredGlobalCacheDirectory
+            hasValidGlobalLocalCacheDirectory
           )
         );
         setContentContinuationToken(result.continuationToken ?? null);
@@ -2701,7 +2721,6 @@ function validateNewFolderNameInput(
     selectedBucketPath,
     selectedBucketProvider,
     selectedBucketRegion,
-    hasConfiguredGlobalCacheDirectory,
     contentRefreshNonce,
     t
   ]);
@@ -2723,9 +2742,46 @@ function validateNewFolderNameInput(
   }, [contentViewMode]);
 
   useEffect(() => {
+    let isActive = true;
+    const normalizedPath = globalLocalCacheDirectory.trim();
+
     appSettingsStore.save({
-      globalLocalCacheDirectory: globalLocalCacheDirectory.trim() || undefined
+      globalLocalCacheDirectory: normalizedPath || undefined
     });
+
+    if (!normalizedPath) {
+      setLocalMappingDirectoryStatus("missing");
+      return undefined;
+    }
+
+    if (!isTauri()) {
+      setLocalMappingDirectoryStatus("valid");
+      return undefined;
+    }
+
+    setLocalMappingDirectoryStatus("checking");
+
+    void (async () => {
+      try {
+        const isValidDirectory = await validateLocalMappingDirectory(normalizedPath);
+
+        if (!isActive) {
+          return;
+        }
+
+        setLocalMappingDirectoryStatus(isValidDirectory ? "valid" : "invalid");
+      } catch {
+        if (!isActive) {
+          return;
+        }
+
+        setLocalMappingDirectoryStatus("invalid");
+      }
+    })();
+
+    return () => {
+      isActive = false;
+    };
   }, [globalLocalCacheDirectory]);
 
   useEffect(() => {
@@ -2893,7 +2949,7 @@ function validateNewFolderNameInput(
           downloadedFilePathSet,
           selectedBucketConnectionId,
           selectedBucketName,
-          hasConfiguredGlobalCacheDirectory
+          hasValidGlobalLocalCacheDirectory
         )
       );
       setContentContinuationToken(result.continuationToken ?? null);
@@ -3994,6 +4050,12 @@ function validateNewFolderNameInput(
                   </button>
                 </div>
                 <span className="field-helper">{t("settings.download_directory_helper")}</span>
+                {localMappingDirectoryAlertKey ? (
+                  <div className="content-toolbar-notice" role="alert">
+                    <CircleAlert size={16} strokeWidth={2} />
+                    <p>{t(localMappingDirectoryAlertKey)}</p>
+                  </div>
+                ) : null}
               </label>
 
               {submitError ? <p className="status-message-error">{submitError}</p> : null}
@@ -4100,6 +4162,12 @@ function validateNewFolderNameInput(
                   className="content-list-section"
                   onContextMenu={handleOpenContentAreaContextMenu}
                 >
+                  {localMappingDirectoryAlertKey ? (
+                    <div className="content-toolbar-notice" role="alert">
+                      <CircleAlert size={16} strokeWidth={2} />
+                      <p>{t(localMappingDirectoryAlertKey)}</p>
+                    </div>
+                  ) : null}
                   {isLoadingContent ? (
                     <p className="content-list-state">{t("content.list.loading")}</p>
                   ) : contentError ? (
@@ -4286,7 +4354,7 @@ function validateNewFolderNameInput(
                                     item.availabilityStatus === "archived"
                                   }
                                   canDownload={
-                                    hasConfiguredGlobalCacheDirectory &&
+                                    hasValidGlobalLocalCacheDirectory &&
                                     item.availabilityStatus === "available" &&
                                     item.downloadState !== "downloaded" &&
                                     !(
@@ -4329,11 +4397,11 @@ function validateNewFolderNameInput(
                                       : false
                                   }
                                   canOpenFile={
-                                    hasConfiguredGlobalCacheDirectory &&
+                                    hasValidGlobalLocalCacheDirectory &&
                                     item.downloadState === "downloaded"
                                   }
                                   canOpenInExplorer={
-                                    hasConfiguredGlobalCacheDirectory &&
+                                    hasValidGlobalLocalCacheDirectory &&
                                     item.downloadState === "downloaded"
                                   }
                                   isOpen={openContentMenuItemId === item.id}
