@@ -64,33 +64,39 @@ export type AwsRestoreTier = "expedited" | "standard" | "bulk";
 
 export async function testAwsConnection(
   accessKeyId: string,
-  secretAccessKey: string
+  secretAccessKey: string,
+  restrictedBucketName?: string
 ): Promise<AwsConnectionTestResult> {
   return invoke<AwsConnectionTestResult>("test_aws_connection", {
     accessKeyId,
-    secretAccessKey
+    secretAccessKey,
+    restrictedBucketName
   });
 }
 
 export async function listAwsBuckets(
   accessKeyId: string,
-  secretAccessKey: string
+  secretAccessKey: string,
+  restrictedBucketName?: string
 ): Promise<AwsBucketSummary[]> {
   return invoke<AwsBucketSummary[]>("list_aws_buckets", {
     accessKeyId,
-    secretAccessKey
+    secretAccessKey,
+    restrictedBucketName
   });
 }
 
 export async function getAwsBucketRegion(
   accessKeyId: string,
   secretAccessKey: string,
-  bucketName: string
+  bucketName: string,
+  restrictedBucketName?: string
 ): Promise<string> {
   return invoke<string>("get_aws_bucket_region", {
     accessKeyId,
     secretAccessKey,
-    bucketName
+    bucketName,
+    restrictedBucketName
   });
 }
 
@@ -100,7 +106,8 @@ export async function listAwsBucketItems(
   bucketName: string,
   prefix?: string,
   bucketRegion?: string,
-  continuationToken?: string
+  continuationToken?: string,
+  restrictedBucketName?: string
 ): Promise<AwsBucketItemsResult> {
   return invoke<AwsBucketItemsResult>("list_aws_bucket_items", {
     accessKeyId,
@@ -108,7 +115,8 @@ export async function listAwsBucketItems(
     bucketName,
     prefix,
     bucketRegion,
-    continuationToken
+    continuationToken,
+    restrictedBucketName
   });
 }
 
@@ -120,7 +128,8 @@ export async function requestAwsObjectRestore(
   storageClass: string | null | undefined,
   restoreTier: AwsRestoreTier,
   days: number,
-  bucketRegion?: string
+  bucketRegion?: string,
+  restrictedBucketName?: string
 ): Promise<void> {
   await invoke("request_aws_object_restore", {
     accessKeyId,
@@ -130,7 +139,8 @@ export async function requestAwsObjectRestore(
     storageClass,
     bucketRegion,
     restoreTier,
-    days
+    days,
+    restrictedBucketName
   });
 }
 
@@ -140,7 +150,8 @@ export async function createAwsFolder(
   bucketName: string,
   parentPath: string | null | undefined,
   folderName: string,
-  bucketRegion?: string
+  bucketRegion?: string,
+  restrictedBucketName?: string
 ): Promise<void> {
   await invoke("create_aws_folder", {
     accessKeyId,
@@ -148,7 +159,8 @@ export async function createAwsFolder(
     bucketName,
     parentPath,
     folderName,
-    bucketRegion
+    bucketRegion,
+    restrictedBucketName
   });
 }
 
@@ -166,7 +178,8 @@ export async function startAwsCacheDownload(
   bucketName: string,
   objectKey: string,
   globalLocalCacheDirectory: string,
-  bucketRegion?: string
+  bucketRegion?: string,
+  restrictedBucketName?: string
 ): Promise<string> {
   return invoke<string>("start_aws_cache_download", {
     operationId,
@@ -177,7 +190,8 @@ export async function startAwsCacheDownload(
     bucketName,
     objectKey,
     globalLocalCacheDirectory,
-    bucketRegion
+    bucketRegion,
+    restrictedBucketName
   });
 }
 
@@ -189,7 +203,8 @@ export async function downloadAwsObjectToPath(
   bucketName: string,
   objectKey: string,
   destinationPath: string,
-  bucketRegion?: string
+  bucketRegion?: string,
+  restrictedBucketName?: string
 ): Promise<string> {
   return invoke<string>("download_aws_object_to_path", {
     operationId,
@@ -199,7 +214,8 @@ export async function downloadAwsObjectToPath(
     bucketName,
     objectKey,
     destinationPath,
-    bucketRegion
+    bucketRegion,
+    restrictedBucketName
   });
 }
 
@@ -214,14 +230,16 @@ export async function awsObjectExists(
   secretAccessKey: string,
   bucketName: string,
   objectKey: string,
-  bucketRegion?: string
+  bucketRegion?: string,
+  restrictedBucketName?: string
 ): Promise<boolean> {
   return invoke<boolean>("aws_object_exists", {
     accessKeyId,
     secretAccessKey,
     bucketName,
     objectKey,
-    bucketRegion
+    bucketRegion,
+    restrictedBucketName
   });
 }
 
@@ -234,7 +252,8 @@ export async function startAwsUpload(
   objectKey: string,
   localFilePath: string,
   storageClass?: string,
-  bucketRegion?: string
+  bucketRegion?: string,
+  restrictedBucketName?: string
 ): Promise<string> {
   return invoke<string>("start_aws_upload", {
     operationId,
@@ -245,7 +264,8 @@ export async function startAwsUpload(
     objectKey,
     localFilePath,
     storageClass,
-    bucketRegion
+    bucketRegion,
+    restrictedBucketName
   });
 }
 
@@ -259,7 +279,8 @@ export async function startAwsUploadFromBytes(
   fileName: string,
   fileBytes: Uint8Array,
   storageClass?: string,
-  bucketRegion?: string
+  bucketRegion?: string,
+  restrictedBucketName?: string
 ): Promise<string> {
   return invoke<string>("start_aws_upload_bytes", {
     operationId,
@@ -271,7 +292,8 @@ export async function startAwsUploadFromBytes(
     fileName,
     fileBytes: Array.from(fileBytes),
     storageClass,
-    bucketRegion
+    bucketRegion,
+    restrictedBucketName
   });
 }
 

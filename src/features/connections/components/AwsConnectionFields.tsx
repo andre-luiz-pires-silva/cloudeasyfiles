@@ -7,13 +7,16 @@ type AwsConnectionFieldsProps = {
   accessKeyFieldId: string;
   secretKeyFieldId: string;
   connectOnStartupFieldId: string;
+  restrictedBucketNameFieldId: string;
   accessKeyId: string;
   secretAccessKey: string;
+  restrictedBucketName: string;
   connectOnStartup: boolean;
   defaultUploadStorageClass: AwsUploadStorageClass;
-  errors: Partial<Record<"accessKeyId" | "secretAccessKey", string>>;
+  errors: Partial<Record<"accessKeyId" | "secretAccessKey" | "restrictedBucketName", string>>;
   onAccessKeyIdChange: (value: string) => void;
   onSecretAccessKeyChange: (value: string) => void;
+  onRestrictedBucketNameChange: (value: string) => void;
   onConnectOnStartupChange: (value: boolean) => void;
   onDefaultUploadStorageClassChange: (value: AwsUploadStorageClass) => void;
   t: (key: string) => string;
@@ -23,14 +26,17 @@ export function AwsConnectionFields({
   accessKeyFieldId,
   secretKeyFieldId,
   connectOnStartupFieldId,
+  restrictedBucketNameFieldId,
   accessKeyId,
   secretAccessKey,
+  restrictedBucketName,
   connectOnStartup,
   locale,
   defaultUploadStorageClass,
   errors,
   onAccessKeyIdChange,
   onSecretAccessKeyChange,
+  onRestrictedBucketNameChange,
   onConnectOnStartupChange,
   onDefaultUploadStorageClassChange,
   t
@@ -60,6 +66,21 @@ export function AwsConnectionFields({
         />
         {errors.secretAccessKey ? (
           <span className="field-error">{errors.secretAccessKey}</span>
+        ) : null}
+      </label>
+
+      <label className="field-group" htmlFor={restrictedBucketNameFieldId}>
+        <span>{t("navigation.modal.aws.restricted_bucket_label")}</span>
+        <input
+          id={restrictedBucketNameFieldId}
+          type="text"
+          value={restrictedBucketName}
+          placeholder={t("navigation.modal.aws.restricted_bucket_placeholder")}
+          onChange={(event) => onRestrictedBucketNameChange(event.target.value)}
+        />
+        <span className="field-helper">{t("navigation.modal.aws.restricted_bucket_helper")}</span>
+        {errors.restrictedBucketName ? (
+          <span className="field-error">{errors.restrictedBucketName}</span>
         ) : null}
       </label>
 

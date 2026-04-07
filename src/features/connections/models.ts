@@ -18,6 +18,7 @@ type SavedConnectionBase = {
 
 export type SavedAwsConnectionSummary = SavedConnectionBase & {
   provider: "aws";
+  restrictedBucketName?: string;
   defaultUploadStorageClass?: AwsUploadStorageClass;
 };
 
@@ -33,6 +34,7 @@ export type AwsConnectionDraft = {
   provider: "aws";
   accessKeyId: string;
   secretAccessKey: string;
+  restrictedBucketName?: string;
   connectOnStartup?: boolean;
   defaultUploadStorageClass?: AwsUploadStorageClass;
 };

@@ -129,12 +129,14 @@ pub async fn delete_aws_connection_secrets(connection_id: String) -> Result<(), 
 pub async fn test_aws_connection(
     access_key_id: String,
     secret_access_key: String,
+    restricted_bucket_name: Option<String>,
 ) -> Result<AwsConnectionTestResult, String> {
     eprintln!("[commands] test_aws_connection called");
 
     let result = AwsConnectionService::test_connection(AwsConnectionTestInput {
         access_key_id,
         secret_access_key,
+        restricted_bucket_name,
     })
     .await;
 
@@ -149,12 +151,14 @@ pub async fn test_aws_connection(
 pub async fn list_aws_buckets(
     access_key_id: String,
     secret_access_key: String,
+    restricted_bucket_name: Option<String>,
 ) -> Result<Vec<AwsBucketSummary>, String> {
     eprintln!("[commands] list_aws_buckets called");
 
     let result = AwsConnectionService::list_buckets(AwsConnectionTestInput {
         access_key_id,
         secret_access_key,
+        restricted_bucket_name,
     })
     .await;
 
@@ -170,6 +174,7 @@ pub async fn get_aws_bucket_region(
     access_key_id: String,
     secret_access_key: String,
     bucket_name: String,
+    restricted_bucket_name: Option<String>,
 ) -> Result<String, String> {
     eprintln!(
         "[commands] get_aws_bucket_region called for bucket_name={}",
@@ -180,6 +185,7 @@ pub async fn get_aws_bucket_region(
         AwsConnectionTestInput {
             access_key_id,
             secret_access_key,
+            restricted_bucket_name,
         },
         bucket_name,
     )
@@ -200,6 +206,7 @@ pub async fn list_aws_bucket_items(
     prefix: Option<String>,
     bucket_region: Option<String>,
     continuation_token: Option<String>,
+    restricted_bucket_name: Option<String>,
 ) -> Result<AwsBucketItemsResult, String> {
     eprintln!(
         "[commands] list_aws_bucket_items called for bucket_name={} prefix={}",
@@ -211,6 +218,7 @@ pub async fn list_aws_bucket_items(
         AwsConnectionTestInput {
             access_key_id,
             secret_access_key,
+            restricted_bucket_name,
         },
         bucket_name,
         prefix,
@@ -233,11 +241,13 @@ pub async fn aws_object_exists(
     bucket_name: String,
     object_key: String,
     bucket_region: Option<String>,
+    restricted_bucket_name: Option<String>,
 ) -> Result<bool, String> {
     AwsConnectionService::object_exists(
         AwsConnectionTestInput {
             access_key_id,
             secret_access_key,
+            restricted_bucket_name,
         },
         bucket_name,
         object_key,
@@ -256,6 +266,7 @@ pub async fn request_aws_object_restore(
     bucket_region: Option<String>,
     restore_tier: String,
     days: i32,
+    restricted_bucket_name: Option<String>,
 ) -> Result<(), String> {
     eprintln!(
         "[commands] request_aws_object_restore called for bucket_name={} object_key={} tier={} days={}",
@@ -266,6 +277,7 @@ pub async fn request_aws_object_restore(
         AwsConnectionTestInput {
             access_key_id,
             secret_access_key,
+            restricted_bucket_name,
         },
         bucket_name,
         object_key,
@@ -307,6 +319,7 @@ pub async fn create_aws_folder(
     parent_path: Option<String>,
     folder_name: String,
     bucket_region: Option<String>,
+    restricted_bucket_name: Option<String>,
 ) -> Result<(), String> {
     eprintln!(
         "[commands] create_aws_folder called for bucket_name={} parent_path={} folder_name={}",
@@ -319,6 +332,7 @@ pub async fn create_aws_folder(
         AwsConnectionTestInput {
             access_key_id,
             secret_access_key,
+            restricted_bucket_name,
         },
         bucket_name,
         parent_path,
@@ -347,6 +361,7 @@ pub async fn start_aws_cache_download(
     object_key: String,
     bucket_region: Option<String>,
     global_local_cache_directory: String,
+    restricted_bucket_name: Option<String>,
 ) -> Result<String, String> {
     eprintln!(
         "[commands] start_aws_cache_download called for bucket_name={} object_key={}",
@@ -369,6 +384,7 @@ pub async fn start_aws_cache_download(
         AwsConnectionTestInput {
             access_key_id,
             secret_access_key,
+            restricted_bucket_name,
         },
         connection_id.clone(),
         connection_name,
@@ -460,6 +476,7 @@ pub async fn download_aws_object_to_path(
     object_key: String,
     bucket_region: Option<String>,
     destination_path: String,
+    restricted_bucket_name: Option<String>,
 ) -> Result<String, String> {
     eprintln!(
         "[commands] download_aws_object_to_path called for bucket_name={} object_key={} destination_path={}",
@@ -482,6 +499,7 @@ pub async fn download_aws_object_to_path(
         AwsConnectionTestInput {
             access_key_id,
             secret_access_key,
+            restricted_bucket_name,
         },
         bucket_name.clone(),
         object_key.clone(),
@@ -572,6 +590,7 @@ pub async fn start_aws_upload(
     local_file_path: String,
     storage_class: Option<String>,
     bucket_region: Option<String>,
+    restricted_bucket_name: Option<String>,
 ) -> Result<String, String> {
     eprintln!(
         "[commands] start_aws_upload called for bucket_name={} object_key={} local_file_path={}",
@@ -595,6 +614,7 @@ pub async fn start_aws_upload(
         AwsConnectionTestInput {
             access_key_id,
             secret_access_key,
+            restricted_bucket_name,
         },
         bucket_name.clone(),
         object_key.clone(),
@@ -679,6 +699,7 @@ pub async fn start_aws_upload_bytes(
     file_bytes: Vec<u8>,
     storage_class: Option<String>,
     bucket_region: Option<String>,
+    restricted_bucket_name: Option<String>,
 ) -> Result<String, String> {
     eprintln!(
         "[commands] start_aws_upload_bytes called for bucket_name={} object_key={} file_name={}",
@@ -702,6 +723,7 @@ pub async fn start_aws_upload_bytes(
         AwsConnectionTestInput {
             access_key_id,
             secret_access_key,
+            restricted_bucket_name,
         },
         bucket_name.clone(),
         object_key.clone(),

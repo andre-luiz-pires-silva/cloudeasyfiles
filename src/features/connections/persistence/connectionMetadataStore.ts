@@ -26,10 +26,12 @@ function isSavedConnectionSummary(value: unknown): value is SavedConnectionSumma
   }
 
   return (
-    typeof candidate.defaultUploadStorageClass === "undefined" ||
-    (typeof candidate.defaultUploadStorageClass === "string" &&
-      normalizeAwsUploadStorageClass(candidate.defaultUploadStorageClass) ===
-        candidate.defaultUploadStorageClass.trim().toUpperCase())
+    (typeof candidate.restrictedBucketName === "undefined" ||
+      typeof candidate.restrictedBucketName === "string") &&
+    (typeof candidate.defaultUploadStorageClass === "undefined" ||
+      (typeof candidate.defaultUploadStorageClass === "string" &&
+        normalizeAwsUploadStorageClass(candidate.defaultUploadStorageClass) ===
+          candidate.defaultUploadStorageClass.trim().toUpperCase()))
   );
 }
 

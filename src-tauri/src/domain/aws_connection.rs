@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 pub struct AwsConnectionTestInput {
     pub access_key_id: String,
     pub secret_access_key: String,
+    pub restricted_bucket_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]

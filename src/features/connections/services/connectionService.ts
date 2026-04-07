@@ -5,6 +5,7 @@ import { normalizeAwsUploadStorageClass } from "../awsUploadStorageClasses";
 
 export const MAX_CONNECTION_NAME_LENGTH = 48;
 const SIMPLE_CONNECTION_NAME_PATTERN = /^[\p{L}\p{N}][\p{L}\p{N} _-]*$/u;
+const SIMPLE_BUCKET_NAME_PATTERN = /^(?=.{3,63}$)[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/;
 
 function createConnectionId(): string {
   if (typeof globalThis.crypto !== "undefined" && "randomUUID" in globalThis.crypto) {
@@ -37,6 +38,18 @@ export function isConnectionNameFormatValid(value: string): boolean {
   );
 }
 
+export function normalizeRestrictedBucketName(value: string | undefined): string | undefined {
+  const normalizedValue = value?.trim();
+
+  return normalizedValue ? normalizedValue : undefined;
+}
+
+export function isRestrictedBucketNameFormatValid(value: string): boolean {
+  const normalizedValue = value.trim();
+
+  return SIMPLE_BUCKET_NAME_PATTERN.test(normalizedValue) && !normalizedValue.includes("..");
+}
+
 function normalizeConnectionNameForComparison(value: string): string {
   return normalizeConnectionName(value).toLocaleLowerCase();
 }
@@ -66,6 +79,7 @@ export class ConnectionService {
       provider: "aws",
       accessKeyId: secrets.accessKeyId,
       secretAccessKey: secrets.secretAccessKey,
+      restrictedBucketName: normalizeRestrictedBucketName(metadata.restrictedBucketName),
       connectOnStartup: metadata.connectOnStartup === true,
       defaultUploadStorageClass: normalizeAwsUploadStorageClass(
         metadata.defaultUploadStorageClass
@@ -77,6 +91,7 @@ export class ConnectionService {
     const previousConnections = this.metadataStore.load();
     const connectionId = draft.id ?? createConnectionId();
     const normalizedName = normalizeConnectionName(draft.name);
+    const normalizedRestrictedBucketName = normalizeRestrictedBucketName(draft.restrictedBucketName);
 
     if (!isConnectionNameFormatValid(normalizedName)) {
       throw new Error(
@@ -95,10 +110,18 @@ export class ConnectionService {
       throw new Error("A connection with this name already exists.");
     }
 
+    if (
+      normalizedRestrictedBucketName &&
+      !isRestrictedBucketNameFormatValid(normalizedRestrictedBucketName)
+    ) {
+      throw new Error("The restricted AWS bucket name is invalid.");
+    }
+
     const nextConnection: SavedConnectionSummary = {
       id: connectionId,
       name: normalizedName,
       provider: "aws",
+      restrictedBucketName: normalizedRestrictedBucketName,
       connectOnStartup: draft.connectOnStartup === true,
       defaultUploadStorageClass: normalizeAwsUploadStorageClass(draft.defaultUploadStorageClass)
     };

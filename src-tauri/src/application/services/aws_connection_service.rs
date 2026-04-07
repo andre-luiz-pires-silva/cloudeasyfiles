@@ -30,45 +30,12 @@ use crate::domain::aws_connection::{
 
 pub struct AwsConnectionService;
 const MISSING_MINIMUM_S3_PERMISSION_ERROR: &str = "AWS_S3_LIST_BUCKETS_PERMISSION_REQUIRED";
+const RESTRICTED_BUCKET_MISMATCH_ERROR: &str = "AWS_S3_RESTRICTED_BUCKET_MISMATCH";
 pub const DOWNLOAD_CANCELLED_ERROR: &str = "DOWNLOAD_CANCELLED";
 pub const UPLOAD_CANCELLED_ERROR: &str = "UPLOAD_CANCELLED";
 const S3_LISTING_PAGE_SIZE: i32 = 200;
 const MULTIPART_UPLOAD_CHUNK_SIZE: usize = 8 * 1024 * 1024;
-const GLOBAL_AWS_REGION_FALLBACKS: &[&str] = &[
-    "us-east-1",
-    "us-east-2",
-    "us-west-1",
-    "us-west-2",
-    "sa-east-1",
-    "ca-central-1",
-    "eu-west-1",
-    "eu-west-2",
-    "eu-west-3",
-    "eu-central-1",
-    "eu-central-2",
-    "eu-north-1",
-    "eu-south-1",
-    "eu-south-2",
-    "ap-south-1",
-    "ap-south-2",
-    "ap-southeast-1",
-    "ap-southeast-2",
-    "ap-southeast-3",
-    "ap-southeast-4",
-    "ap-southeast-5",
-    "ap-southeast-6",
-    "ap-southeast-7",
-    "ap-northeast-1",
-    "ap-northeast-2",
-    "ap-northeast-3",
-    "ap-east-1",
-    "ap-east-2",
-    "af-south-1",
-    "me-south-1",
-    "me-central-1",
-    "il-central-1",
-    "mx-central-1",
-];
+const AWS_DEFAULT_REGION: &str = "us-east-1";
 
 struct AwsGlobalAccessContext {
     identity: AwsConnectionTestResult,
@@ -120,22 +87,6 @@ where
     }
 
     format!("{}: {}", error_code, error_message)
-}
-
-fn is_fatal_aws_identity_error_code(error_code: Option<&str>) -> bool {
-    matches!(
-        error_code,
-        Some(
-            "InvalidClientTokenId"
-                | "InvalidAccessKeyId"
-                | "UnrecognizedClientException"
-                | "ExpiredToken"
-                | "ExpiredTokenException"
-                | "IncompleteSignature"
-                | "SignatureDoesNotMatch"
-                | "AuthFailure"
-        )
-    )
 }
 
 fn normalize_bucket_region(location_constraint: Option<&BucketLocationConstraint>) -> String {
@@ -443,97 +394,147 @@ impl AwsConnectionService {
         access_key_id: &str,
         secret_access_key: &str,
     ) -> Result<AwsGlobalAccessContext, String> {
-        let mut last_error_message: Option<String> = None;
-        let mut saw_missing_minimum_permission = false;
+        let (client, s3_client) = Self::build_clients(
+            AWS_DEFAULT_REGION,
+            access_key_id.to_string(),
+            secret_access_key.to_string(),
+        )
+        .await;
 
-        for region in GLOBAL_AWS_REGION_FALLBACKS {
+        let identity_response = client
+            .get_caller_identity()
+            .send()
+            .await
+            .map_err(|error| {
+                let error_message = error
+                    .as_service_error()
+                    .map(format_provider_service_error)
+                    .unwrap_or_else(|| error.to_string());
+
+                eprintln!(
+                    "[aws_connection_service] STS caller identity failed for region={} error={}",
+                    AWS_DEFAULT_REGION, error_message
+                );
+
+                error_message
+            })?;
+
+        s3_client.list_buckets().send().await.map_err(|error| {
+            let error_code = error
+                .as_service_error()
+                .and_then(ProvideErrorMetadata::code);
+            let error_message = error
+                .as_service_error()
+                .map(format_provider_service_error)
+                .unwrap_or_else(|| error.to_string());
+
             eprintln!(
-                "[aws_connection_service] trying AWS global access flow with region={}",
-                region
+                "[aws_connection_service] S3 list buckets failed for region={} error={}",
+                AWS_DEFAULT_REGION, error_message
             );
 
-            let (client, s3_client) = Self::build_clients(
-                region,
-                access_key_id.to_string(),
-                secret_access_key.to_string(),
-            )
-            .await;
+            if matches!(error_code, Some("AccessDenied") | Some("UnauthorizedAccess")) {
+                return MISSING_MINIMUM_S3_PERMISSION_ERROR.to_string();
+            }
 
-            let identity_response = match client.get_caller_identity().send().await {
-                Ok(response) => response,
-                Err(error) => {
-                    let error_code = error
-                        .as_service_error()
-                        .and_then(ProvideErrorMetadata::code);
-                    let error_message = error
-                        .as_service_error()
-                        .map(format_provider_service_error)
-                        .unwrap_or_else(|| error.to_string());
+            error_message
+        })?;
 
-                    eprintln!(
-                        "[aws_connection_service] STS caller identity failed for region={} error={}",
-                        region, error_message
-                    );
+        let identity = AwsConnectionTestResult {
+            account_id: identity_response.account().unwrap_or_default().to_string(),
+            arn: identity_response.arn().unwrap_or_default().to_string(),
+            user_id: identity_response.user_id().unwrap_or_default().to_string(),
+        };
 
-                    last_error_message = Some(error_message);
+        eprintln!(
+            "[aws_connection_service] AWS global access flow succeeded with region={} account_id={}",
+            AWS_DEFAULT_REGION, identity.account_id
+        );
 
-                    if is_fatal_aws_identity_error_code(error_code) {
-                        break;
-                    }
+        Ok(AwsGlobalAccessContext {
+            identity,
+            s3_client,
+        })
+    }
 
-                    continue;
-                }
-            };
+    fn normalize_restricted_bucket_name(value: Option<String>) -> Option<String> {
+        value.and_then(|value| {
+            let trimmed = value.trim().to_string();
+            (!trimmed.is_empty()).then_some(trimmed)
+        })
+    }
 
-            match s3_client.list_buckets().send().await {
-                Ok(_) => {
-                    let identity = AwsConnectionTestResult {
-                        account_id: identity_response.account().unwrap_or_default().to_string(),
-                        arn: identity_response.arn().unwrap_or_default().to_string(),
-                        user_id: identity_response.user_id().unwrap_or_default().to_string(),
-                    };
-
-                    eprintln!(
-                        "[aws_connection_service] AWS global access flow succeeded with region={} account_id={}",
-                        region, identity.account_id
-                    );
-
-                    return Ok(AwsGlobalAccessContext {
-                        identity,
-                        s3_client,
-                    });
-                }
-                Err(error) => {
-                    let error_code = error
-                        .as_service_error()
-                        .and_then(ProvideErrorMetadata::code);
-                    let error_message = error
-                        .as_service_error()
-                        .map(format_provider_service_error)
-                        .unwrap_or_else(|| error.to_string());
-
-                    eprintln!(
-                        "[aws_connection_service] S3 list buckets failed for region={} error={}",
-                        region, error_message
-                    );
-
-                    if matches!(error_code, Some("AccessDenied") | Some("UnauthorizedAccess")) {
-                        saw_missing_minimum_permission = true;
-                    }
-
-                    last_error_message = Some(error_message);
-                }
+    fn validate_bucket_matches_restriction(
+        bucket_name: &str,
+        restricted_bucket_name: Option<&str>,
+    ) -> Result<(), String> {
+        if let Some(restricted_bucket_name) = restricted_bucket_name {
+            if bucket_name != restricted_bucket_name {
+                return Err(RESTRICTED_BUCKET_MISMATCH_ERROR.to_string());
             }
         }
 
-        if saw_missing_minimum_permission {
-            return Err(MISSING_MINIMUM_S3_PERMISSION_ERROR.to_string());
-        }
+        Ok(())
+    }
 
-        Err(last_error_message.unwrap_or_else(|| {
-            "Unable to establish a compatible AWS regional endpoint for this connection."
-                .to_string()
-        }))
+    async fn resolve_identity(
+        access_key_id: &str,
+        secret_access_key: &str,
+    ) -> Result<AwsConnectionTestResult, String> {
+        let (client, _) = Self::build_clients(
+            AWS_DEFAULT_REGION,
+            access_key_id.to_string(),
+            secret_access_key.to_string(),
+        )
+        .await;
+        let identity_response = client
+            .get_caller_identity()
+            .send()
+            .await
+            .map_err(|error| {
+                error
+                    .as_service_error()
+                    .map(format_provider_service_error)
+                    .unwrap_or_else(|| error.to_string())
+            })?;
+
+        Ok(AwsConnectionTestResult {
+            account_id: identity_response.account().unwrap_or_default().to_string(),
+            arn: identity_response.arn().unwrap_or_default().to_string(),
+            user_id: identity_response.user_id().unwrap_or_default().to_string(),
+        })
+    }
+
+    async fn verify_restricted_bucket_access(
+        access_key_id: &str,
+        secret_access_key: &str,
+        bucket_name: &str,
+    ) -> Result<AwsConnectionTestResult, String> {
+        let identity = Self::resolve_identity(access_key_id, secret_access_key).await?;
+        let resolved_bucket_region =
+            Self::resolve_bucket_region(access_key_id, secret_access_key, bucket_name, None, None)
+                .await?;
+        let (_, s3_client) = Self::build_clients(
+            &resolved_bucket_region,
+            access_key_id.to_string(),
+            secret_access_key.to_string(),
+        )
+        .await;
+
+        s3_client
+            .list_objects_v2()
+            .bucket(bucket_name)
+            .max_keys(1)
+            .send()
+            .await
+            .map_err(|error| {
+                error
+                    .as_service_error()
+                    .map(format_provider_service_error)
+                    .unwrap_or_else(|| error.to_string())
+            })?;
+
+        Ok(identity)
     }
 
     async fn resolve_bucket_region(
@@ -541,6 +542,7 @@ impl AwsConnectionService {
         secret_access_key: &str,
         bucket_name: &str,
         bucket_region: Option<String>,
+        restricted_bucket_name: Option<String>,
     ) -> Result<String, String> {
         if let Some(bucket_region) = bucket_region {
             if !bucket_region.trim().is_empty() && bucket_region != "..." {
@@ -548,10 +550,18 @@ impl AwsConnectionService {
             }
         }
 
-        let context =
-            Self::resolve_global_access_context(access_key_id, secret_access_key).await?;
-        let bucket_location = context
-            .s3_client
+        Self::validate_bucket_matches_restriction(
+            bucket_name,
+            restricted_bucket_name.as_deref(),
+        )?;
+
+        let (_, s3_client) = Self::build_clients(
+            AWS_DEFAULT_REGION,
+            access_key_id.to_string(),
+            secret_access_key.to_string(),
+        )
+        .await;
+        let bucket_location = s3_client
             .get_bucket_location()
             .bucket(bucket_name)
             .send()
@@ -571,8 +581,26 @@ impl AwsConnectionService {
     ) -> Result<AwsConnectionTestResult, String> {
         let access_key_id = input.access_key_id.trim().to_string();
         let secret_access_key = input.secret_access_key.trim().to_string();
+        let restricted_bucket_name =
+            Self::normalize_restricted_bucket_name(input.restricted_bucket_name);
 
         eprintln!("[aws_connection_service] testing AWS connection");
+
+        if let Some(restricted_bucket_name) = restricted_bucket_name {
+            let identity = Self::verify_restricted_bucket_access(
+                &access_key_id,
+                &secret_access_key,
+                &restricted_bucket_name,
+            )
+            .await?;
+
+            eprintln!(
+                "[aws_connection_service] AWS restricted bucket access test succeeded for account_id={} bucket={}",
+                identity.account_id, restricted_bucket_name
+            );
+
+            return Ok(identity);
+        }
 
         let context =
             Self::resolve_global_access_context(&access_key_id, &secret_access_key).await?;
@@ -590,8 +618,23 @@ impl AwsConnectionService {
     ) -> Result<Vec<AwsBucketSummary>, String> {
         let access_key_id = input.access_key_id.trim().to_string();
         let secret_access_key = input.secret_access_key.trim().to_string();
+        let restricted_bucket_name =
+            Self::normalize_restricted_bucket_name(input.restricted_bucket_name);
 
         eprintln!("[aws_connection_service] listing S3 buckets");
+
+        if let Some(restricted_bucket_name) = restricted_bucket_name {
+            Self::verify_restricted_bucket_access(
+                &access_key_id,
+                &secret_access_key,
+                &restricted_bucket_name,
+            )
+            .await?;
+
+            return Ok(vec![AwsBucketSummary {
+                name: restricted_bucket_name,
+            }]);
+        }
 
         let context =
             Self::resolve_global_access_context(&access_key_id, &secret_access_key).await?;
@@ -630,6 +673,8 @@ impl AwsConnectionService {
     ) -> Result<String, String> {
         let access_key_id = input.access_key_id.trim().to_string();
         let secret_access_key = input.secret_access_key.trim().to_string();
+        let restricted_bucket_name =
+            Self::normalize_restricted_bucket_name(input.restricted_bucket_name);
         let bucket_name = bucket_name.trim().to_string();
 
         eprintln!(
@@ -637,29 +682,22 @@ impl AwsConnectionService {
             bucket_name
         );
 
-        let context =
-            Self::resolve_global_access_context(&access_key_id, &secret_access_key).await?;
-        let bucket_location = context
-            .s3_client
-            .get_bucket_location()
-            .bucket(bucket_name.clone())
-            .send()
-            .await
-            .map_err(|error| {
-                let error_message = error
-                    .as_service_error()
-                    .map(format_provider_service_error)
-                    .unwrap_or_else(|| error.to_string());
+        Self::resolve_bucket_region(
+            &access_key_id,
+            &secret_access_key,
+            &bucket_name,
+            None,
+            restricted_bucket_name,
+        )
+        .await
+        .map_err(|error_message| {
+            eprintln!(
+                "[aws_connection_service] failed to resolve region for bucket={} error={}",
+                bucket_name, error_message
+            );
 
-                eprintln!(
-                    "[aws_connection_service] failed to resolve region for bucket={} error={}",
-                    bucket_name, error_message
-                );
-
-                error_message
-            })?;
-
-        Ok(normalize_bucket_region(bucket_location.location_constraint()))
+            error_message
+        })
     }
 
     pub async fn list_bucket_items(
@@ -684,6 +722,7 @@ impl AwsConnectionService {
             &secret_access_key,
             &bucket_name,
             bucket_region,
+            None,
         )
         .await?;
 
@@ -816,6 +855,7 @@ impl AwsConnectionService {
             &secret_access_key,
             &bucket_name,
             bucket_region,
+            None,
         )
         .await?;
 
@@ -900,6 +940,7 @@ impl AwsConnectionService {
             &secret_access_key,
             &bucket_name,
             bucket_region,
+            None,
         )
         .await?;
 
@@ -963,6 +1004,7 @@ impl AwsConnectionService {
             &secret_access_key,
             &bucket_name,
             bucket_region,
+            None,
         )
         .await?;
 
@@ -1095,6 +1137,7 @@ impl AwsConnectionService {
             &secret_access_key,
             &bucket_name,
             bucket_region,
+            None,
         )
         .await?;
 
@@ -1198,6 +1241,7 @@ impl AwsConnectionService {
             &secret_access_key,
             &bucket_name,
             bucket_region,
+            None,
         )
         .await?;
 
@@ -1274,6 +1318,7 @@ impl AwsConnectionService {
             &secret_access_key,
             &bucket_name,
             bucket_region,
+            None,
         )
         .await?;
 
@@ -1480,6 +1525,7 @@ impl AwsConnectionService {
             &secret_access_key,
             &bucket_name,
             bucket_region,
+            None,
         )
         .await?;
 

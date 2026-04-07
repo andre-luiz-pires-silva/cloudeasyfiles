@@ -45,6 +45,7 @@ import type {
 import { connectionService } from "../connections/services/connectionService";
 import {
   isConnectionNameFormatValid,
+  isRestrictedBucketNameFormatValid,
   MAX_CONNECTION_NAME_LENGTH
 } from "../connections/services/connectionService";
 import {
@@ -78,7 +79,7 @@ type NavigatorView = "home" | "node";
 type ConnectionTestStatus = "idle" | "testing" | "success" | "error";
 type ConnectionIndicatorStatus = "disconnected" | "connecting" | "connected" | "error";
 type FormErrors = Partial<
-  Record<"connectionName" | "accessKeyId" | "secretAccessKey", string>
+  Record<"connectionName" | "accessKeyId" | "secretAccessKey" | "restrictedBucketName", string>
 >;
 type NodeAction = {
   id: "connect" | "cancelConnect" | "disconnect" | "edit" | "remove";
@@ -93,6 +94,7 @@ const MAX_SIDEBAR_WIDTH = 520;
 const MIN_CONTENT_WIDTH = 420;
 const SIDEBAR_WIDTH_STORAGE_KEY = "cloudeasyfiles.sidebar-width";
 const MISSING_MINIMUM_S3_PERMISSION_ERROR = "AWS_S3_LIST_BUCKETS_PERMISSION_REQUIRED";
+const RESTRICTED_BUCKET_MISMATCH_ERROR = "AWS_S3_RESTRICTED_BUCKET_MISMATCH";
 const CONNECTING_CONNECTION_TITLE_KEY = "navigation.connection_status.connecting";
 const CONNECTED_CONNECTION_TITLE_KEY = "navigation.connection_status.connected";
 const DISCONNECTED_CONNECTION_TITLE_KEY = "navigation.connection_status.disconnected";
@@ -478,6 +480,10 @@ function buildConnectionFailureMessage(
 
   if (errorMessage === MISSING_MINIMUM_S3_PERMISSION_ERROR) {
     return t("navigation.modal.aws.test_connection_missing_minimum_permission");
+  }
+
+  if (errorMessage === RESTRICTED_BUCKET_MISMATCH_ERROR) {
+    return t("navigation.modal.aws.test_connection_restricted_bucket_mismatch");
   }
 
   return errorMessage ?? t("navigation.modal.aws.test_connection_failure");
@@ -910,6 +916,7 @@ export function ConnectionNavigator({
   const providerFieldId = useId();
   const accessKeyFieldId = useId();
   const secretKeyFieldId = useId();
+  const restrictedBucketNameFieldId = useId();
   const connectOnStartupFieldId = useId();
   const newFolderNameFieldId = useId();
   const localeFieldId = useId();
@@ -924,6 +931,7 @@ export function ConnectionNavigator({
   const [connectionProvider, setConnectionProvider] = useState<ConnectionProvider>("aws");
   const [accessKeyId, setAccessKeyId] = useState("");
   const [secretAccessKey, setSecretAccessKey] = useState("");
+  const [restrictedBucketName, setRestrictedBucketName] = useState("");
   const [connectOnStartup, setConnectOnStartup] = useState(false);
   const [defaultAwsUploadStorageClass, setDefaultAwsUploadStorageClass] =
     useState<AwsUploadStorageClass>(DEFAULT_AWS_UPLOAD_STORAGE_CLASS);
@@ -1506,7 +1514,8 @@ function validateNewFolderNameInput(
           objectKey,
           selectedBucketRegion && selectedBucketRegion !== BUCKET_REGION_PLACEHOLDER
             ? selectedBucketRegion
-            : undefined
+            : undefined,
+          draft.restrictedBucketName
         );
       } catch (error) {
         if (!isUploadExistsPreflightPermissionError(error)) {
@@ -1599,7 +1608,8 @@ function validateNewFolderNameInput(
             draft.defaultUploadStorageClass,
             selectedBucketRegion && selectedBucketRegion !== BUCKET_REGION_PLACEHOLDER
               ? selectedBucketRegion
-              : undefined
+              : undefined,
+            draft.restrictedBucketName
           );
         }
       }
@@ -1627,7 +1637,8 @@ function validateNewFolderNameInput(
             draft.defaultUploadStorageClass,
             selectedBucketRegion && selectedBucketRegion !== BUCKET_REGION_PLACEHOLDER
               ? selectedBucketRegion
-              : undefined
+              : undefined,
+            draft.restrictedBucketName
           );
         }
       }))
@@ -1659,7 +1670,8 @@ function validateNewFolderNameInput(
               draft.defaultUploadStorageClass,
               selectedBucketRegion && selectedBucketRegion !== BUCKET_REGION_PLACEHOLDER
                 ? selectedBucketRegion
-                : undefined
+                : undefined,
+              draft.restrictedBucketName
             );
 
             return;
@@ -1679,7 +1691,8 @@ function validateNewFolderNameInput(
             draft.defaultUploadStorageClass,
             selectedBucketRegion && selectedBucketRegion !== BUCKET_REGION_PLACEHOLDER
               ? selectedBucketRegion
-              : undefined
+              : undefined,
+            draft.restrictedBucketName
           );
         }
       }))
@@ -1749,7 +1762,8 @@ function validateNewFolderNameInput(
           input.days,
           restoreRequest.bucketRegion && restoreRequest.bucketRegion !== BUCKET_REGION_PLACEHOLDER
             ? restoreRequest.bucketRegion
-            : undefined
+            : undefined,
+          draft.restrictedBucketName
         );
 
         setRestoreRequest(null);
@@ -1921,7 +1935,8 @@ function validateNewFolderNameInput(
             destinationPath,
             selectedBucketRegion && selectedBucketRegion !== BUCKET_REGION_PLACEHOLDER
               ? selectedBucketRegion
-              : undefined
+              : undefined,
+            draft.restrictedBucketName
           );
         } catch (error) {
           if (isCancelledTransferError(error)) {
@@ -2004,7 +2019,8 @@ function validateNewFolderNameInput(
           globalLocalCacheDirectory,
           selectedBucketRegion && selectedBucketRegion !== BUCKET_REGION_PLACEHOLDER
             ? selectedBucketRegion
-            : undefined
+            : undefined,
+          draft.restrictedBucketName
         );
       } catch (error) {
         if (isCancelledTransferError(error)) {
@@ -2633,7 +2649,8 @@ function validateNewFolderNameInput(
           selectedBucketRegion && selectedBucketRegion !== BUCKET_REGION_PLACEHOLDER
             ? selectedBucketRegion
             : undefined,
-          undefined
+          undefined,
+          draft.restrictedBucketName
         );
         const nextItems = buildContentItems(result);
 
@@ -2734,6 +2751,7 @@ function validateNewFolderNameInput(
     setConnectionProvider("aws");
     setAccessKeyId("");
     setSecretAccessKey("");
+    setRestrictedBucketName("");
     setConnectOnStartup(false);
     setDefaultAwsUploadStorageClass(DEFAULT_AWS_UPLOAD_STORAGE_CLASS);
     setFormErrors({});
@@ -2767,6 +2785,9 @@ function validateNewFolderNameInput(
       setConnectionProvider(connection.provider);
       setAccessKeyId("");
       setSecretAccessKey("");
+      setRestrictedBucketName(
+        connection.provider === "aws" ? connection.restrictedBucketName ?? "" : ""
+      );
       setConnectOnStartup(connection.connectOnStartup === true);
       setDefaultAwsUploadStorageClass(DEFAULT_AWS_UPLOAD_STORAGE_CLASS);
       resetConnectionTestState();
@@ -2780,6 +2801,7 @@ function validateNewFolderNameInput(
       const draft = await connectionService.getAwsConnectionDraft(connectionId);
       setAccessKeyId(draft.accessKeyId);
       setSecretAccessKey(draft.secretAccessKey);
+      setRestrictedBucketName(draft.restrictedBucketName ?? "");
       setConnectOnStartup(draft.connectOnStartup === true);
       setDefaultAwsUploadStorageClass(
         normalizeAwsUploadStorageClass(draft.defaultUploadStorageClass)
@@ -2856,7 +2878,8 @@ function validateNewFolderNameInput(
         selectedBucketRegion && selectedBucketRegion !== BUCKET_REGION_PLACEHOLDER
           ? selectedBucketRegion
           : undefined,
-        contentContinuationToken
+        contentContinuationToken,
+        draft.restrictedBucketName
       );
       const nextItems = buildContentItems(result);
 
@@ -2932,7 +2955,8 @@ function validateNewFolderNameInput(
     requestId: number,
     accessKeyIdValue: string,
     secretAccessKeyValue: string,
-    buckets: AwsBucketSummary[]
+    buckets: AwsBucketSummary[],
+    restrictedBucketNameValue?: string
   ) {
     let nextBucketIndex = 0;
 
@@ -2947,7 +2971,8 @@ function validateNewFolderNameInput(
           const region = await getAwsBucketRegion(
             accessKeyIdValue,
             secretAccessKeyValue,
-            bucket.name
+            bucket.name,
+            restrictedBucketNameValue
           );
 
           if (connectionRequestIdsRef.current[connectionId] !== requestId) {
@@ -3009,7 +3034,8 @@ function validateNewFolderNameInput(
       const draft = await connectionService.getAwsConnectionDraft(connectionId);
       const result = await testAwsConnection(
         draft.accessKeyId.trim(),
-        draft.secretAccessKey.trim()
+        draft.secretAccessKey.trim(),
+        draft.restrictedBucketName
       );
 
       if (connectionRequestIdsRef.current[connectionId] !== requestId) {
@@ -3030,7 +3056,8 @@ function validateNewFolderNameInput(
       }));
       const buckets = await listAwsBuckets(
         draft.accessKeyId.trim(),
-        draft.secretAccessKey.trim()
+        draft.secretAccessKey.trim(),
+        draft.restrictedBucketName
       );
 
       if (connectionRequestIdsRef.current[connectionId] !== requestId) {
@@ -3047,7 +3074,8 @@ function validateNewFolderNameInput(
         requestId,
         draft.accessKeyId.trim(),
         draft.secretAccessKey.trim(),
-        buckets
+        buckets,
+        draft.restrictedBucketName
       );
 
       updateConnectionIndicator(connectionId, { status: "connected" });
@@ -3111,6 +3139,13 @@ function validateNewFolderNameInput(
       nextErrors.secretAccessKey = t("navigation.modal.validation.secret_key_required");
     }
 
+    if (
+      restrictedBucketName.trim() &&
+      !isRestrictedBucketNameFormatValid(restrictedBucketName.trim())
+    ) {
+      nextErrors.restrictedBucketName = t("navigation.modal.validation.restricted_bucket_invalid");
+    }
+
     return nextErrors;
   }
 
@@ -3133,7 +3168,8 @@ function validateNewFolderNameInput(
     try {
       const result = await testAwsConnection(
         accessKeyId.trim(),
-        secretAccessKey.trim()
+        secretAccessKey.trim(),
+        restrictedBucketName.trim() || undefined
       );
 
       if (connectionTestRequestIdRef.current !== requestId) {
@@ -3240,7 +3276,8 @@ function validateNewFolderNameInput(
         newFolderName.trim(),
         selectedBucketRegion && selectedBucketRegion !== BUCKET_REGION_PLACEHOLDER
           ? selectedBucketRegion
-          : undefined
+          : undefined,
+        draft.restrictedBucketName
       );
 
       setIsCreatingFolder(false);
@@ -3337,6 +3374,13 @@ function validateNewFolderNameInput(
       if (!secretAccessKey.trim()) {
         nextErrors.secretAccessKey = t("navigation.modal.validation.secret_key_required");
       }
+
+      if (
+        restrictedBucketName.trim() &&
+        !isRestrictedBucketNameFormatValid(restrictedBucketName.trim())
+      ) {
+        nextErrors.restrictedBucketName = t("navigation.modal.validation.restricted_bucket_invalid");
+      }
     }
 
     return nextErrors;
@@ -3364,6 +3408,7 @@ function validateNewFolderNameInput(
         provider: "aws",
         accessKeyId,
         secretAccessKey: secretAccessKey.trim(),
+        restrictedBucketName,
         connectOnStartup,
         defaultUploadStorageClass: defaultAwsUploadStorageClass
       } satisfies AwsConnectionDraft);
@@ -4643,14 +4688,17 @@ function validateNewFolderNameInput(
                       locale={locale}
                       accessKeyFieldId={accessKeyFieldId}
                       secretKeyFieldId={secretKeyFieldId}
+                      restrictedBucketNameFieldId={restrictedBucketNameFieldId}
                       connectOnStartupFieldId={connectOnStartupFieldId}
                       accessKeyId={accessKeyId}
                       secretAccessKey={secretAccessKey}
+                      restrictedBucketName={restrictedBucketName}
                       connectOnStartup={connectOnStartup}
                       defaultUploadStorageClass={defaultAwsUploadStorageClass}
                       errors={{
                         accessKeyId: formErrors.accessKeyId,
-                        secretAccessKey: formErrors.secretAccessKey
+                        secretAccessKey: formErrors.secretAccessKey,
+                        restrictedBucketName: formErrors.restrictedBucketName
                       }}
                       onAccessKeyIdChange={(value) => {
                         setAccessKeyId(value);
@@ -4658,6 +4706,10 @@ function validateNewFolderNameInput(
                       }}
                       onSecretAccessKeyChange={(value) => {
                         setSecretAccessKey(value);
+                        resetConnectionTestState();
+                      }}
+                      onRestrictedBucketNameChange={(value) => {
+                        setRestrictedBucketName(value);
                         resetConnectionTestState();
                       }}
                       onConnectOnStartupChange={setConnectOnStartup}
