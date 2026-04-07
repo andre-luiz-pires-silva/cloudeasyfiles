@@ -3,7 +3,7 @@ import { ConnectionMetadataStore } from "../persistence/connectionMetadataStore"
 import { ConnectionSecretsVault } from "../persistence/connectionSecretsVault";
 import { normalizeAwsUploadStorageClass } from "../awsUploadStorageClasses";
 
-export const MAX_CONNECTION_NAME_LENGTH = 48;
+export const MAX_CONNECTION_NAME_LENGTH = 20;
 const SIMPLE_CONNECTION_NAME_PATTERN = /^[\p{L}\p{N}][\p{L}\p{N} _-]*$/u;
 const SIMPLE_BUCKET_NAME_PATTERN = /^(?=.{3,63}$)[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/;
 
