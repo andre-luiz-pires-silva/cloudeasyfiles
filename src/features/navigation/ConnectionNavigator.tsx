@@ -3555,36 +3555,26 @@ function validateNewFolderNameInput(
               <ul className="tree-root">
                 {filteredTreeNodes.map((connection) => (
                   <li key={connection.id} className="tree-item">
-                    <div
-                      className={`tree-node-row${selectedNode?.connectionId === connection.id ? " is-selected" : ""}`}
-                    >
-                      <ConnectionTreeNodeItem
-                        node={connection}
-                        selectedNodeId={selectedNodeId}
-                        connectionIndicators={connectionIndicators}
-                        isCollapsed={collapsedConnectionIds[connection.id] === true}
-                        shouldForceExpand={normalizedSidebarFilter.length > 0}
-                        onSelect={handleSelectNode}
-                        onToggleCollapsed={toggleConnectionCollapsed}
-                        onConnectionDoubleClick={(connectionId) => {
-                          void handleDefaultConnectionAction(connectionId);
-                        }}
-                        t={t}
-                      />
-
-                      <TreeItemMenu
-                        connectionId={connection.id}
-                        indicator={
-                          connectionIndicators[connection.id] ?? { status: "disconnected" }
-                        }
-                        isOpen={openMenuConnectionId === connection.id}
-                        onToggle={setOpenMenuConnectionId}
-                        onAction={(actionId, connectionId) => {
+                    <ConnectionTreeNodeItem
+                      node={connection}
+                      selectedNodeId={selectedNodeId}
+                      connectionIndicators={connectionIndicators}
+                      isCollapsed={collapsedConnectionIds[connection.id] === true}
+                      shouldForceExpand={normalizedSidebarFilter.length > 0}
+                      menuState={{
+                        isOpen: openMenuConnectionId === connection.id,
+                        onToggle: setOpenMenuConnectionId,
+                        onAction: (actionId, connectionId) => {
                           void handleConnectionAction(actionId, connectionId);
-                        }}
-                        t={t}
-                      />
-                    </div>
+                        }
+                      }}
+                      onSelect={handleSelectNode}
+                      onToggleCollapsed={toggleConnectionCollapsed}
+                      onConnectionDoubleClick={(connectionId) => {
+                        void handleDefaultConnectionAction(connectionId);
+                      }}
+                      t={t}
+                    />
                   </li>
                 ))}
               </ul>
@@ -4998,6 +4988,14 @@ type ConnectionTreeNodeItemProps = {
   connectionIndicators: Record<string, ConnectionIndicator>;
   isCollapsed?: boolean;
   shouldForceExpand?: boolean;
+  menuState?: {
+    isOpen: boolean;
+    onToggle: (connectionId: string | null) => void;
+    onAction: (
+      actionId: "connect" | "cancelConnect" | "disconnect" | "edit" | "remove",
+      connectionId: string
+    ) => void;
+  };
   onSelect: (node: ExplorerTreeNode) => void;
   onToggleCollapsed: (connectionId: string) => void;
   onConnectionDoubleClick: (connectionId: string) => void;
@@ -5010,6 +5008,7 @@ function ConnectionTreeNodeItem({
   connectionIndicators,
   isCollapsed = false,
   shouldForceExpand = false,
+  menuState,
   onSelect,
   onToggleCollapsed,
   onConnectionDoubleClick,
@@ -5023,12 +5022,16 @@ function ConnectionTreeNodeItem({
 
   return (
     <div className="tree-node-branch">
-      <div className="tree-node-row">
+      <div
+        className={`tree-node-row${isConnectionNode ? " tree-node-row-connection" : " tree-node-row-container"}${
+          isSelected ? " is-selected" : ""
+        }`}
+      >
         {isConnectionNode ? (
           hasChildren ? (
             <button
               type="button"
-              className="tree-toggle-button"
+              className="tree-toggle-button tree-toggle-button-connection"
               aria-label={t(isExpanded ? "navigation.collapse" : "navigation.expand")}
               aria-expanded={isExpanded}
               onClick={() => onToggleCollapsed(node.connectionId)}
@@ -5046,7 +5049,7 @@ function ConnectionTreeNodeItem({
 
         <button
           type="button"
-          className={`tree-node-button${!isConnectionNode ? " tree-node-nested" : ""}${isSelected ? " is-selected" : ""}`}
+          className={`tree-node-button${isConnectionNode ? " tree-node-button-connection" : " tree-node-button-container tree-node-nested"}${isSelected ? " is-selected" : ""}`}
           onClick={() => onSelect(node)}
           onDoubleClick={() => {
             if (isConnectionNode) {
@@ -5067,18 +5070,30 @@ function ConnectionTreeNodeItem({
             )}
 
             <span className="tree-node-copy">
-              <span>{node.name}</span>
-              {node.kind === "bucket" && node.region ? (
-                <span className="tree-node-meta">{node.region}</span>
-              ) : null}
+              <span className={isConnectionNode ? "tree-node-title tree-node-title-connection" : "tree-node-title"}>
+                {node.name}
+              </span>
             </span>
             {node.kind === "connection" ? (
               <span className={`provider-badge provider-${node.provider}`}>
                 {node.provider.toUpperCase()}
               </span>
+            ) : node.region ? (
+              <span className="tree-node-meta tree-node-meta-bucket">{node.region}</span>
             ) : null}
           </span>
         </button>
+
+        {isConnectionNode && menuState ? (
+          <TreeItemMenu
+            connectionId={node.id}
+            indicator={indicator}
+            isOpen={menuState.isOpen}
+            onToggle={menuState.onToggle}
+            onAction={menuState.onAction}
+            t={t}
+          />
+        ) : null}
       </div>
 
       {hasChildren && isExpanded ? (
