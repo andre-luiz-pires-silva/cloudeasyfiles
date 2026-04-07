@@ -1,10 +1,21 @@
 use crate::{app::window_state, presentation::commands};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
+use std::time::Duration;
+use tauri::{AppHandle, Listener, Manager, Runtime};
+
+const FRONTEND_READY_EVENT: &str = "frontend://ready";
+const FRONTEND_BOOT_FAILED_EVENT: &str = "frontend://boot-failed";
+const FRONTEND_READY_TIMEOUT: Duration = Duration::from_secs(6);
+const FRONTEND_RELOAD_SCRIPT: &str = "window.location.reload();";
 
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
-            window_state::restore_main_window_size(&app.handle());
+            prepare_main_window(&app.handle());
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -35,4 +46,48 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("failed to run CloudEasyFiles application");
+}
+
+fn prepare_main_window<R: Runtime>(app: &AppHandle<R>) {
+    window_state::restore_main_window_size(app);
+
+    let Some(window) = app.get_webview_window("main") else {
+        eprintln!("[bootstrap] main window not found while preparing startup flow");
+        return;
+    };
+
+    let frontend_boot_resolved = Arc::new(AtomicBool::new(false));
+    let ready_flag = frontend_boot_resolved.clone();
+    window.once(FRONTEND_READY_EVENT, move |_| {
+        ready_flag.store(true, Ordering::SeqCst);
+    });
+
+    let failed_flag = frontend_boot_resolved.clone();
+    window.once(FRONTEND_BOOT_FAILED_EVENT, move |_| {
+        failed_flag.store(true, Ordering::SeqCst);
+    });
+
+    let app_handle = app.clone();
+    let boot_resolved_flag = frontend_boot_resolved;
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(FRONTEND_READY_TIMEOUT).await;
+
+        if boot_resolved_flag.load(Ordering::SeqCst) {
+            return;
+        }
+
+        let Some(window) = app_handle.get_webview_window("main") else {
+            return;
+        };
+
+        eprintln!(
+            "[bootstrap] frontend ready event timed out after {}s; reloading webview once",
+            FRONTEND_READY_TIMEOUT.as_secs()
+        );
+
+        if let Err(error) = window.eval(FRONTEND_RELOAD_SCRIPT) {
+            eprintln!("[bootstrap] failed to reload webview after startup timeout error={error}");
+            return;
+        }
+    });
 }
