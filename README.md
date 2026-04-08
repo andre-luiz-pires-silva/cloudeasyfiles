@@ -4,7 +4,7 @@
 
 CloudEasyFiles is a desktop application that provides a clean, intuitive interface for managing files across cloud storage providers. It is designed to reduce the complexity of working directly with provider-specific APIs and workflows, offering a consistent experience for browsing, transferring, and managing cloud files with an emphasis on simplicity and ease of use.
 
-The current working build is AWS-first. It already supports saved AWS connections, bucket browsing, incremental listing, manual refresh, explicit folder creation in the current bucket path, tracked cache downloads with progress, `Download As`, transfer tracking in the footer and modal, download cancelation, local-cache-aware file state in the explorer, opening cached files with the OS default app or in the local file explorer, and provider-driven restore-state detection for archived S3 objects. Azure remains part of the product direction, but is not wired into the current implementation yet. AWS restore request submission is still documented as the next archival workflow step rather than a delivered UI flow.
+The current working build is AWS-first. It already supports saved AWS connections, bucket browsing, incremental listing, manual refresh, explicit folder creation in the current bucket path, tracked cache downloads with progress, `Download As`, transfer tracking in the footer and modal, download cancelation, local-cache-aware file state in the explorer, opening cached files with the OS default app or in the local file explorer, provider-driven restore-state detection for archived S3 objects, and delete workflows for files and folders with always-visible multi-selection in the explorer. Azure remains part of the product direction, but is not wired into the current implementation yet. AWS restore request submission is still documented as the next archival workflow step rather than a delivered UI flow.
 
 For the project documentation map, architecture references, ADRs, and feature specs, see [PROJECT.md](./PROJECT.md) and the documents under [`/docs`](./docs).
 
@@ -56,6 +56,9 @@ The repository currently includes SVG placeholders that can later be replaced by
 - Open tracked cached files with the OS default application when available
 - Track active downloads from the bottom bar and an active-transfer modal
 - Cancel active `Download` and `Download As` operations from the file menu or transfer modal
+- Select multiple visible files and folders with persistent explorer checkboxes
+- Delete individual files from the item menu or remove mixed file/folder selections in batch
+- Delete folders recursively using provider-aligned prefix removal semantics in AWS S3
 - Use a unified interface across supported providers
 - View clear file state indicators such as available, archived, and restoring
 - Understand file status clearly through local indicators such as not downloaded, available to download, restoring, and downloaded

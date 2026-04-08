@@ -26,6 +26,8 @@ The sidebar is intentionally simplified, so the main panel must handle object ex
 - The main panel must expose folder creation for supported bucket contexts.
 - The main panel must surface contextual file actions for tracked download, `Download As`, canceling active downloads, and local-cache inspection where available.
 - The main panel must surface a direct open action for tracked cached files where available.
+- The main panel must support persistent checkbox selection for visible files and folders in bucket contexts.
+- The main panel must support delete actions for files and folders in supported provider contexts.
 
 ## Non-Functional Requirements
 
@@ -53,6 +55,7 @@ The sidebar is intentionally simplified, so the main panel must handle object ex
 - Automatic refresh must not run continuously for ordinary browsing.
 - Manual refresh remains available even when no background monitoring is active.
 - Folder creation in supported object-storage contexts must write an explicit folder marker and rely on the refreshed provider listing as the source of truth.
+- Folder delete in supported object-storage contexts may be recursive and must follow provider-backed prefix/object semantics rather than pretending folders are local filesystem directories.
 
 ## UX Expectations
 
@@ -77,6 +80,9 @@ The sidebar is intentionally simplified, so the main panel must handle object ex
 - In supported bucket contexts, the toolbar should expose `Nova pasta` near the other context actions.
 - The empty-area context menu in the main panel should expose `Nova pasta` and `Atualizar` for supported bucket contexts.
 - Downloaded tracked-cache files should expose both `Abrir` and `Abrir no Explorador de Arquivos local`.
+- Bucket listings should show always-visible checkboxes for files and folders so multi-selection remains discoverable.
+- When one or more items are selected, the main panel should expose clear batch actions for `Limpar seleção` and `Remover`.
+- Delete confirmation for folders or mixed selections should explicitly warn that folder removal is recursive.
 
 ## Acceptance Criteria
 
@@ -110,6 +116,9 @@ The sidebar is intentionally simplified, so the main panel must handle object ex
 - In supported bucket contexts, right-clicking the empty area of the listing opens a custom context menu with `Nova pasta` and `Atualizar`.
 - Downloaded tracked-cache files can be opened with the OS default app from the file context menu.
 - The listing does not poll automatically for restore completion; state updates arrive through navigation, screen open, reconnection, or explicit refresh.
+- In supported bucket contexts, files and folders can be selected through persistent row checkboxes.
+- In supported bucket contexts, the explorer can remove a mixed selection of files and folders after explicit confirmation.
+- In supported bucket contexts, deleting a folder removes provider content recursively for that logical folder path and refreshes the listing afterward.
 
 ## Out of Scope
 

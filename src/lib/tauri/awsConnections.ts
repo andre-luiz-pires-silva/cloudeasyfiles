@@ -33,6 +33,11 @@ export type AwsBucketItemsResult = {
   hasMore: boolean;
 };
 
+export type AwsDeleteResult = {
+  deletedObjectCount: number;
+  deletedDirectoryCount: number;
+};
+
 export type AwsDownloadProgressEvent = {
   operationId: string;
   transferKind: "cache" | "direct";
@@ -159,6 +164,42 @@ export async function createAwsFolder(
     bucketName,
     parentPath,
     folderName,
+    bucketRegion,
+    restrictedBucketName
+  });
+}
+
+export async function deleteAwsObjects(
+  accessKeyId: string,
+  secretAccessKey: string,
+  bucketName: string,
+  objectKeys: string[],
+  bucketRegion?: string,
+  restrictedBucketName?: string
+): Promise<AwsDeleteResult> {
+  return invoke<AwsDeleteResult>("delete_aws_objects", {
+    accessKeyId,
+    secretAccessKey,
+    bucketName,
+    objectKeys,
+    bucketRegion,
+    restrictedBucketName
+  });
+}
+
+export async function deleteAwsPrefix(
+  accessKeyId: string,
+  secretAccessKey: string,
+  bucketName: string,
+  prefix: string,
+  bucketRegion?: string,
+  restrictedBucketName?: string
+): Promise<AwsDeleteResult> {
+  return invoke<AwsDeleteResult>("delete_aws_prefix", {
+    accessKeyId,
+    secretAccessKey,
+    bucketName,
+    prefix,
     bucketRegion,
     restrictedBucketName
   });

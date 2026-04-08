@@ -34,6 +34,8 @@ pub fn run() {
             commands::aws_object_exists,
             commands::request_aws_object_restore,
             commands::create_aws_folder,
+            commands::delete_aws_objects,
+            commands::delete_aws_prefix,
             commands::open_external_url,
             commands::start_aws_cache_download,
             commands::download_aws_object_to_path,

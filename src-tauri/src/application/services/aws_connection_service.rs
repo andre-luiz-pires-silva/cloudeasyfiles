@@ -5,7 +5,9 @@ use aws_sdk_s3::primitives::ByteStream;
 use aws_sdk_s3::types::BucketLocationConstraint;
 use aws_sdk_s3::types::CompletedMultipartUpload;
 use aws_sdk_s3::types::CompletedPart;
+use aws_sdk_s3::types::Delete;
 use aws_sdk_s3::types::GlacierJobParameters;
+use aws_sdk_s3::types::ObjectIdentifier;
 use aws_sdk_s3::types::OptionalObjectAttributes;
 use aws_sdk_s3::types::RestoreRequest;
 use aws_sdk_s3::types::StorageClass;
@@ -25,7 +27,7 @@ use tokio::io::AsyncWriteExt;
 
 use crate::domain::aws_connection::{
     AwsBucketItemsResult, AwsBucketSummary, AwsCacheDownloadResult, AwsConnectionTestInput,
-    AwsConnectionTestResult, AwsObjectSummary, AwsVirtualDirectorySummary,
+    AwsConnectionTestResult, AwsDeleteResult, AwsObjectSummary, AwsVirtualDirectorySummary,
 };
 
 pub struct AwsConnectionService;
@@ -34,6 +36,7 @@ const RESTRICTED_BUCKET_MISMATCH_ERROR: &str = "AWS_S3_RESTRICTED_BUCKET_MISMATC
 pub const DOWNLOAD_CANCELLED_ERROR: &str = "DOWNLOAD_CANCELLED";
 pub const UPLOAD_CANCELLED_ERROR: &str = "UPLOAD_CANCELLED";
 const S3_LISTING_PAGE_SIZE: i32 = 200;
+const S3_DELETE_BATCH_SIZE: usize = 1000;
 const MULTIPART_UPLOAD_CHUNK_SIZE: usize = 8 * 1024 * 1024;
 const AWS_DEFAULT_REGION: &str = "us-east-1";
 
@@ -142,6 +145,25 @@ fn validate_restore_tier_for_storage_class(
     }
 
     Ok(())
+}
+
+fn normalize_delete_object_keys(object_keys: Vec<String>) -> Vec<String> {
+    let mut seen_keys = HashSet::new();
+    let mut normalized_keys = Vec::new();
+
+    for object_key in object_keys {
+        let normalized_key = object_key.trim().trim_start_matches('/').to_string();
+
+        if normalized_key.is_empty() {
+            continue;
+        }
+
+        if seen_keys.insert(normalized_key.clone()) {
+            normalized_keys.push(normalized_key);
+        }
+    }
+
+    normalized_keys
 }
 
 impl AwsConnectionService {
@@ -544,16 +566,16 @@ impl AwsConnectionService {
         bucket_region: Option<String>,
         restricted_bucket_name: Option<String>,
     ) -> Result<String, String> {
+        Self::validate_bucket_matches_restriction(
+            bucket_name,
+            restricted_bucket_name.as_deref(),
+        )?;
+
         if let Some(bucket_region) = bucket_region {
             if !bucket_region.trim().is_empty() && bucket_region != "..." {
                 return Ok(bucket_region);
             }
         }
-
-        Self::validate_bucket_matches_restriction(
-            bucket_name,
-            restricted_bucket_name.as_deref(),
-        )?;
 
         let (_, s3_client) = Self::build_clients(
             AWS_DEFAULT_REGION,
@@ -969,6 +991,189 @@ impl AwsConnectionService {
             })?;
 
         Ok(())
+    }
+
+    async fn delete_object_keys(
+        s3_client: &S3Client,
+        bucket_name: &str,
+        object_keys: &[String],
+    ) -> Result<(), String> {
+        for key_batch in object_keys.chunks(S3_DELETE_BATCH_SIZE) {
+            let object_identifiers = key_batch
+                .iter()
+                .map(|object_key| ObjectIdentifier::builder().key(object_key).build())
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|error| error.to_string())?;
+            let delete_request = Delete::builder()
+                .set_objects(Some(object_identifiers))
+                .quiet(true)
+                .build()
+                .map_err(|error| error.to_string())?;
+
+            let response = s3_client
+                .delete_objects()
+                .bucket(bucket_name)
+                .delete(delete_request)
+                .send()
+                .await
+                .map_err(|error| {
+                    error
+                        .as_service_error()
+                        .map(format_provider_service_error)
+                        .unwrap_or_else(|| error.to_string())
+                })?;
+
+            let delete_errors = response.errors();
+
+            if !delete_errors.is_empty() {
+                let error_descriptions = delete_errors
+                    .iter()
+                    .map(|error| {
+                        let object_key = error.key().unwrap_or("<unknown>");
+                        let code = error.code().unwrap_or("UnknownError");
+                        let message = error
+                            .message()
+                            .filter(|message| !message.trim().is_empty())
+                            .unwrap_or("The provider returned an error without details.");
+
+                        format!("{object_key}: {code}: {message}")
+                    })
+                    .collect::<Vec<_>>()
+                    .join("; ");
+
+                return Err(format!(
+                    "Failed to delete one or more AWS S3 objects. {error_descriptions}"
+                ));
+            }
+        }
+
+        Ok(())
+    }
+
+    pub async fn delete_objects(
+        input: AwsConnectionTestInput,
+        bucket_name: String,
+        object_keys: Vec<String>,
+        bucket_region: Option<String>,
+    ) -> Result<AwsDeleteResult, String> {
+        let access_key_id = input.access_key_id.trim().to_string();
+        let secret_access_key = input.secret_access_key.trim().to_string();
+        let bucket_name = bucket_name.trim().to_string();
+        let normalized_object_keys = normalize_delete_object_keys(object_keys);
+        let restricted_bucket_name =
+            Self::normalize_restricted_bucket_name(input.restricted_bucket_name);
+
+        if bucket_name.is_empty() {
+            return Err("Bucket name is required for delete requests.".to_string());
+        }
+
+        if normalized_object_keys.is_empty() {
+            return Err("At least one object key is required for delete requests.".to_string());
+        }
+
+        let resolved_bucket_region = Self::resolve_bucket_region(
+            &access_key_id,
+            &secret_access_key,
+            &bucket_name,
+            bucket_region,
+            restricted_bucket_name,
+        )
+        .await?;
+
+        let (_, s3_client) =
+            Self::build_clients(&resolved_bucket_region, access_key_id, secret_access_key).await;
+
+        Self::delete_object_keys(&s3_client, &bucket_name, &normalized_object_keys).await?;
+
+        Ok(AwsDeleteResult {
+            deleted_object_count: normalized_object_keys.len() as i64,
+            deleted_directory_count: 0,
+        })
+    }
+
+    pub async fn delete_prefix(
+        input: AwsConnectionTestInput,
+        bucket_name: String,
+        prefix: String,
+        bucket_region: Option<String>,
+    ) -> Result<AwsDeleteResult, String> {
+        let access_key_id = input.access_key_id.trim().to_string();
+        let secret_access_key = input.secret_access_key.trim().to_string();
+        let bucket_name = bucket_name.trim().to_string();
+        let restricted_bucket_name =
+            Self::normalize_restricted_bucket_name(input.restricted_bucket_name);
+        let normalized_prefix = prefix
+            .trim()
+            .trim_start_matches('/')
+            .trim_end_matches('/')
+            .to_string();
+
+        if bucket_name.is_empty() {
+            return Err("Bucket name is required for delete requests.".to_string());
+        }
+
+        if normalized_prefix.is_empty() {
+            return Err("Directory prefix is required for recursive delete requests.".to_string());
+        }
+
+        let resolved_bucket_region = Self::resolve_bucket_region(
+            &access_key_id,
+            &secret_access_key,
+            &bucket_name,
+            bucket_region,
+            restricted_bucket_name,
+        )
+        .await?;
+
+        let (_, s3_client) =
+            Self::build_clients(&resolved_bucket_region, access_key_id, secret_access_key).await;
+
+        let recursive_prefix = format!("{normalized_prefix}/");
+        let mut continuation_token = None;
+        let mut object_keys = Vec::new();
+
+        loop {
+            let response = s3_client
+                .list_objects_v2()
+                .bucket(bucket_name.clone())
+                .max_keys(S3_LISTING_PAGE_SIZE)
+                .set_prefix(Some(recursive_prefix.clone()))
+                .set_continuation_token(continuation_token.clone())
+                .send()
+                .await
+                .map_err(|error| {
+                    error
+                        .as_service_error()
+                        .map(format_provider_service_error)
+                        .unwrap_or_else(|| error.to_string())
+                })?;
+
+            object_keys.extend(
+                response
+                    .contents()
+                    .iter()
+                    .filter_map(|object| object.key().map(ToString::to_string)),
+            );
+
+            let next_continuation_token =
+                response.next_continuation_token().map(ToString::to_string);
+
+            if !response.is_truncated().unwrap_or(false) || next_continuation_token.is_none() {
+                break;
+            }
+
+            continuation_token = next_continuation_token;
+        }
+
+        object_keys.push(recursive_prefix.clone());
+
+        let normalized_object_keys = normalize_delete_object_keys(object_keys);
+        Self::delete_object_keys(&s3_client, &bucket_name, &normalized_object_keys).await?;
+
+        Ok(AwsDeleteResult {
+            deleted_object_count: normalized_object_keys.len() as i64,
+            deleted_directory_count: 1,
+        })
     }
 
     pub async fn download_object_to_cache<F>(

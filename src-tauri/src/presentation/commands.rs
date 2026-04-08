@@ -5,6 +5,7 @@ use crate::application::services::aws_connection_secret_service::AwsConnectionSe
 use crate::application::services::greeting_service::GreetingService;
 use crate::domain::aws_connection::{
     AwsBucketItemsResult, AwsBucketSummary, AwsConnectionTestInput, AwsConnectionTestResult,
+    AwsDeleteResult,
 };
 use crate::domain::connection_secrets::{AwsConnectionSecretsInput, AwsConnectionSecretsOutput};
 use serde::Serialize;
@@ -358,6 +359,73 @@ pub async fn create_aws_folder(
 
     if let Err(error) = &result {
         eprintln!("[commands] create_aws_folder failed with error={}", error);
+    }
+
+    result
+}
+
+#[tauri::command]
+pub async fn delete_aws_objects(
+    access_key_id: String,
+    secret_access_key: String,
+    bucket_name: String,
+    object_keys: Vec<String>,
+    bucket_region: Option<String>,
+    restricted_bucket_name: Option<String>,
+) -> Result<AwsDeleteResult, String> {
+    eprintln!(
+        "[commands] delete_aws_objects called for bucket_name={} object_count={}",
+        bucket_name,
+        object_keys.len()
+    );
+
+    let result = AwsConnectionService::delete_objects(
+        AwsConnectionTestInput {
+            access_key_id,
+            secret_access_key,
+            restricted_bucket_name,
+        },
+        bucket_name,
+        object_keys,
+        bucket_region,
+    )
+    .await;
+
+    if let Err(error) = &result {
+        eprintln!("[commands] delete_aws_objects failed with error={}", error);
+    }
+
+    result
+}
+
+#[tauri::command]
+pub async fn delete_aws_prefix(
+    access_key_id: String,
+    secret_access_key: String,
+    bucket_name: String,
+    prefix: String,
+    bucket_region: Option<String>,
+    restricted_bucket_name: Option<String>,
+) -> Result<AwsDeleteResult, String> {
+    eprintln!(
+        "[commands] delete_aws_prefix called for bucket_name={} prefix={}",
+        bucket_name, prefix
+    );
+
+    let result = AwsConnectionService::delete_prefix(
+        AwsConnectionTestInput {
+            access_key_id,
+            secret_access_key,
+            restricted_bucket_name,
+        },
+        bucket_name,
+        prefix,
+        bucket_region,
+    )
+    .await;
+
+    if let Err(error) = &result {
+        eprintln!("[commands] delete_aws_prefix failed with error={}", error);
     }
 
     result

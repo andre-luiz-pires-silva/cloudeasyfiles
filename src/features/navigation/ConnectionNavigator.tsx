@@ -22,6 +22,7 @@ import {
   RefreshCw,
   Search,
   Settings,
+  Trash2,
   Upload,
   XCircle,
   X
@@ -57,6 +58,8 @@ import {
   cancelAwsUpload,
   cancelAwsDownload,
   createAwsFolder,
+  deleteAwsObjects,
+  deleteAwsPrefix,
   downloadAwsObjectToPath,
   findAwsCachedObjects,
   getAwsBucketRegion,
@@ -128,7 +131,8 @@ type FileActionId =
   | "openFile"
   | "openInExplorer"
   | "cancelDownload"
-  | "restore";
+  | "restore"
+  | "delete";
 type DownloadTransferState = "progress" | "completed" | "failed" | "cancelled";
 type TransferKind = "cache" | "direct" | "upload";
 type ContentMenuAnchor = {
@@ -141,6 +145,20 @@ type ContentAreaMenuAnchor = {
   x: number;
   y: number;
 };
+
+type ContentDeletePlan = {
+  fileKeys: string[];
+  directoryPrefixes: string[];
+};
+
+type PendingContentDeleteState = {
+  items: ContentExplorerItem[];
+  fileCount: number;
+  directoryCount: number;
+  plan: ContentDeletePlan;
+};
+
+const CONTENT_DELETE_CONFIRMATION_TEXT = "DELETE";
 
 type ContentExplorerItem = {
   id: string;
@@ -363,6 +381,44 @@ function mergeContentItems(
 
 function normalizeFilterText(value: string): string {
   return value.trim().toLocaleLowerCase();
+}
+
+function normalizeDirectoryPrefix(path: string): string {
+  const normalizedPath = path.trim().replace(/^\/+|\/+$/g, "");
+
+  return normalizedPath ? `${normalizedPath}/` : "";
+}
+
+function dedupeDirectoryPrefixes(prefixes: string[]): string[] {
+  const uniquePrefixes = [...new Set(prefixes.filter((prefix) => prefix.length > 0))].sort(
+    (left, right) => left.length - right.length || left.localeCompare(right)
+  );
+
+  return uniquePrefixes.filter(
+    (prefix, index) =>
+      !uniquePrefixes.slice(0, index).some((candidatePrefix) => prefix.startsWith(candidatePrefix))
+  );
+}
+
+function buildContentDeletePlan(items: ContentExplorerItem[]): ContentDeletePlan {
+  const directoryPrefixes = dedupeDirectoryPrefixes(
+    items
+      .filter((item) => item.kind === "directory")
+      .map((item) => normalizeDirectoryPrefix(item.path))
+  );
+  const fileKeys = [...new Set(
+    items
+      .filter((item): item is ContentExplorerItem & { kind: "file" } => item.kind === "file")
+      .map((item) => item.path.trim())
+      .filter(
+        (objectKey) => objectKey.length > 0 && !directoryPrefixes.some((prefix) => objectKey.startsWith(prefix))
+      )
+  )];
+
+  return {
+    fileKeys,
+    directoryPrefixes
+  };
 }
 
 function matchesFilter(parts: Array<string | null | undefined>, normalizedFilter: string): boolean {
@@ -989,6 +1045,7 @@ export function ConnectionNavigator({
   const [sidebarFilterText, setSidebarFilterText] = useState("");
   const [contentFilterText, setContentFilterText] = useState("");
   const [contentStatusFilters, setContentStatusFilters] = useState<ContentStatusFilter[]>([]);
+  const [selectedContentItemIds, setSelectedContentItemIds] = useState<string[]>([]);
   const [downloadedFilePaths, setDownloadedFilePaths] = useState<string[]>([]);
   const [activeTransfers, setActiveTransfers] = useState<Record<string, ActiveTransfer>>({});
   const [activeDirectDownloadItemIds, setActiveDirectDownloadItemIds] = useState<string[]>([]);
@@ -1006,6 +1063,12 @@ export function ConnectionNavigator({
   const [newFolderName, setNewFolderName] = useState("");
   const [createFolderError, setCreateFolderError] = useState<string | null>(null);
   const [isCreatingFolder, setIsCreatingFolder] = useState(false);
+  const [pendingContentDelete, setPendingContentDelete] = useState<PendingContentDeleteState | null>(
+    null
+  );
+  const [deleteConfirmationValue, setDeleteConfirmationValue] = useState("");
+  const [deleteContentError, setDeleteContentError] = useState<string | null>(null);
+  const [isDeletingContent, setIsDeletingContent] = useState(false);
   const [isUploadSettingsModalOpen, setIsUploadSettingsModalOpen] = useState(false);
   const [uploadSettingsStorageClass, setUploadSettingsStorageClass] =
     useState<AwsUploadStorageClass>(DEFAULT_AWS_UPLOAD_STORAGE_CLASS);
@@ -1137,6 +1200,10 @@ export function ConnectionNavigator({
   const isStatusFilterInactive =
     contentStatusFilters.length === 0 ||
     contentStatusFilters.length === ALL_CONTENT_STATUS_FILTERS.length;
+  const selectedContentItemIdSet = useMemo(
+    () => new Set(selectedContentItemIds),
+    [selectedContentItemIds]
+  );
   const filteredContentItems = useMemo(
     () =>
       contentItems.filter((item) => {
@@ -1164,6 +1231,23 @@ export function ConnectionNavigator({
     () => contentItems.filter((item) => item.kind === "file"),
     [contentItems]
   );
+  const loadedDirectoryCount = useMemo(
+    () => contentItems.filter((item) => item.kind === "directory").length,
+    [contentItems]
+  );
+  const selectedContentItems = useMemo(
+    () => contentItems.filter((item) => selectedContentItemIdSet.has(item.id)),
+    [contentItems, selectedContentItemIdSet]
+  );
+  const selectedContentCount = selectedContentItems.length;
+  const isContentSelectionActive = selectedContentCount > 0;
+  const visibleContentItemIds = useMemo(
+    () => filteredContentItems.map((item) => item.id),
+    [filteredContentItems]
+  );
+  const allVisibleContentItemsSelected =
+    visibleContentItemIds.length > 0 &&
+    visibleContentItemIds.every((itemId) => selectedContentItemIdSet.has(itemId));
   const loadedContentCount =
     selectedNode?.kind === "connection"
       ? (connectionBuckets[selectedNode.id] ?? []).length
@@ -1245,6 +1329,11 @@ export function ConnectionNavigator({
     selectedNode?.kind === "bucket"
       ? [
           {
+            key: "directory" as const,
+            label: t("content.filter.status.directory"),
+            count: loadedDirectoryCount
+          },
+          {
             key: "downloaded" as const,
             label: t("content.download_state.downloaded"),
             count: loadedDownloadedCount
@@ -1279,6 +1368,56 @@ export function ConnectionNavigator({
 
   function getFileNameFromPath(filePath: string) {
     return filePath.split(/[\\/]/).filter(Boolean).pop() ?? filePath;
+  }
+
+  function getCompactFigureLabel(item: ContentExplorerItem) {
+    if (item.kind === "directory") {
+      return t("content.type.directory");
+    }
+
+    const extension = item.name.split(".").pop()?.trim();
+
+    if (extension && extension !== item.name) {
+      return extension.toUpperCase();
+    }
+
+    return t("content.type.file");
+  }
+
+  function renderCompactItemTopline(item: ContentExplorerItem) {
+    if (item.kind === "directory") {
+      return (
+        <span className="content-list-item-topline">
+          <span className="content-list-item-icon content-list-item-icon-directory">
+            <Folder size={18} strokeWidth={1.9} />
+          </span>
+        </span>
+      );
+    }
+
+    return (
+      <span className="content-list-item-topline">
+        {item.availabilityStatus && item.downloadState ? (
+          <CompactFileStatusIcons item={item} locale={locale} t={t} />
+        ) : null}
+        <span className="content-list-item-compact-tier">
+          {item.storageClass ?? t("content.type.file")}
+        </span>
+      </span>
+    );
+  }
+
+  function renderCompactBucketTopline(region: string | null | undefined) {
+    return (
+      <span className="content-list-item-topline">
+        <span className="content-list-item-icon content-list-item-icon-bucket">
+          <Database size={18} strokeWidth={1.9} />
+        </span>
+        <span className="content-list-item-compact-tier">
+          {region ?? BUCKET_REGION_PLACEHOLDER}
+        </span>
+      </span>
+    );
   }
 
 function buildUploadObjectKey(currentPath: string, fileName: string) {
@@ -1750,6 +1889,134 @@ function validateNewFolderNameInput(
     })();
   }
 
+  function clearContentSelection() {
+    setSelectedContentItemIds([]);
+  }
+
+  function toggleContentItemSelection(itemId: string) {
+    setSelectedContentItemIds((currentItemIds) =>
+      currentItemIds.includes(itemId)
+        ? currentItemIds.filter((currentItemId) => currentItemId !== itemId)
+        : [...currentItemIds, itemId]
+    );
+  }
+
+  function toggleSelectAllVisibleContentItems() {
+    if (visibleContentItemIds.length === 0) {
+      return;
+    }
+
+    setSelectedContentItemIds((currentItemIds) => {
+      if (visibleContentItemIds.every((itemId) => currentItemIds.includes(itemId))) {
+        return currentItemIds.filter((itemId) => !visibleContentItemIds.includes(itemId));
+      }
+
+      return [...new Set([...currentItemIds, ...visibleContentItemIds])];
+    });
+  }
+
+  function openDeleteContentModal(items: ContentExplorerItem[]) {
+    if (items.length === 0) {
+      return;
+    }
+
+    const plan = buildContentDeletePlan(items);
+
+    setOpenContentMenuItemId(null);
+    setContentMenuAnchor(null);
+    setContentAreaMenuAnchor(null);
+    setDeleteConfirmationValue("");
+    setDeleteContentError(null);
+    setPendingContentDelete({
+      items,
+      fileCount: items.filter((item) => item.kind === "file").length,
+      directoryCount: items.filter((item) => item.kind === "directory").length,
+      plan
+    });
+  }
+
+  function closeDeleteContentModal(force = false) {
+    if (isDeletingContent && !force) {
+      return;
+    }
+
+    setPendingContentDelete(null);
+    setDeleteConfirmationValue("");
+    setDeleteContentError(null);
+    setIsDeletingContent(false);
+  }
+
+  async function handleConfirmDeleteContent() {
+    if (
+      !pendingContentDelete ||
+      selectedNode?.kind !== "bucket" ||
+      selectedBucketProvider !== "aws" ||
+      !selectedBucketConnectionId ||
+      !selectedBucketName
+    ) {
+      return;
+    }
+
+    if (deleteConfirmationValue.trim() !== CONTENT_DELETE_CONFIRMATION_TEXT) {
+      setDeleteContentError(t("content.delete.confirmation_mismatch"));
+      return;
+    }
+
+    setIsDeletingContent(true);
+    setDeleteContentError(null);
+
+    try {
+      const draft = await connectionService.getAwsConnectionDraft(selectedBucketConnectionId);
+      const bucketRegion =
+        selectedBucketRegion && selectedBucketRegion !== BUCKET_REGION_PLACEHOLDER
+          ? selectedBucketRegion
+          : undefined;
+
+      if (pendingContentDelete.plan.fileKeys.length > 0) {
+        await deleteAwsObjects(
+          draft.accessKeyId.trim(),
+          draft.secretAccessKey.trim(),
+          selectedBucketName,
+          pendingContentDelete.plan.fileKeys,
+          bucketRegion,
+          draft.restrictedBucketName
+        );
+      }
+
+      for (const directoryPrefix of pendingContentDelete.plan.directoryPrefixes) {
+        await deleteAwsPrefix(
+          draft.accessKeyId.trim(),
+          draft.secretAccessKey.trim(),
+          selectedBucketName,
+          directoryPrefix,
+          bucketRegion,
+          draft.restrictedBucketName
+        );
+      }
+
+      setCompletionToast({
+        id:
+          typeof globalThis.crypto !== "undefined" && "randomUUID" in globalThis.crypto
+            ? globalThis.crypto.randomUUID()
+            : `toast-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+        title: t("content.delete.success_title"),
+        description: t("content.delete.success_description")
+          .replace("{count}", String(pendingContentDelete.items.length))
+          .replace("{files}", String(pendingContentDelete.fileCount))
+          .replace("{folders}", String(pendingContentDelete.directoryCount)),
+        tone: "success"
+      });
+
+      clearContentSelection();
+      closeDeleteContentModal(true);
+      await handleRefreshCurrentView();
+    } catch (error) {
+      await handleRefreshCurrentView();
+      setDeleteContentError(extractErrorMessage(error) ?? t("content.delete.failed"));
+      setIsDeletingContent(false);
+    }
+  }
+
   function closeRestoreRequestModal() {
     if (isSubmittingRestoreRequest) {
       return;
@@ -1802,6 +2069,11 @@ function validateNewFolderNameInput(
     setOpenContentMenuItemId(null);
     setContentMenuAnchor(null);
     setContentActionError(null);
+
+    if (actionId === "delete") {
+      openDeleteContentModal([item]);
+      return;
+    }
 
     if (
       actionId === "cancelDownload" &&
@@ -2628,6 +2900,7 @@ function validateNewFolderNameInput(
   useEffect(() => {
     setContentFilterText("");
     setContentStatusFilters([]);
+    setSelectedContentItemIds([]);
     setContentAreaMenuAnchor(null);
     setOpenContentMenuItemId(null);
     setContentMenuAnchor(null);
@@ -2635,7 +2908,30 @@ function validateNewFolderNameInput(
     setNewFolderName("");
     setCreateFolderError(null);
     setIsCreatingFolder(false);
+    setPendingContentDelete(null);
+    setDeleteConfirmationValue("");
+    setDeleteContentError(null);
+    setIsDeletingContent(false);
   }, [selectedNodeId]);
+
+  useEffect(() => {
+    setSelectedContentItemIds([]);
+  }, [normalizedContentFilter, contentStatusFilters]);
+
+  useEffect(() => {
+    setSelectedContentItemIds((currentItemIds) =>
+      currentItemIds.filter((itemId) => contentItems.some((item) => item.id === itemId))
+    );
+  }, [contentItems]);
+
+  useEffect(() => {
+    if (!isContentSelectionActive) {
+      return;
+    }
+
+    setOpenContentMenuItemId(null);
+    setContentMenuAnchor(null);
+  }, [isContentSelectionActive]);
 
   useEffect(() => {
     async function loadContentItems() {
@@ -2984,6 +3280,8 @@ function validateNewFolderNameInput(
     if (!selectedNode) {
       return;
     }
+
+    clearContentSelection();
 
     if (selectedNode.kind === "connection") {
       if (selectedConnectionIndicator.status === "connected") {
@@ -4131,24 +4429,31 @@ function validateNewFolderNameInput(
                               className={`content-list-item content-list-item-action content-list-item-bucket${contentViewMode === "compact" ? " is-compact" : ""}`}
                               onClick={() => handleSelectNode(bucketNode)}
                             >
-                              <span className="content-list-item-main">
-                                <span className="content-list-item-icon content-list-item-icon-bucket">
-                                  <Database size={18} strokeWidth={1.9} />
-                                </span>
-                                <span className="content-list-item-copy">
-                                  <strong>{bucketNode.name}</strong>
-                                  {contentViewMode === "compact" ? (
-                                    <span>{bucketNode.region ?? BUCKET_REGION_PLACEHOLDER}</span>
-                                  ) : null}
-                                </span>
-                              </span>
-
                               {contentViewMode === "compact" ? (
-                                <span className="content-list-item-meta is-compact">
-                                  <ChevronRight size={16} strokeWidth={2} />
-                                </span>
+                                <>
+                                  <span className="content-list-item-main">
+                                    {renderCompactBucketTopline(bucketNode.region)}
+                                    <span className="content-list-item-copy">
+                                      <strong title={bucketNode.name}>{bucketNode.name}</strong>
+                                    </span>
+                                  </span>
+                                  <span className="content-list-item-compact-footer">
+                                    <span className="content-list-item-topline-label">
+                                      {t("content.type.s3_bucket")}
+                                    </span>
+                                    <span className="content-list-item-compact-footer-end" />
+                                  </span>
+                                </>
                               ) : (
                                 <>
+                                  <span className="content-list-item-main">
+                                    <span className="content-list-item-icon content-list-item-icon-bucket">
+                                      <Database size={18} strokeWidth={1.9} />
+                                    </span>
+                                    <span className="content-list-item-copy">
+                                      <strong>{bucketNode.name}</strong>
+                                    </span>
+                                  </span>
                                   <span className="content-list-item-column">
                                     {bucketNode.region ?? BUCKET_REGION_PLACEHOLDER}
                                   </span>
@@ -4175,6 +4480,50 @@ function validateNewFolderNameInput(
                       <p>{t(localMappingDirectoryAlertKey)}</p>
                     </div>
                   ) : null}
+                  <div className="content-selection-toolbar">
+                    <div className="content-selection-toolbar-main">
+                      <label className="content-selection-toggle">
+                        <input
+                          type="checkbox"
+                          checked={allVisibleContentItemsSelected}
+                          onChange={() => toggleSelectAllVisibleContentItems()}
+                          disabled={visibleContentItemIds.length === 0}
+                        />
+                        <span>
+                          {t("content.selection.select_visible").replace(
+                            "{count}",
+                            String(visibleContentItemIds.length)
+                          )}
+                        </span>
+                      </label>
+                      <strong className="content-selection-count">
+                        {t("content.selection.count").replace(
+                          "{count}",
+                          String(selectedContentCount)
+                        )}
+                      </strong>
+                    </div>
+
+                    <div className="content-selection-toolbar-actions">
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        onClick={clearContentSelection}
+                        disabled={!isContentSelectionActive}
+                      >
+                        {t("content.selection.clear")}
+                      </button>
+                      <button
+                        type="button"
+                        className="secondary-button secondary-button-danger"
+                        onClick={() => openDeleteContentModal(selectedContentItems)}
+                        disabled={!isContentSelectionActive}
+                      >
+                        <Trash2 size={14} strokeWidth={2} />
+                        <span>{t("content.delete.action")}</span>
+                      </button>
+                    </div>
+                  </div>
                   {isLoadingContent ? (
                     <p className="content-list-state">{t("content.list.loading")}</p>
                   ) : contentError ? (
@@ -4190,7 +4539,8 @@ function validateNewFolderNameInput(
                   ) : (
                     <>
                       {shouldRenderListHeaders ? (
-                        <div className="content-list-header content-list-header-files" aria-hidden="true">
+                        <div className="content-list-header content-list-header-files">
+                          <span aria-hidden="true" />
                           <span>{t("navigation.modal.name_label")}</span>
                           <span>{t("content.detail.storage_class")}</span>
                           <span>{t("content.detail.type")}</span>
@@ -4205,41 +4555,171 @@ function validateNewFolderNameInput(
                       >
                         {filteredContentItems.map((item) =>
                           item.kind === "directory" ? (
-                            <button
+                            <div
                               key={item.id}
-                              type="button"
-                              className={`content-list-item content-list-item-action content-list-item-file-row${contentViewMode === "compact" ? " is-compact" : ""}`}
-                              onClick={() => navigateBucketPath(selectedNode.id, item.path)}
+                              className={`content-list-item content-list-item-action content-list-item-file-row${contentViewMode === "compact" ? " is-compact" : ""}${
+                                selectedContentItemIdSet.has(item.id) ? " is-selected" : ""
+                              }`}
+                              onContextMenu={(event) => {
+                                if (contentViewMode !== "compact" || isContentSelectionActive) {
+                                  return;
+                                }
+
+                                event.preventDefault();
+                                setOpenContentMenuItemId(item.id);
+                                setContentMenuAnchor({
+                                  itemId: item.id,
+                                  x: event.clientX,
+                                  y: event.clientY
+                                });
+                              }}
                             >
-                              <span className="content-list-item-main">
-                                <span className="content-list-item-icon content-list-item-icon-directory">
-                                  <Folder size={18} strokeWidth={1.9} />
-                                </span>
-                                <span className="content-list-item-copy content-list-item-copy-directory">
-                                  <strong>{item.name}</strong>
-                                </span>
-                              </span>
+                              {contentViewMode === "compact" ? null : (
+                                <label
+                                  className="content-list-item-checkbox"
+                                  onClick={(event) => event.stopPropagation()}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={selectedContentItemIdSet.has(item.id)}
+                                    onChange={() => toggleContentItemSelection(item.id)}
+                                    aria-label={t("content.selection.select_item").replace(
+                                      "{name}",
+                                      item.name
+                                    )}
+                                  />
+                                </label>
+                              )}
+                              <button
+                                type="button"
+                                className={`content-list-item-main-button${
+                                  contentViewMode === "compact" ? " is-compact" : ""
+                                }`}
+                                onClick={() => {
+                                  navigateBucketPath(selectedNode.id, item.path);
+                                }}
+                              >
+                                {contentViewMode === "compact" ? (
+                                  <span className="content-list-item-main">
+                                    {renderCompactItemTopline(item)}
+                                    <span className="content-list-item-copy content-list-item-copy-directory">
+                                      <strong title={item.name}>{item.name}</strong>
+                                    </span>
+                                  </span>
+                                ) : (
+                                  <>
+                                    <span className="content-list-item-main">
+                                      <span className="content-list-item-icon content-list-item-icon-directory">
+                                        <Folder size={18} strokeWidth={1.9} />
+                                      </span>
+                                      <span className="content-list-item-copy content-list-item-copy-directory">
+                                        <strong>{item.name}</strong>
+                                      </span>
+                                    </span>
+                                    <span className="content-list-item-column">-</span>
+                                    <span className="content-list-item-column">
+                                      {t("content.type.directory")}
+                                    </span>
+                                    <span className="content-list-item-column content-list-item-column-end">-</span>
+                                    <span className="content-list-item-column content-list-item-column-end">-</span>
+                                  </>
+                                )}
+                              </button>
 
                               {contentViewMode === "compact" ? (
-                                <span className="content-list-item-meta is-compact">
-                                  <ChevronRight size={16} strokeWidth={2} />
-                                </span>
-                              ) : (
                                 <>
-                                  <span className="content-list-item-column">-</span>
-                                  <span className="content-list-item-column">
-                                    {t("content.type.directory")}
+                                  <span className="content-list-item-compact-footer">
+                                    <span className="content-list-item-topline-label">
+                                      {getCompactFigureLabel(item)}
+                                    </span>
+                                    <label
+                                      className="content-list-item-checkbox"
+                                      onClick={(event) => event.stopPropagation()}
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        checked={selectedContentItemIdSet.has(item.id)}
+                                        onChange={() => toggleContentItemSelection(item.id)}
+                                        aria-label={t("content.selection.select_item").replace(
+                                          "{name}",
+                                          item.name
+                                        )}
+                                      />
+                                    </label>
                                   </span>
-                                  <span className="content-list-item-column">-</span>
-                                  <span className="content-list-item-column content-list-item-column-end">-</span>
+                                  <span className="content-list-item-actions">
+                                    <ContentItemMenu
+                                      item={item}
+                                      canRestore={false}
+                                      canDownload={false}
+                                      canDownloadAs={false}
+                                      canCancelDownload={false}
+                                      canOpenFile={false}
+                                      canOpenInExplorer={false}
+                                      canDelete={selectedBucketProvider === "aws"}
+                                      isOpen={openContentMenuItemId === item.id}
+                                      showTrigger={false}
+                                      anchorPosition={
+                                        contentMenuAnchor?.itemId === item.id
+                                          ? { x: contentMenuAnchor.x, y: contentMenuAnchor.y }
+                                          : null
+                                      }
+                                      onToggle={(itemId, anchorPosition) => {
+                                        setOpenContentMenuItemId(itemId);
+                                        setContentMenuAnchor(
+                                          itemId && anchorPosition
+                                            ? { itemId, x: anchorPosition.x, y: anchorPosition.y }
+                                            : null
+                                        );
+                                      }}
+                                      onAction={handlePreviewFileAction}
+                                      t={t}
+                                    />
+                                  </span>
                                 </>
+                              ) : (
+                                <span className="content-list-item-actions">
+                                  <ContentItemMenu
+                                    item={item}
+                                    canRestore={false}
+                                    canDownload={false}
+                                    canDownloadAs={false}
+                                    canCancelDownload={false}
+                                    canOpenFile={false}
+                                    canOpenInExplorer={false}
+                                    canDelete={selectedBucketProvider === "aws"}
+                                    isOpen={openContentMenuItemId === item.id}
+                                    showTrigger
+                                    anchorPosition={
+                                      contentMenuAnchor?.itemId === item.id
+                                        ? { x: contentMenuAnchor.x, y: contentMenuAnchor.y }
+                                        : null
+                                    }
+                                    onToggle={(itemId, anchorPosition) => {
+                                      setOpenContentMenuItemId(itemId);
+                                      setContentMenuAnchor(
+                                        itemId && anchorPosition
+                                          ? { itemId, x: anchorPosition.x, y: anchorPosition.y }
+                                          : null
+                                      );
+                                    }}
+                                    onAction={handlePreviewFileAction}
+                                    t={t}
+                                  />
+                                </span>
                               )}
-                            </button>
+                            </div>
                           ) : (
                             <div
                               key={item.id}
-                              className={`content-list-item content-list-item-action content-list-item-file-row${contentViewMode === "compact" ? " is-compact" : ""}`}
+                              className={`content-list-item content-list-item-action content-list-item-file-row${
+                                contentViewMode === "compact" ? " is-compact" : ""
+                              }${selectedContentItemIdSet.has(item.id) ? " is-selected" : ""}`}
                               onClick={(event) => {
+                                if (isContentSelectionActive) {
+                                  return;
+                                }
+
                                 const nextIsOpen = openContentMenuItemId !== item.id;
                                 setOpenContentMenuItemId(nextIsOpen ? item.id : null);
                                 setContentMenuAnchor(
@@ -4253,27 +4733,34 @@ function validateNewFolderNameInput(
                                 );
                               }}
                             >
+                              {contentViewMode === "compact" ? null : (
+                                <label
+                                  className="content-list-item-checkbox"
+                                  onClick={(event) => event.stopPropagation()}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={selectedContentItemIdSet.has(item.id)}
+                                    onChange={() => toggleContentItemSelection(item.id)}
+                                    aria-label={t("content.selection.select_item").replace(
+                                      "{name}",
+                                      item.name
+                                    )}
+                                  />
+                                </label>
+                              )}
                               <span className="content-list-item-main">
                                 {contentViewMode === "compact" ? (
-                                  <span className="content-list-item-topline">
-                                    <span className="content-list-item-icon content-list-item-icon-file">
-                                      <File size={18} strokeWidth={1.9} />
-                                    </span>
-                                    {item.availabilityStatus && item.downloadState ? (
-                                      <CompactFileStatusIcons
-                                        item={item}
-                                        locale={locale}
-                                        t={t}
-                                      />
-                                    ) : null}
-                                  </span>
+                                  renderCompactItemTopline(item)
                                 ) : (
                                   <span className="content-list-item-icon content-list-item-icon-file">
                                     <File size={18} strokeWidth={1.9} />
                                   </span>
                                 )}
                                 <span className="content-list-item-copy content-list-item-copy-file">
-                                  <strong>{item.name}</strong>
+                                  <strong title={contentViewMode === "compact" ? item.name : undefined}>
+                                    {item.name}
+                                  </strong>
                                   {item.availabilityStatus && item.downloadState ? (
                                     contentViewMode === "compact" ? null : (
                                       <span className="content-file-status-row">
@@ -4330,9 +4817,6 @@ function validateNewFolderNameInput(
                                       ) : null;
                                     })()
                                   ) : null}
-                                  {contentViewMode === "compact" && item.storageClass ? (
-                                    <span>{item.storageClass}</span>
-                                  ) : null}
                                 </span>
                               </span>
 
@@ -4344,7 +4828,7 @@ function validateNewFolderNameInput(
                                   <span className="content-list-item-column">
                                     {t("content.type.file")}
                                   </span>
-                                  <span className="content-list-item-column">
+                                  <span className="content-list-item-column content-list-item-column-end">
                                     {formatBytes(item.size, locale)}
                                   </span>
                                   <span className="content-list-item-column content-list-item-column-end">
@@ -4353,83 +4837,186 @@ function validateNewFolderNameInput(
                                 </>
                               )}
 
-                              <span className="content-list-item-actions">
-                                <ContentItemMenu
-                                  item={item}
-                                  canRestore={
-                                    selectedBucketProvider === "aws" &&
-                                    item.availabilityStatus === "archived"
-                                  }
-                                  canDownload={
-                                    hasValidGlobalLocalCacheDirectory &&
-                                    item.availabilityStatus === "available" &&
-                                    item.downloadState !== "downloaded" &&
-                                    !(
-                                      selectedBucketConnectionId &&
-                                      selectedBucketName &&
-                                      activeTransferIdentityMap.has(
-                                        buildFileIdentity(
-                                          selectedBucketConnectionId,
-                                          selectedBucketName,
-                                          item.path
+                              {contentViewMode === "compact" ? (
+                                <>
+                                  <span className="content-list-item-compact-footer">
+                                    <span className="content-list-item-topline-label">
+                                      {getCompactFigureLabel(item)}
+                                    </span>
+                                    <label
+                                      className="content-list-item-checkbox"
+                                      onClick={(event) => event.stopPropagation()}
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        checked={selectedContentItemIdSet.has(item.id)}
+                                        onChange={() => toggleContentItemSelection(item.id)}
+                                        aria-label={t("content.selection.select_item").replace(
+                                          "{name}",
+                                          item.name
+                                        )}
+                                      />
+                                    </label>
+                                  </span>
+                                  <span className="content-list-item-actions">
+                                    <ContentItemMenu
+                                      item={item}
+                                      canRestore={
+                                        selectedBucketProvider === "aws" &&
+                                        item.availabilityStatus === "archived"
+                                      }
+                                      canDownload={
+                                        hasValidGlobalLocalCacheDirectory &&
+                                        item.availabilityStatus === "available" &&
+                                        item.downloadState !== "downloaded" &&
+                                        !(
+                                          selectedBucketConnectionId &&
+                                          selectedBucketName &&
+                                          activeTransferIdentityMap.has(
+                                            buildFileIdentity(
+                                              selectedBucketConnectionId,
+                                              selectedBucketName,
+                                              item.path
+                                            )
+                                          )
                                         )
-                                      )
-                                    )
-                                  }
-                                  canDownloadAs={
-                                    item.availabilityStatus === "available" &&
-                                    !(
-                                      selectedBucketConnectionId &&
-                                      selectedBucketName &&
-                                      activeTransferIdentityMap.has(
-                                        buildFileIdentity(
-                                          selectedBucketConnectionId,
-                                          selectedBucketName,
-                                          item.path
-                                        )
-                                      )
-                                    ) &&
-                                    !activeDirectDownloadItemIds.includes(item.id)
-                                  }
-                                  canCancelDownload={
-                                    selectedBucketConnectionId &&
-                                    selectedBucketName
-                                      ? activeTransferIdentityMap.has(
+                                      }
+                                      canDownloadAs={
+                                        item.availabilityStatus === "available" &&
+                                        !(
+                                          selectedBucketConnectionId &&
+                                          selectedBucketName &&
+                                          activeTransferIdentityMap.has(
+                                            buildFileIdentity(
+                                              selectedBucketConnectionId,
+                                              selectedBucketName,
+                                              item.path
+                                            )
+                                          )
+                                        ) &&
+                                        !activeDirectDownloadItemIds.includes(item.id)
+                                      }
+                                      canCancelDownload={
+                                        selectedBucketConnectionId &&
+                                        selectedBucketName
+                                          ? activeTransferIdentityMap.has(
+                                              buildFileIdentity(
+                                                selectedBucketConnectionId,
+                                                selectedBucketName,
+                                                item.path
+                                              )
+                                            )
+                                          : false
+                                      }
+                                      canOpenFile={
+                                        hasValidGlobalLocalCacheDirectory &&
+                                        item.downloadState === "downloaded"
+                                      }
+                                      canOpenInExplorer={
+                                        hasValidGlobalLocalCacheDirectory &&
+                                        item.downloadState === "downloaded"
+                                      }
+                                      canDelete={selectedBucketProvider === "aws"}
+                                      isOpen={openContentMenuItemId === item.id}
+                                      showTrigger={false}
+                                      anchorPosition={
+                                        contentMenuAnchor?.itemId === item.id
+                                          ? { x: contentMenuAnchor.x, y: contentMenuAnchor.y }
+                                          : null
+                                      }
+                                      onToggle={(itemId, anchorPosition) => {
+                                        setOpenContentMenuItemId(itemId);
+                                        setContentMenuAnchor(
+                                          itemId && anchorPosition
+                                            ? { itemId, x: anchorPosition.x, y: anchorPosition.y }
+                                            : null
+                                        );
+                                      }}
+                                      onAction={handlePreviewFileAction}
+                                      t={t}
+                                    />
+                                  </span>
+                                </>
+                              ) : (
+                                <span className="content-list-item-actions">
+                                  <ContentItemMenu
+                                    item={item}
+                                    canRestore={
+                                      selectedBucketProvider === "aws" &&
+                                      item.availabilityStatus === "archived"
+                                    }
+                                    canDownload={
+                                      hasValidGlobalLocalCacheDirectory &&
+                                      item.availabilityStatus === "available" &&
+                                      item.downloadState !== "downloaded" &&
+                                      !(
+                                        selectedBucketConnectionId &&
+                                        selectedBucketName &&
+                                        activeTransferIdentityMap.has(
                                           buildFileIdentity(
                                             selectedBucketConnectionId,
                                             selectedBucketName,
                                             item.path
                                           )
                                         )
-                                      : false
-                                  }
-                                  canOpenFile={
-                                    hasValidGlobalLocalCacheDirectory &&
-                                    item.downloadState === "downloaded"
-                                  }
-                                  canOpenInExplorer={
-                                    hasValidGlobalLocalCacheDirectory &&
-                                    item.downloadState === "downloaded"
-                                  }
-                                  isOpen={openContentMenuItemId === item.id}
-                                  showTrigger={contentViewMode !== "compact"}
-                                  anchorPosition={
-                                    contentMenuAnchor?.itemId === item.id
-                                      ? { x: contentMenuAnchor.x, y: contentMenuAnchor.y }
-                                      : null
-                                  }
-                                  onToggle={(itemId, anchorPosition) => {
-                                    setOpenContentMenuItemId(itemId);
-                                    setContentMenuAnchor(
-                                      itemId && anchorPosition
-                                        ? { itemId, x: anchorPosition.x, y: anchorPosition.y }
+                                      )
+                                    }
+                                    canDownloadAs={
+                                      item.availabilityStatus === "available" &&
+                                      !(
+                                        selectedBucketConnectionId &&
+                                        selectedBucketName &&
+                                        activeTransferIdentityMap.has(
+                                          buildFileIdentity(
+                                            selectedBucketConnectionId,
+                                            selectedBucketName,
+                                            item.path
+                                          )
+                                        )
+                                      ) &&
+                                      !activeDirectDownloadItemIds.includes(item.id)
+                                    }
+                                    canCancelDownload={
+                                      selectedBucketConnectionId &&
+                                      selectedBucketName
+                                        ? activeTransferIdentityMap.has(
+                                            buildFileIdentity(
+                                              selectedBucketConnectionId,
+                                              selectedBucketName,
+                                              item.path
+                                            )
+                                          )
+                                        : false
+                                    }
+                                    canOpenFile={
+                                      hasValidGlobalLocalCacheDirectory &&
+                                      item.downloadState === "downloaded"
+                                    }
+                                    canOpenInExplorer={
+                                      hasValidGlobalLocalCacheDirectory &&
+                                      item.downloadState === "downloaded"
+                                    }
+                                    canDelete={selectedBucketProvider === "aws"}
+                                    isOpen={openContentMenuItemId === item.id}
+                                    showTrigger
+                                    anchorPosition={
+                                      contentMenuAnchor?.itemId === item.id
+                                        ? { x: contentMenuAnchor.x, y: contentMenuAnchor.y }
                                         : null
-                                    );
-                                  }}
-                                  onAction={handlePreviewFileAction}
-                                  t={t}
-                                />
-                              </span>
+                                    }
+                                    onToggle={(itemId, anchorPosition) => {
+                                      setOpenContentMenuItemId(itemId);
+                                      setContentMenuAnchor(
+                                        itemId && anchorPosition
+                                          ? { itemId, x: anchorPosition.x, y: anchorPosition.y }
+                                          : null
+                                      );
+                                    }}
+                                    onAction={handlePreviewFileAction}
+                                    t={t}
+                                  />
+                                </span>
+                              )}
                             </div>
                           )
                         )}
@@ -4990,6 +5577,116 @@ function validateNewFolderNameInput(
         </div>
       ) : null}
 
+      {pendingContentDelete ? (
+        <div className="modal-backdrop" role="presentation">
+          <div
+            className="modal-card modal-card-compact"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-content-modal-title"
+          >
+            <div className="modal-header">
+              <div>
+                <p className="modal-eyebrow">{t("content.delete.eyebrow")}</p>
+                <h2 id="delete-content-modal-title" className="modal-title">
+                  {pendingContentDelete.items.length === 1
+                    ? t(
+                        pendingContentDelete.directoryCount === 1
+                          ? "content.delete.title_single_folder"
+                          : "content.delete.title_single_file"
+                      ).replace("{name}", pendingContentDelete.items[0]?.name ?? "")
+                    : t("content.delete.title_batch").replace(
+                        "{count}",
+                        String(pendingContentDelete.items.length)
+                      )}
+                </h2>
+              </div>
+            </div>
+
+            <div className="modal-scroll-panel">
+              <div className="modal-scroll-viewport">
+                <p className="modal-copy">
+                  {pendingContentDelete.directoryCount > 0
+                    ? t("content.delete.description_recursive")
+                        .replace("{files}", String(pendingContentDelete.fileCount))
+                        .replace("{folders}", String(pendingContentDelete.directoryCount))
+                    : t("content.delete.description_files").replace(
+                        "{count}",
+                        String(pendingContentDelete.fileCount)
+                      )}
+                </p>
+                <p className="modal-copy">
+                  {t("content.delete.confirmation_instruction").replace(
+                    "{value}",
+                    CONTENT_DELETE_CONFIRMATION_TEXT
+                  )}
+                </p>
+                <label className="field-group" htmlFor="delete-content-confirmation-input">
+                  <span>{t("content.delete.confirmation_label")}</span>
+                  <input
+                    id="delete-content-confirmation-input"
+                    type="text"
+                    value={deleteConfirmationValue}
+                    onChange={(event) => {
+                      setDeleteConfirmationValue(event.target.value);
+                      if (deleteContentError) {
+                        setDeleteContentError(null);
+                      }
+                    }}
+                    autoFocus
+                  />
+                </label>
+
+                <div className="content-delete-summary">
+                  <span>
+                    <File size={14} strokeWidth={1.9} />
+                    {t("content.delete.summary_files").replace(
+                      "{count}",
+                      String(pendingContentDelete.fileCount)
+                    )}
+                  </span>
+                  <span>
+                    <Folder size={14} strokeWidth={1.9} />
+                    {t("content.delete.summary_folders").replace(
+                      "{count}",
+                      String(pendingContentDelete.directoryCount)
+                    )}
+                  </span>
+                </div>
+
+                {deleteContentError ? (
+                  <p className="status-message-error">{deleteContentError}</p>
+                ) : null}
+              </div>
+            </div>
+
+            <div className="modal-actions">
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() => closeDeleteContentModal()}
+                disabled={isDeletingContent}
+              >
+                {t("common.cancel")}
+              </button>
+              <button
+                type="button"
+                className="secondary-button secondary-button-danger"
+                onClick={() => {
+                  void handleConfirmDeleteContent();
+                }}
+                disabled={
+                  isDeletingContent ||
+                  deleteConfirmationValue.trim() !== CONTENT_DELETE_CONFIRMATION_TEXT
+                }
+              >
+                {isDeletingContent ? t("content.delete.deleting") : t("content.delete.action")}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {pendingDeleteConnection ? (
         <div className="modal-backdrop" role="presentation">
           <div
@@ -5389,6 +6086,7 @@ type ContentItemMenuProps = {
   canCancelDownload: boolean;
   canOpenFile: boolean;
   canOpenInExplorer: boolean;
+  canDelete: boolean;
   isOpen: boolean;
   showTrigger: boolean;
   anchorPosition: { x: number; y: number } | null;
@@ -5468,6 +6166,7 @@ function ContentItemMenu({
   canCancelDownload,
   canOpenFile,
   canOpenInExplorer,
+  canDelete,
   isOpen,
   showTrigger,
   anchorPosition,
@@ -5528,80 +6227,97 @@ function ContentItemMenu({
           }
           onClick={(event) => event.stopPropagation()}
         >
-          <button
-            type="button"
-            className="tree-menu-action"
-            role="menuitem"
-            disabled={!canOpenFile}
-            onClick={(event) => {
-              event.stopPropagation();
-              onAction("openFile", item);
-            }}
-          >
-            {t("navigation.menu.open_file")}
-          </button>
-          <button
-            type="button"
-            className="tree-menu-action"
-            role="menuitem"
-            disabled={!canOpenInExplorer}
-            onClick={(event) => {
-              event.stopPropagation();
-              onAction("openInExplorer", item);
-            }}
-          >
-            {t("navigation.menu.open_in_file_explorer")}
-          </button>
-          {canRestore ? (
+          {item.kind === "file" ? (
+            <>
+              <button
+                type="button"
+                className="tree-menu-action"
+                role="menuitem"
+                disabled={!canOpenFile}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onAction("openFile", item);
+                }}
+              >
+                {t("navigation.menu.open_file")}
+              </button>
+              <button
+                type="button"
+                className="tree-menu-action"
+                role="menuitem"
+                disabled={!canOpenInExplorer}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onAction("openInExplorer", item);
+                }}
+              >
+                {t("navigation.menu.open_in_file_explorer")}
+              </button>
+              {canRestore ? (
+                <button
+                  type="button"
+                  className="tree-menu-action"
+                  role="menuitem"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onAction("restore", item);
+                  }}
+                >
+                  {t("navigation.menu.restore")}
+                </button>
+              ) : null}
+              {canCancelDownload ? (
+                <button
+                  type="button"
+                  className="tree-menu-action"
+                  role="menuitem"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onAction("cancelDownload", item);
+                  }}
+                >
+                  {t("navigation.menu.cancel_download")}
+                </button>
+              ) : null}
+              <button
+                type="button"
+                className="tree-menu-action"
+                role="menuitem"
+                disabled={!canDownload}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onAction("download", item);
+                }}
+              >
+                {t("navigation.menu.download")}
+              </button>
+              <button
+                type="button"
+                className="tree-menu-action"
+                role="menuitem"
+                disabled={!canDownloadAs}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onAction("downloadAs", item);
+                }}
+              >
+                {t("navigation.menu.download_as")}
+              </button>
+            </>
+          ) : null}
+          {canDelete ? (
             <button
               type="button"
-              className="tree-menu-action"
+              className="tree-menu-action tree-menu-action-danger"
               role="menuitem"
               onClick={(event) => {
                 event.stopPropagation();
-                onAction("restore", item);
+                onAction("delete", item);
               }}
             >
-              {t("navigation.menu.restore")}
+              {t("content.delete.action")}
             </button>
           ) : null}
-          {canCancelDownload ? (
-            <button
-              type="button"
-              className="tree-menu-action"
-              role="menuitem"
-              onClick={(event) => {
-                event.stopPropagation();
-                onAction("cancelDownload", item);
-              }}
-            >
-              {t("navigation.menu.cancel_download")}
-            </button>
-          ) : null}
-          <button
-            type="button"
-            className="tree-menu-action"
-            role="menuitem"
-            disabled={!canDownload}
-            onClick={(event) => {
-              event.stopPropagation();
-              onAction("download", item);
-            }}
-          >
-            {t("navigation.menu.download")}
-          </button>
-          <button
-            type="button"
-            className="tree-menu-action"
-            role="menuitem"
-            disabled={!canDownloadAs}
-            onClick={(event) => {
-              event.stopPropagation();
-              onAction("downloadAs", item);
-            }}
-          >
-            {t("navigation.menu.download_as")}
-          </button>
         </div>
       ) : null}
     </div>
