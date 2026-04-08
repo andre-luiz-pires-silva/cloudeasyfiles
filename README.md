@@ -221,16 +221,16 @@ In the main explorer, the counter language is:
 - without local filter: `X itens carregados`
 - with local filter: `X itens filtrados de Y carregados`
 
-The current AWS explorer also supports status-only refinement for the already loaded file set. The toolbar can narrow visible files by normalized status such as `Downloaded`, `Available`, `Restoring`, and `Archived`, while folders remain visible for navigation.
+The current AWS explorer also supports status-only refinement for the already loaded normalized explorer entries. The toolbar can narrow visible items by normalized status such as `Folders`, `Downloaded`, `Available`, `Restoring`, and `Archived`.
 
 Status-filter semantics:
 
 - all status buttons start unselected
 - no selected status means no status filter
-- a partial status selection applies the status filter to the loaded file set
+- a partial status selection applies the status filter to the loaded normalized explorer entries
 - selecting all available statuses also returns to the same no-filter result
 
-When the current loaded context contains files with known statuses, the footer counter adds a compact breakdown beside the loaded-count label so the user can understand the mix of downloaded, available, restoring, and archived items without leaving the current view.
+When the current loaded context contains items with known summary statuses, the footer counter adds a compact breakdown beside the loaded-count label so the user can understand the mix of folders, downloaded, available, restoring, and archived entries without leaving the current view.
 
 The UI does not promise a total number of pages or a reliable global total of items for the directory based only on native provider listing.
 

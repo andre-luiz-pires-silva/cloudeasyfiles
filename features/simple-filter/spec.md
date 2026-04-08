@@ -47,6 +47,7 @@ Users need a lightweight way to narrow visible items without triggering provider
 - In the main explorer, filtering updates only the displayed subset of already loaded normalized entries.
 - In the main explorer, no selected status buttons do not filter the loaded dataset.
 - In the main explorer, all selected status buttons do not filter the loaded dataset.
+- In the main explorer, partial status selection filters the loaded normalized entry set, including folders when `Folders` is selected.
 - In the main explorer, filter changes do not disable `Carregar mais` when more provider data exists.
 
 ## Out of Scope

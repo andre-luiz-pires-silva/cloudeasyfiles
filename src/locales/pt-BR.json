@@ -131,6 +131,7 @@
   "content.filter.placeholder": "Filtrar pastas e arquivos visíveis",
   "content.filter.placeholder_buckets": "Filtrar buckets visíveis",
   "content.filter.status_label": "Filtrar por status",
+  "content.filter.status.directory": "Pastas",
   "content.filter.status.available": "Disponíveis",
   "content.filter.status.downloaded": "Baixados",
   "content.filter.status.archived": "Arquivados",

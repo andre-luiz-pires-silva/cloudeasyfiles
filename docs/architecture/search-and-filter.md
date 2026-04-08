@@ -27,8 +27,9 @@ For the main explorer status buttons:
 
 - all status buttons start unselected
 - no selected status means no status filter
-- a partial selection applies status refinement to the loaded file set
+- a partial selection applies status refinement to the loaded normalized explorer entry set
 - selecting all statuses is equivalent to no status filter
+- the available summary statuses may include folders as well as file-derived states
 
 For the main content area, the filter applies only to the normalized loaded explorer entries for the active path.
 

@@ -103,7 +103,10 @@ const BUCKET_REGION_PLACEHOLDER = "...";
 const MAX_BUCKET_REGION_REQUESTS = 4;
 const CONTENT_VIEW_MODE_STORAGE_KEY = "cloudeasyfiles.content-view-mode";
 const CONNECTION_METADATA_STORAGE_KEY = "cloudeasyfiles.connection-metadata";
-const ALL_CONTENT_STATUS_FILTERS: Array<"downloaded" | "available" | "restoring" | "archived"> = [
+const ALL_CONTENT_STATUS_FILTERS: Array<
+  "directory" | "downloaded" | "available" | "restoring" | "archived"
+> = [
+  "directory",
   "downloaded",
   "available",
   "restoring",
@@ -525,6 +528,10 @@ function buildContentCounterLabel(
 }
 
 function getSummaryContentStatuses(item: ContentExplorerItem): ContentStatusFilter[] {
+  if (item.kind === "directory") {
+    return ["directory"];
+  }
+
   if (item.kind !== "file") {
     return [];
   }
@@ -580,6 +587,10 @@ function getContentStatusLabel(
   status: ContentStatusFilter | null,
   t: (key: string) => string
 ): string | null {
+  if (status === "directory") {
+    return t("content.filter.status.directory");
+  }
+
   if (status === "downloaded") {
     return t("content.download_state.downloaded");
   }
@@ -644,7 +655,7 @@ function getFileStatusBadgeDescriptors(
   const primaryStatus = getDisplayContentStatus(item);
   const primaryLabel = getContentStatusLabel(primaryStatus, t);
 
-  if (!primaryStatus || !primaryLabel) {
+  if (!primaryStatus || primaryStatus === "directory" || !primaryLabel) {
     return [];
   }
 
@@ -1153,21 +1164,17 @@ export function ConnectionNavigator({
     () => contentItems.filter((item) => item.kind === "file"),
     [contentItems]
   );
-  const filteredFileItems = useMemo(
-    () => filteredContentItems.filter((item) => item.kind === "file"),
-    [filteredContentItems]
-  );
   const loadedContentCount =
     selectedNode?.kind === "connection"
       ? (connectionBuckets[selectedNode.id] ?? []).length
       : selectedNode?.kind === "bucket"
-      ? loadedFileItems.length
+      ? contentItems.length
       : 0;
   const displayedContentCount =
     selectedNode?.kind === "connection"
       ? filteredConnectionBuckets.length
       : selectedNode?.kind === "bucket"
-      ? filteredFileItems.length
+      ? filteredContentItems.length
       : 0;
   const contentCounterLabel = buildContentCounterLabel(
     t,
@@ -5629,7 +5636,7 @@ function FileStatusBadge({ label, status, title }: FileStatusBadgeProps) {
 }
 
 type ContentCounterStatusProps = {
-  status: "available" | "downloaded" | "archived" | "restoring";
+  status: "directory" | "available" | "downloaded" | "archived" | "restoring";
   label: string;
   count: number;
   hideCount?: boolean;
@@ -5643,7 +5650,9 @@ function ContentCounterStatus({
 }: ContentCounterStatusProps) {
   let icon = <CircleAlert size={12} strokeWidth={2} />;
 
-  if (status === "available") {
+  if (status === "directory") {
+    icon = <Folder size={12} strokeWidth={2} />;
+  } else if (status === "available") {
     icon = <Cloud size={12} strokeWidth={2} />;
   } else if (status === "downloaded") {
     icon = <Cloud size={12} strokeWidth={2} className="is-filled" />;
