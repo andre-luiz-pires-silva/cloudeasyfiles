@@ -5,7 +5,6 @@ import { open, save } from "@tauri-apps/plugin-dialog";
 import { isTauri } from "@tauri-apps/api/core";
 import {
   AlertCircle,
-  Archive,
   ChevronRight,
   CheckCircle2,
   CircleAlert,
@@ -15,6 +14,7 @@ import {
   Ellipsis,
   File,
   Folder,
+  FolderPlus,
   LayoutGrid,
   List,
   LoaderCircle,
@@ -22,6 +22,7 @@ import {
   RefreshCw,
   Search,
   Settings,
+  Snowflake,
   Trash2,
   Upload,
   XCircle,
@@ -724,6 +725,17 @@ function getFileStatusBadgeDescriptors(
   ];
 }
 
+function getPreferredFileStatusBadgeDescriptors(
+  item: ContentExplorerItem,
+  locale: Locale,
+  t: (key: string) => string
+): FileStatusBadgeDescriptor[] {
+  const descriptors = getFileStatusBadgeDescriptors(item, locale, t);
+  const availableDescriptor = descriptors.find((descriptor) => descriptor.status === "available");
+
+  return availableDescriptor ? [availableDescriptor] : descriptors;
+}
+
 function resolveDownloadState(
   item: ContentExplorerItem,
   downloadedPaths: Set<string>,
@@ -1325,36 +1337,51 @@ export function ConnectionNavigator({
     () => loadedFileItems.filter((item) => getSummaryContentStatuses(item).includes("archived")).length,
     [loadedFileItems]
   );
-  const contentStatusSummaryItems =
-    selectedNode?.kind === "bucket"
-      ? [
-          {
-            key: "directory" as const,
-            label: t("content.filter.status.directory"),
-            count: loadedDirectoryCount
-          },
-          {
-            key: "downloaded" as const,
-            label: t("content.download_state.downloaded"),
-            count: loadedDownloadedCount
-          },
-          {
-            key: "available" as const,
-            label: t("content.availability.available"),
-            count: loadedAvailableCount
-          },
-          {
-            key: "restoring" as const,
-            label: t("content.availability.restoring"),
-            count: loadedRestoringCount
-          },
-          {
-            key: "archived" as const,
-            label: t("content.availability.archived"),
-            count: loadedArchivedCount
-          }
-        ]
-      : [];
+  const contentStatusSummaryItems = useMemo(
+    () =>
+      selectedNode?.kind === "bucket"
+        ? [
+            {
+              key: "directory" as const,
+              label: t("content.filter.status.directory"),
+              count: loadedDirectoryCount
+            },
+            {
+              key: "downloaded" as const,
+              label: t("content.download_state.downloaded"),
+              count: loadedDownloadedCount
+            },
+            {
+              key: "available" as const,
+              label: t("content.availability.available"),
+              count: loadedAvailableCount
+            },
+            {
+              key: "restoring" as const,
+              label: t("content.availability.restoring"),
+              count: loadedRestoringCount
+            },
+            {
+              key: "archived" as const,
+              label: t("content.availability.archived"),
+              count: loadedArchivedCount
+            }
+          ]
+        : [],
+    [
+      loadedArchivedCount,
+      loadedAvailableCount,
+      loadedDirectoryCount,
+      loadedDownloadedCount,
+      loadedRestoringCount,
+      selectedNode,
+      t
+    ]
+  );
+  const contentStatusSummaryMap = useMemo(
+    () => new Map(contentStatusSummaryItems.map((item) => [item.key, item] as const)),
+    [contentStatusSummaryItems]
+  );
 
   const shouldRenderLoadMoreButton = selectedNode?.kind === "bucket";
 
@@ -4189,7 +4216,9 @@ function validateNewFolderNameInput(
                         >
                           {ALL_CONTENT_STATUS_FILTERS.map((status) => {
                             const isSelected = contentStatusFilters.includes(status);
-                            const label = t(`content.filter.status.${status}`);
+                            const summaryItem = contentStatusSummaryMap.get(status);
+                            const label = summaryItem?.label ?? t(`content.filter.status.${status}`);
+                            const count = summaryItem?.count ?? 0;
 
                             return (
                               <button
@@ -4199,15 +4228,10 @@ function validateNewFolderNameInput(
                                   isSelected ? " is-selected" : ""
                                 }`}
                                 aria-pressed={isSelected}
-                                title={label}
+                                title={`${label}: ${count}`}
                                 onClick={() => toggleContentStatusFilter(status)}
                               >
-                                <ContentCounterStatus
-                                  status={status}
-                                  label={label}
-                                  count={0}
-                                  hideCount
-                                />
+                                <ContentCounterStatus status={status} label={label} count={count} />
                               </button>
                             );
                           })}
@@ -4219,13 +4243,13 @@ function validateNewFolderNameInput(
                           <span className="content-toolbar-divider" aria-hidden="true" />
                           <button
                             type="button"
-                            className="content-load-more-button content-toolbar-action-button"
+                            className="content-load-more-button content-load-more-button-icon content-toolbar-action-button"
                             onClick={openCreateFolderModal}
                             disabled={isLoadingContent || isLoadingMoreContent}
                             title={t("content.folder.create_button")}
+                            aria-label={t("content.folder.create_button")}
                           >
-                            <Plus size={15} strokeWidth={2} />
-                            <span>{t("content.folder.create_button")}</span>
+                            <FolderPlus size={15} strokeWidth={2} />
                           </button>
                         </>
                       ) : null}
@@ -4236,13 +4260,13 @@ function validateNewFolderNameInput(
                         <>
                           <button
                             type="button"
-                            className="content-load-more-button content-toolbar-action-button"
+                            className="content-load-more-button content-load-more-button-icon content-toolbar-action-button"
                             onClick={handlePickUploadFile}
                             disabled={!isTauri() || isLoadingContent || isLoadingMoreContent}
                             title={t("content.transfer.upload_button")}
+                            aria-label={t("content.transfer.upload_button")}
                           >
                             <Upload size={15} strokeWidth={2} />
-                            <span>{t("content.transfer.upload_button")}</span>
                           </button>
 
                           {selectedBucketProvider === "aws" ? (
@@ -4543,10 +4567,10 @@ function validateNewFolderNameInput(
                           <span aria-hidden="true" />
                           <span>{t("navigation.modal.name_label")}</span>
                           <span>{t("content.detail.storage_class")}</span>
+                          <span>{t("content.detail.local_state")}</span>
                           <span>{t("content.detail.type")}</span>
                           <span>{t("content.detail.size")}</span>
                           <span>{t("content.detail.last_modified")}</span>
-                          <span />
                         </div>
                       ) : null}
 
@@ -4561,7 +4585,7 @@ function validateNewFolderNameInput(
                                 selectedContentItemIdSet.has(item.id) ? " is-selected" : ""
                               }`}
                               onContextMenu={(event) => {
-                                if (contentViewMode !== "compact" || isContentSelectionActive) {
+                                if (isContentSelectionActive) {
                                   return;
                                 }
 
@@ -4616,6 +4640,7 @@ function validateNewFolderNameInput(
                                         <strong>{item.name}</strong>
                                       </span>
                                     </span>
+                                    <span className="content-list-item-column">-</span>
                                     <span className="content-list-item-column">-</span>
                                     <span className="content-list-item-column">
                                       {t("content.type.directory")}
@@ -4677,37 +4702,7 @@ function validateNewFolderNameInput(
                                     />
                                   </span>
                                 </>
-                              ) : (
-                                <span className="content-list-item-actions">
-                                  <ContentItemMenu
-                                    item={item}
-                                    canRestore={false}
-                                    canDownload={false}
-                                    canDownloadAs={false}
-                                    canCancelDownload={false}
-                                    canOpenFile={false}
-                                    canOpenInExplorer={false}
-                                    canDelete={selectedBucketProvider === "aws"}
-                                    isOpen={openContentMenuItemId === item.id}
-                                    showTrigger
-                                    anchorPosition={
-                                      contentMenuAnchor?.itemId === item.id
-                                        ? { x: contentMenuAnchor.x, y: contentMenuAnchor.y }
-                                        : null
-                                    }
-                                    onToggle={(itemId, anchorPosition) => {
-                                      setOpenContentMenuItemId(itemId);
-                                      setContentMenuAnchor(
-                                        itemId && anchorPosition
-                                          ? { itemId, x: anchorPosition.x, y: anchorPosition.y }
-                                          : null
-                                      );
-                                    }}
-                                    onAction={handlePreviewFileAction}
-                                    t={t}
-                                  />
-                                </span>
-                              )}
+                              ) : null}
                             </div>
                           ) : (
                             <div
@@ -4761,22 +4756,6 @@ function validateNewFolderNameInput(
                                   <strong title={contentViewMode === "compact" ? item.name : undefined}>
                                     {item.name}
                                   </strong>
-                                  {item.availabilityStatus && item.downloadState ? (
-                                    contentViewMode === "compact" ? null : (
-                                      <span className="content-file-status-row">
-                                        {getFileStatusBadgeDescriptors(item, locale, t).map(
-                                          (descriptor, index) => (
-                                            <FileStatusBadge
-                                              key={`${descriptor.status}-${index}`}
-                                              label={descriptor.label}
-                                              status={descriptor.status}
-                                              title={descriptor.title}
-                                            />
-                                          )
-                                        )}
-                                      </span>
-                                    )
-                                  ) : null}
                                   {selectedBucketConnectionId && selectedBucketName ? (
                                     (() => {
                                       const fileIdentity = buildFileIdentity(
@@ -4824,6 +4803,20 @@ function validateNewFolderNameInput(
                                 <>
                                   <span className="content-list-item-column">
                                     {item.storageClass ?? "-"}
+                                  </span>
+                                  <span className="content-list-item-column content-list-item-column-status">
+                                    {item.availabilityStatus && item.downloadState
+                                      ? getPreferredFileStatusBadgeDescriptors(item, locale, t).map(
+                                          (descriptor, index) => (
+                                            <FileStatusBadge
+                                              key={`${descriptor.status}-${index}`}
+                                              label={descriptor.label}
+                                              status={descriptor.status}
+                                              title={descriptor.title}
+                                            />
+                                          )
+                                        )
+                                      : "-"}
                                   </span>
                                   <span className="content-list-item-column">
                                     {t("content.type.file")}
@@ -4937,86 +4930,7 @@ function validateNewFolderNameInput(
                                     />
                                   </span>
                                 </>
-                              ) : (
-                                <span className="content-list-item-actions">
-                                  <ContentItemMenu
-                                    item={item}
-                                    canRestore={
-                                      selectedBucketProvider === "aws" &&
-                                      item.availabilityStatus === "archived"
-                                    }
-                                    canDownload={
-                                      hasValidGlobalLocalCacheDirectory &&
-                                      item.availabilityStatus === "available" &&
-                                      item.downloadState !== "downloaded" &&
-                                      !(
-                                        selectedBucketConnectionId &&
-                                        selectedBucketName &&
-                                        activeTransferIdentityMap.has(
-                                          buildFileIdentity(
-                                            selectedBucketConnectionId,
-                                            selectedBucketName,
-                                            item.path
-                                          )
-                                        )
-                                      )
-                                    }
-                                    canDownloadAs={
-                                      item.availabilityStatus === "available" &&
-                                      !(
-                                        selectedBucketConnectionId &&
-                                        selectedBucketName &&
-                                        activeTransferIdentityMap.has(
-                                          buildFileIdentity(
-                                            selectedBucketConnectionId,
-                                            selectedBucketName,
-                                            item.path
-                                          )
-                                        )
-                                      ) &&
-                                      !activeDirectDownloadItemIds.includes(item.id)
-                                    }
-                                    canCancelDownload={
-                                      selectedBucketConnectionId &&
-                                      selectedBucketName
-                                        ? activeTransferIdentityMap.has(
-                                            buildFileIdentity(
-                                              selectedBucketConnectionId,
-                                              selectedBucketName,
-                                              item.path
-                                            )
-                                          )
-                                        : false
-                                    }
-                                    canOpenFile={
-                                      hasValidGlobalLocalCacheDirectory &&
-                                      item.downloadState === "downloaded"
-                                    }
-                                    canOpenInExplorer={
-                                      hasValidGlobalLocalCacheDirectory &&
-                                      item.downloadState === "downloaded"
-                                    }
-                                    canDelete={selectedBucketProvider === "aws"}
-                                    isOpen={openContentMenuItemId === item.id}
-                                    showTrigger
-                                    anchorPosition={
-                                      contentMenuAnchor?.itemId === item.id
-                                        ? { x: contentMenuAnchor.x, y: contentMenuAnchor.y }
-                                        : null
-                                    }
-                                    onToggle={(itemId, anchorPosition) => {
-                                      setOpenContentMenuItemId(itemId);
-                                      setContentMenuAnchor(
-                                        itemId && anchorPosition
-                                          ? { itemId, x: anchorPosition.x, y: anchorPosition.y }
-                                          : null
-                                      );
-                                    }}
-                                    onAction={handlePreviewFileAction}
-                                    t={t}
-                                  />
-                                </span>
-                              )}
+                              ) : null}
                             </div>
                           )
                         )}
@@ -5099,23 +5013,7 @@ function validateNewFolderNameInput(
                 {selectedNode.kind === "connection" &&
                 selectedConnectionIndicator.status !== "connected" ? null : (
                   <>
-                  <p className="content-list-counter">
-                    {contentCounterLabel}
-                    {contentStatusSummaryItems.length > 0 ? (
-                      <span className="content-list-counter-detail" aria-label={t("content.filter.status_label")}>
-                        {" ("}
-                        {contentStatusSummaryItems.map((statusItem) => (
-                          <ContentCounterStatus
-                            key={statusItem.key}
-                            status={statusItem.key}
-                            label={statusItem.label}
-                            count={statusItem.count}
-                          />
-                        ))}
-                        {")"}
-                      </span>
-                    ) : null}
-                  </p>
+                  <p className="content-list-counter">{contentCounterLabel}</p>
                   {shouldRenderLoadMoreButton ? (
                     <button
                       type="button"
@@ -6338,7 +6236,7 @@ function FileStatusBadge({ label, status, title }: FileStatusBadgeProps) {
   } else if (status === "downloaded") {
     icon = <Cloud size={12} strokeWidth={2} className="is-filled" />;
   } else if (status === "archived") {
-    icon = <Archive size={12} strokeWidth={2} />;
+    icon = <Snowflake size={12} strokeWidth={2} />;
   } else {
     icon = <LoaderCircle size={12} strokeWidth={2} />;
   }
@@ -6355,15 +6253,9 @@ type ContentCounterStatusProps = {
   status: "directory" | "available" | "downloaded" | "archived" | "restoring";
   label: string;
   count: number;
-  hideCount?: boolean;
 };
 
-function ContentCounterStatus({
-  status,
-  label,
-  count,
-  hideCount = false
-}: ContentCounterStatusProps) {
+function ContentCounterStatus({ status, label, count }: ContentCounterStatusProps) {
   let icon = <CircleAlert size={12} strokeWidth={2} />;
 
   if (status === "directory") {
@@ -6373,7 +6265,7 @@ function ContentCounterStatus({
   } else if (status === "downloaded") {
     icon = <Cloud size={12} strokeWidth={2} className="is-filled" />;
   } else if (status === "archived") {
-    icon = <Archive size={12} strokeWidth={2} />;
+    icon = <Snowflake size={12} strokeWidth={2} />;
   } else if (status === "restoring") {
     icon = <LoaderCircle size={12} strokeWidth={2} className="content-counter-status-spinner" />;
   }
@@ -6381,7 +6273,7 @@ function ContentCounterStatus({
   return (
     <span className={`content-counter-status content-counter-status-${status}`} title={label}>
       {icon}
-      {hideCount ? null : <strong>{count}</strong>}
+      <strong>{count}</strong>
     </span>
   );
 }
@@ -6393,7 +6285,7 @@ type CompactFileStatusIconsProps = {
 };
 
 function CompactFileStatusIcons({ item, locale, t }: CompactFileStatusIconsProps) {
-  const items = getFileStatusBadgeDescriptors(item, locale, t).map((descriptor) => ({
+  const items = getPreferredFileStatusBadgeDescriptors(item, locale, t).map((descriptor) => ({
     icon:
       descriptor.status === "downloaded" ? (
         <Cloud size={12} strokeWidth={2} className="is-filled" />
@@ -6402,7 +6294,7 @@ function CompactFileStatusIcons({ item, locale, t }: CompactFileStatusIconsProps
       ) : descriptor.status === "restoring" ? (
         <LoaderCircle size={12} strokeWidth={2} />
       ) : (
-        <Archive size={12} strokeWidth={2} />
+        <Snowflake size={12} strokeWidth={2} />
       ),
     label: descriptor.title,
     className:
@@ -6420,7 +6312,10 @@ function CompactFileStatusIcons({ item, locale, t }: CompactFileStatusIconsProps
   }
 
   return (
-    <span className="content-file-status-icons" aria-label={t("content.detail.local_state")}>
+    <span
+      className={`content-file-status-icons${items.length > 1 ? " has-multiple" : ""}`}
+      aria-label={t("content.detail.local_state")}
+    >
       {items.map((item, index) => (
         <span
           key={`${item.className}-${index}`}
