@@ -4852,47 +4852,7 @@ function validateNewFolderNameInput(
                           String(selectedContentCount)
                         )}
                       </strong>
-                    </div>
-
-                    <div className="content-selection-toolbar-actions">
-                      {selectedNode.kind === "bucket" ? (
-                        <button
-                          type="button"
-                          className="content-load-more-button content-load-more-button-icon"
-                          onClick={handlePickUploadFile}
-                          disabled={!isTauri() || isLoadingContent || isLoadingMoreContent}
-                          title={t("content.transfer.upload_button")}
-                          aria-label={t("content.transfer.upload_button")}
-                        >
-                          <Upload size={15} strokeWidth={2} />
-                        </button>
-                      ) : null}
-                      {selectedBucketProvider === "aws" && selectedNode.kind === "bucket" ? (
-                        <button
-                          type="button"
-                          className="content-load-more-button content-load-more-button-icon"
-                          onClick={openUploadSettingsModal}
-                          title={t("content.transfer.upload_settings_button")}
-                          aria-label={t("content.transfer.upload_settings_button")}
-                        >
-                          <Settings size={15} strokeWidth={2} />
-                        </button>
-                      ) : null}
-                      {selectedNode.kind === "bucket" ? (
-                        <span className="content-toolbar-divider" aria-hidden="true" />
-                      ) : null}
-                      {canCreateFolderInCurrentContext ? (
-                        <button
-                          type="button"
-                          className="content-load-more-button content-load-more-button-icon"
-                          onClick={openCreateFolderModal}
-                          disabled={isLoadingContent || isLoadingMoreContent}
-                          title={t("content.folder.create_button")}
-                          aria-label={t("content.folder.create_button")}
-                        >
-                          <FolderPlus size={15} strokeWidth={2} />
-                        </button>
-                      ) : null}
+                      <div className="content-selection-toolbar-actions">
                       <button
                         type="button"
                         className="content-load-more-button content-load-more-button-icon"
@@ -4933,6 +4893,48 @@ function validateNewFolderNameInput(
                       >
                         <Trash2 size={15} strokeWidth={2} />
                       </button>
+                      </div>
+                    </div>
+
+                    <div className="content-selection-toolbar-context-actions">
+                      {canCreateFolderInCurrentContext ? (
+                        <button
+                          type="button"
+                          className="content-load-more-button content-load-more-button-icon"
+                          onClick={openCreateFolderModal}
+                          disabled={isLoadingContent || isLoadingMoreContent}
+                          title={t("content.folder.create_button")}
+                          aria-label={t("content.folder.create_button")}
+                        >
+                          <FolderPlus size={15} strokeWidth={2} />
+                        </button>
+                      ) : null}
+                      {selectedNode.kind === "bucket" ? (
+                        <span className="content-toolbar-divider" aria-hidden="true" />
+                      ) : null}
+                      {selectedNode.kind === "bucket" ? (
+                        <button
+                          type="button"
+                          className="content-load-more-button content-load-more-button-icon"
+                          onClick={handlePickUploadFile}
+                          disabled={!isTauri() || isLoadingContent || isLoadingMoreContent}
+                          title={t("content.transfer.upload_button")}
+                          aria-label={t("content.transfer.upload_button")}
+                        >
+                          <Upload size={15} strokeWidth={2} />
+                        </button>
+                      ) : null}
+                      {selectedBucketProvider === "aws" && selectedNode.kind === "bucket" ? (
+                        <button
+                          type="button"
+                          className="content-load-more-button content-load-more-button-icon"
+                          onClick={openUploadSettingsModal}
+                          title={t("content.transfer.upload_settings_button")}
+                          aria-label={t("content.transfer.upload_settings_button")}
+                        >
+                          <Settings size={15} strokeWidth={2} />
+                        </button>
+                      ) : null}
                     </div>
                   </div>
                   {isLoadingContent ? (

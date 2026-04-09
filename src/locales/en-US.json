@@ -93,7 +93,7 @@
   "navigation.menu.open_file": "Open",
   "navigation.menu.open_in_file_explorer": "Open in File Explorer",
   "navigation.menu.restore": "Restore",
-  "navigation.menu.change_tier": "Change tier",
+  "navigation.menu.change_tier": "Change storage class",
   "aws.upload_tier.label": "AWS upload tier",
   "aws.upload_tier.helper": "Choose the storage class used for new uploads made through this connection in the app. This setting does not change objects that are already stored in AWS.",
   "aws.upload_tier.availability_label": "Availability",

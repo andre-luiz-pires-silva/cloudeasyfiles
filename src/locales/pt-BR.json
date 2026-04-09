@@ -93,7 +93,7 @@
   "navigation.menu.open_file": "Abrir",
   "navigation.menu.open_in_file_explorer": "Abrir no Explorador de Arquivos local",
   "navigation.menu.restore": "Restaurar",
-  "navigation.menu.change_tier": "Alterar tier",
+  "navigation.menu.change_tier": "Alterar classe de armazenamento",
   "aws.upload_tier.label": "Tier de upload AWS",
   "aws.upload_tier.helper": "Escolha a classe de armazenamento usada pelos novos uploads feitos por esta conexão no app. Essa configuração não altera objetos que já estejam salvos na AWS.",
   "aws.upload_tier.availability_label": "Disponibilidade",

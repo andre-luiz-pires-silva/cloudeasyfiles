@@ -845,11 +845,22 @@ body {
 }
 
 .content-selection-toolbar-main,
-.content-selection-toolbar-actions {
+.content-selection-toolbar-actions,
+.content-selection-toolbar-context-actions {
   display: flex;
   align-items: center;
   gap: 12px;
   flex-wrap: wrap;
+}
+
+.content-selection-toolbar-main {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.content-selection-toolbar-context-actions {
+  justify-content: flex-end;
+  flex: 0 1 auto;
 }
 
 .content-selection-toggle {
