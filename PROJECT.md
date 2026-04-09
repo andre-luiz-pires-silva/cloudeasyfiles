@@ -17,7 +17,12 @@ Current initial focus:
 
 ## Current Status
 
-The project is in active architecture and implementation mode. AWS is the first wired provider and currently covers connection management, bucket browsing, incremental listing, manual refresh, explicit folder creation in the current bucket path, tracked cache download progress, `Download As`, simple monitored upload to the current AWS bucket folder, transfer tracking in the footer and modal, transfer cancelation, cached-file detection, opening cached files with the OS default application or in the local file explorer, and provider-driven restore-state visibility for archived S3 objects. The AWS restore request workflow itself is still documented as the next concrete archival step. Azure is still a documented target rather than an implemented provider path.
+The project has reached its first functional AWS-compatible release in version `0.1.0`. AWS is the first wired provider and currently covers connection management, bucket browsing, incremental listing, manual refresh, explicit folder creation in the current bucket path, tracked cache download progress, `Download As`, simple monitored upload to the current AWS bucket folder, transfer tracking in the footer and modal, transfer cancelation, cached-file detection, opening cached files with the OS default application or in the local file explorer, provider-driven restore-state visibility for archived S3 objects, AWS restore request submission, delete workflows, and AWS storage-class changes. Azure remains the next provider target rather than an implemented provider path.
+
+## Release Focus
+
+- `0.1.0`: first functional AWS-compatible release
+- next phase: Azure support for the existing toolset and UX model
 
 ## Main Features
 
@@ -28,7 +33,7 @@ The project is in active architecture and implementation mode. AWS is the first 
 - explicit folder creation in the current bucket path
 - simple local filtering
 - provider-aware advanced search direction
-- archival restore-state visibility and future restore workflows
+- archival restore-state visibility and AWS restore workflows
 - tracked and direct downloads
 - cached file open actions
 - simple AWS upload
@@ -92,6 +97,7 @@ The project is in active architecture and implementation mode. AWS is the first 
 - The current upload flow detects overwrite conflicts across the batch before starting uploads and resolves them in a unified modal with per-item or apply-to-all decisions.
 - The current upload implementation has no local queue, no `pending` state, and no explicit parallelism cap.
 - Restore is provider-specific where provider behavior materially affects UX or implementation.
+- The current restore submission and storage-class change flows are AWS-only.
 - Refresh is manual and interaction-driven by default; restore state is rediscovered from the provider on navigation, refresh, screen open, and reconnection rather than continuous polling.
 
 For strategic detail, architecture rules, decisions, and feature behavior, use the linked documents above instead of expanding this file again.

@@ -4,7 +4,7 @@
 
 CloudEasyFiles is a desktop application that provides a clean, intuitive interface for managing files across cloud storage providers. It is designed to reduce the complexity of working directly with provider-specific APIs and workflows, offering a consistent experience for browsing, transferring, and managing cloud files with an emphasis on simplicity and ease of use.
 
-The current working build is AWS-first. It already supports saved AWS connections, bucket browsing, incremental listing, manual refresh, explicit folder creation in the current bucket path, tracked cache downloads with progress, `Download As`, transfer tracking in the footer and modal, download cancelation, local-cache-aware file state in the explorer, opening cached files with the OS default app or in the local file explorer, provider-driven restore-state detection for archived S3 objects, and delete workflows for files and folders with always-visible multi-selection in the explorer. Azure remains part of the product direction, but is not wired into the current implementation yet. AWS restore request submission is still documented as the next archival workflow step rather than a delivered UI flow.
+Version `0.1.0` is the first functional AWS-compatible release. It already supports saved AWS connections, bucket browsing, incremental listing, manual refresh, explicit folder creation in the current bucket path, tracked cache downloads with progress, `Download As`, transfer tracking in the footer and modal, download cancelation, local-cache-aware file state in the explorer, opening cached files with the OS default app or in the local file explorer, provider-driven restore-state detection for archived S3 objects, AWS restore request submission, AWS storage-class changes, and delete workflows for files and folders with always-visible multi-selection in the explorer. Azure remains part of the product direction, but is not wired into the current implementation yet.
 
 For the project documentation map, architecture references, ADRs, and feature specs, see [PROJECT.md](./PROJECT.md) and the documents under [`/docs`](./docs).
 
@@ -44,6 +44,14 @@ The repository currently includes SVG placeholders that can later be replaced by
 
 ## Features
 
+### What's In 0.1.0
+
+- Functional AWS-first desktop workflow
+- AWS connection management and bucket browsing
+- Folder-style object navigation, tracked downloads, and `Download As`
+- AWS upload, folder creation, delete, restore, and storage-class change flows
+- Local cache awareness, transfer tracking, and cancelation
+
 - Connect and manage multiple AWS and Azure accounts
 - Save configured AWS and Azure connections in a tree-based navigation sidebar
 - Browse cloud resources through a familiar interface inspired primarily by VSCode, with pgAdmin and DBeaver as secondary references
@@ -63,8 +71,7 @@ The repository currently includes SVG placeholders that can later be replaced by
 - View clear file state indicators such as available, archived, and restoring
 - Understand file status clearly through local indicators such as not downloaded, available to download, restoring, and downloaded
 - Simplify archival workflows:
-  - AWS S3 restore-state detection and availability summaries
-  - future AWS S3 Glacier restore requests
+  - AWS S3 restore-state detection, restore submission, and availability summaries
   - future Azure Blob Archive rehydration
 - Normalize storage tier differences across providers so archival content is presented consistently
 - Optionally track downloaded files through a global local cache directory configured on Home
@@ -257,17 +264,15 @@ CloudEasyFiles is designed to make archived storage easier to work with.
 - The current AWS implementation recognizes when AWS reports a temporarily restored archival object as available again
 - The current AWS implementation keeps the archival context visible while the temporary restored copy remains available
 - The current AWS implementation allows download when the file becomes available
-- Provider-specific restore request flows are still documented separately from the current delivered UI
+- The current AWS implementation supports direct restore request submission from the app
 
 ### Restore Workflow
 
-The restore request experience is currently documented as the intended next AWS archival workflow, not as a delivered UI flow yet.
-
-The planned experience is intended to be direct and understandable:
+The current AWS restore workflow is direct and provider-specific:
 
 1. The user sees a file marked as archived
 2. The user clicks `Restore`
-3. A confirmation modal shows the available restore options, estimated time, and estimated cost when the provider supplies that information
+3. A confirmation modal shows the available restore options, timing guidance, and cost-oriented warnings
 4. The user confirms the restore request
 5. The file enters the `Restoring` state
 6. The user tracks progress directly in the file list
@@ -325,8 +330,16 @@ It also intentionally avoids turning the sidebar into a full object explorer. De
 
 - Standard object browsing and file operations
 - Archived object visibility and status reporting
-- planned AWS Glacier restore request flow
+- AWS Glacier restore request flow
 - planned Azure Archive tier rehydration flow
+
+## Known Limitations In 0.1.0
+
+- Azure is not implemented yet
+- Upload remains AWS-only
+- Restore and storage-class change flows remain AWS-only
+- The current upload workflow has no local queue, no `pending` state, and no explicit concurrency cap
+- Packaging and release publication remain manual
 
 ## Project Structure
 
@@ -413,16 +426,10 @@ The project intentionally avoids extra frontend libraries for routing, global st
 
 ## Roadmap
 
-- Initial Tauri application scaffolding
-- Initial greeting flow between frontend and Rust backend
-- AWS S3 integration with multi-account support
-- Azure Blob Storage integration with multi-account support
-- Unified provider abstraction layer
-- File upload and download workflows
-- Copy, move, and delete operations
-- Progress tracking and background task handling
-- Archived file restore and rehydration UX
-- Search, filtering, and sorting
+- First AWS-compatible desktop release
+- Azure Blob Storage support aligned to the current toolset
+- Unified provider abstraction hardening
+- Search, filtering, and sorting improvements
 - Metadata inspection panel
 - Credential management improvements
 - Local caching and performance optimization

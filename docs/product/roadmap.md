@@ -2,16 +2,13 @@
 
 ## Current Phase
 
-The current phase is focused on building a clear, scalable browsing model for cloud object storage with AWS as the first real provider integration.
+The current phase closes with the first functional AWS-compatible release in `0.1.0`.
 
 Current emphasis:
 
-- connection management
-- structural navigation
-- central content listing
-- storage availability awareness
-- AWS-specific archival restore workflows
-- local cache foundations
+- stabilizing the AWS-first toolset
+- validating release packaging and release notes
+- preparing Azure as the next provider milestone
 
 ## Near-Term Priorities
 
@@ -20,14 +17,16 @@ Current emphasis:
 - simple local filtering in sidebar and main content area
 - simple monitored multi-file upload to the currently open AWS bucket folder
 - advanced search entry point with provider-aware behavior
-- continued AWS integration for object listing and archival restore workflows
-- Azure implementation aligned to the same product model while keeping provider-specific restore behavior separate
+- Azure implementation aligned to the current product model
+- Azure-specific archival behavior mapped into the same UX vocabulary where appropriate
+- continued hardening of the AWS/Azure provider abstraction boundary
 
 ## Follow-Up Opportunities
 
 - richer file preview capabilities
 - additional providers such as Google Cloud Storage
 - cache ergonomics and performance improvements
+- release automation and CI-based packaging
 
 ## Roadmap Notes
 
