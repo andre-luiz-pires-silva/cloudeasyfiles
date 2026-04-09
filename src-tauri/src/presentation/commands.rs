@@ -431,6 +431,44 @@ pub async fn delete_aws_prefix(
     result
 }
 
+#[tauri::command]
+pub async fn change_aws_object_storage_class(
+    access_key_id: String,
+    secret_access_key: String,
+    bucket_name: String,
+    object_key: String,
+    target_storage_class: String,
+    bucket_region: Option<String>,
+    restricted_bucket_name: Option<String>,
+) -> Result<(), String> {
+    eprintln!(
+        "[commands] change_aws_object_storage_class called for bucket_name={} object_key={} target_storage_class={}",
+        bucket_name, object_key, target_storage_class
+    );
+
+    let result = AwsConnectionService::change_object_storage_class(
+        AwsConnectionTestInput {
+            access_key_id,
+            secret_access_key,
+            restricted_bucket_name,
+        },
+        bucket_name,
+        object_key,
+        target_storage_class,
+        bucket_region,
+    )
+    .await;
+
+    if let Err(error) = &result {
+        eprintln!(
+            "[commands] change_aws_object_storage_class failed with error={}",
+            error
+        );
+    }
+
+    result
+}
+
 
 #[tauri::command]
 pub async fn start_aws_cache_download(

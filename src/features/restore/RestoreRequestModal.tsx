@@ -10,9 +10,17 @@ export type RestoreRequestTarget = {
   storageClass?: string | null;
 };
 
+export type RestoreRequestSummary = {
+  provider: ConnectionProvider;
+  fileCount: number;
+  totalSizeLabel?: string | null;
+  storageClassLabel?: string | null;
+  storageClasses?: Array<string | null | undefined>;
+};
+
 type RestoreRequestModalProps = {
   locale: Locale;
-  request: RestoreRequestTarget;
+  request: RestoreRequestTarget | RestoreRequestSummary;
   isSubmitting: boolean;
   submitError: string | null;
   onCancel: () => void;
@@ -29,6 +37,16 @@ export function RestoreRequestModal({
   onSubmitAwsRequest,
   t
 }: RestoreRequestModalProps) {
+  const isBatchRequest = "fileCount" in request;
+  const title =
+    request.provider === "aws"
+      ? isBatchRequest
+        ? t("restore.modal.aws.title_batch").replace("{count}", String(request.fileCount))
+        : `${t("restore.modal.aws.title")}: ${request.fileName}`
+      : isBatchRequest
+      ? t("restore.modal.generic.title_batch").replace("{count}", String(request.fileCount))
+      : `${t("restore.modal.generic.title")}: ${request.fileName}`;
+
   return (
     <div className="modal-backdrop" role="presentation">
       <div
@@ -45,13 +63,23 @@ export function RestoreRequestModal({
                 : t("restore.modal.generic.eyebrow")}
             </p>
             <h2 id="restore-request-modal-title" className="modal-title">
-              {request.provider === "aws"
-                ? `${t("restore.modal.aws.title")}: ${request.fileName}`
-                : `${t("restore.modal.generic.title")}: ${request.fileName}`}
+              {title}
             </h2>
             <p className="restore-modal-header-meta">
-              <span>{request.fileSizeLabel}</span>
-              {request.storageClass ? <span>{request.storageClass}</span> : null}
+              {isBatchRequest ? (
+                <>
+                  <span>
+                    {t("restore.modal.batch.count").replace("{count}", String(request.fileCount))}
+                  </span>
+                  {request.totalSizeLabel ? <span>{request.totalSizeLabel}</span> : null}
+                  {request.storageClassLabel ? <span>{request.storageClassLabel}</span> : null}
+                </>
+              ) : (
+                <>
+                  <span>{request.fileSizeLabel}</span>
+                  {request.storageClass ? <span>{request.storageClass}</span> : null}
+                </>
+              )}
             </p>
           </div>
         </div>
@@ -59,7 +87,9 @@ export function RestoreRequestModal({
         {request.provider === "aws" ? (
           <AwsRestoreRequestPanel
             locale={locale}
-            storageClass={request.storageClass}
+            storageClass={isBatchRequest ? undefined : request.storageClass}
+            storageClasses={isBatchRequest ? request.storageClasses : undefined}
+            fileCount={isBatchRequest ? request.fileCount : 1}
             isSubmitting={isSubmitting}
             submitError={submitError}
             onCancel={onCancel}

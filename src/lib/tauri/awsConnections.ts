@@ -205,6 +205,26 @@ export async function deleteAwsPrefix(
   });
 }
 
+export async function changeAwsObjectStorageClass(
+  accessKeyId: string,
+  secretAccessKey: string,
+  bucketName: string,
+  objectKey: string,
+  targetStorageClass: string,
+  bucketRegion?: string,
+  restrictedBucketName?: string
+): Promise<void> {
+  await invoke("change_aws_object_storage_class", {
+    accessKeyId,
+    secretAccessKey,
+    bucketName,
+    objectKey,
+    targetStorageClass,
+    bucketRegion,
+    restrictedBucketName
+  });
+}
+
 export async function openExternalUrl(url: string): Promise<void> {
   await invoke("open_external_url", { url });
 }

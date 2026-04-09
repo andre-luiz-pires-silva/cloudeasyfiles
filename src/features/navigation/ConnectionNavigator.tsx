@@ -58,6 +58,7 @@ import {
   awsObjectExists,
   cancelAwsUpload,
   cancelAwsDownload,
+  changeAwsObjectStorageClass,
   createAwsFolder,
   deleteAwsObjects,
   deleteAwsPrefix,
@@ -78,7 +79,15 @@ import type { AwsBucketItemsResult } from "../../lib/tauri/awsConnections";
 import type { Locale } from "../../lib/i18n/I18nProvider";
 import { useI18n } from "../../lib/i18n/useI18n";
 import { validateLocalMappingDirectory } from "../../lib/tauri/commands";
-import { type RestoreRequestTarget, RestoreRequestModal } from "../restore/RestoreRequestModal";
+import {
+  type RestoreRequestSummary,
+  type RestoreRequestTarget,
+  RestoreRequestModal
+} from "../restore/RestoreRequestModal";
+import {
+  ChangeStorageClassModal,
+  type ChangeStorageClassRequestSummary
+} from "../storage-class/ChangeStorageClassModal";
 
 type NavigatorView = "home" | "node";
 type ConnectionTestStatus = "idle" | "testing" | "success" | "error";
@@ -133,6 +142,7 @@ type FileActionId =
   | "openInExplorer"
   | "cancelDownload"
   | "restore"
+  | "changeTier"
   | "delete";
 type DownloadTransferState = "progress" | "completed" | "failed" | "cancelled";
 type TransferKind = "cache" | "direct" | "upload";
@@ -157,6 +167,25 @@ type PendingContentDeleteState = {
   fileCount: number;
   directoryCount: number;
   plan: ContentDeletePlan;
+};
+
+type FileActionAvailabilityContext = {
+  provider: ConnectionProvider | null | undefined;
+  connectionId: string | null;
+  bucketName: string | null;
+  hasValidLocalCacheDirectory: boolean;
+  activeTransferIdentityMap: Map<string, ActiveTransfer>;
+};
+
+type BatchSelectionActionsState = {
+  downloadableItems: ContentExplorerItem[];
+  restorableItems: ContentExplorerItem[];
+  changeTierableItems: ContentExplorerItem[];
+  deletableItems: ContentExplorerItem[];
+  canBatchDownload: boolean;
+  canBatchRestore: boolean;
+  canBatchChangeTier: boolean;
+  canBatchDelete: boolean;
 };
 
 const CONTENT_DELETE_CONFIRMATION_TEXT = "DELETE";
@@ -806,6 +835,68 @@ function buildFileIdentity(connectionId: string, bucketName: string, objectKey: 
   return `${connectionId}:${bucketName}:${objectKey}`;
 }
 
+function hasActiveTransferForItem(
+  item: ContentExplorerItem,
+  connectionId: string | null,
+  bucketName: string | null,
+  activeTransferIdentityMap: Map<string, ActiveTransfer>
+): boolean {
+  if (item.kind !== "file" || !connectionId || !bucketName) {
+    return false;
+  }
+
+  return activeTransferIdentityMap.has(buildFileIdentity(connectionId, bucketName, item.path));
+}
+
+function canRestoreItem(
+  item: ContentExplorerItem,
+  provider: ConnectionProvider | null | undefined
+): boolean {
+  return item.kind === "file" && provider === "aws" && item.availabilityStatus === "archived";
+}
+
+function canChangeTierItem(
+  item: ContentExplorerItem,
+  provider: ConnectionProvider | null | undefined
+): boolean {
+  return item.kind === "file" && provider === "aws" && item.availabilityStatus === "available";
+}
+
+function canDownloadItem(item: ContentExplorerItem, context: FileActionAvailabilityContext): boolean {
+  return (
+    item.kind === "file" &&
+    context.provider === "aws" &&
+    context.hasValidLocalCacheDirectory &&
+    item.availabilityStatus === "available" &&
+    item.downloadState !== "downloaded" &&
+    !hasActiveTransferForItem(
+      item,
+      context.connectionId,
+      context.bucketName,
+      context.activeTransferIdentityMap
+    )
+  );
+}
+
+function canDownloadAsItem(
+  item: ContentExplorerItem,
+  context: FileActionAvailabilityContext,
+  activeDirectDownloadItemIds: string[]
+): boolean {
+  return (
+    item.kind === "file" &&
+    context.provider === "aws" &&
+    item.availabilityStatus === "available" &&
+    !hasActiveTransferForItem(
+      item,
+      context.connectionId,
+      context.bucketName,
+      context.activeTransferIdentityMap
+    ) &&
+    !activeDirectDownloadItemIds.includes(item.id)
+  );
+}
+
 function isFileIdentityInContext(
   fileIdentity: string,
   connectionId: string,
@@ -976,11 +1067,28 @@ type UploadConflictPromptState = {
   objectKey: string;
 };
 
-type RestoreRequestState = RestoreRequestTarget & {
+type RestoreRequestState = {
+  provider: ConnectionProvider;
+  request: RestoreRequestTarget | RestoreRequestSummary;
   connectionId: string;
   bucketName: string;
   bucketRegion?: string | null;
-  objectKey: string;
+  targets: Array<{
+    objectKey: string;
+    storageClass?: string | null;
+  }>;
+};
+
+type ChangeStorageClassRequestState = {
+  request: ChangeStorageClassRequestSummary;
+  connectionId: string;
+  bucketName: string;
+  bucketRegion?: string | null;
+  targets: Array<{
+    objectKey: string;
+    currentStorageClass?: string | null;
+  }>;
+  currentStorageClass?: string | null;
 };
 
 type ConnectionNavigatorProps = {
@@ -1054,6 +1162,12 @@ export function ConnectionNavigator({
   const [restoreRequest, setRestoreRequest] = useState<RestoreRequestState | null>(null);
   const [restoreSubmitError, setRestoreSubmitError] = useState<string | null>(null);
   const [isSubmittingRestoreRequest, setIsSubmittingRestoreRequest] = useState(false);
+  const [changeStorageClassRequest, setChangeStorageClassRequest] =
+    useState<ChangeStorageClassRequestState | null>(null);
+  const [changeStorageClassSubmitError, setChangeStorageClassSubmitError] = useState<string | null>(
+    null
+  );
+  const [isSubmittingStorageClassChange, setIsSubmittingStorageClassChange] = useState(false);
   const [sidebarFilterText, setSidebarFilterText] = useState("");
   const [contentFilterText, setContentFilterText] = useState("");
   const [contentStatusFilters, setContentStatusFilters] = useState<ContentStatusFilter[]>([]);
@@ -1298,6 +1412,23 @@ export function ConnectionNavigator({
       new Map(activeTransferList.map((transfer) => [transfer.fileIdentity, transfer] as const)),
     [activeTransferList]
   );
+  const hasValidGlobalLocalCacheDirectory = localMappingDirectoryStatus === "valid";
+  const fileActionAvailabilityContext = useMemo(
+    () => ({
+      provider: selectedBucketProvider,
+      connectionId: selectedBucketConnectionId,
+      bucketName: selectedBucketName,
+      hasValidLocalCacheDirectory: hasValidGlobalLocalCacheDirectory,
+      activeTransferIdentityMap
+    }),
+    [
+      selectedBucketProvider,
+      selectedBucketConnectionId,
+      selectedBucketName,
+      hasValidGlobalLocalCacheDirectory,
+      activeTransferIdentityMap
+    ]
+  );
   const activeDownloadList = useMemo(
     () => activeTransferList.filter((transfer) => transfer.transferKind !== "upload"),
     [activeTransferList]
@@ -1314,7 +1445,34 @@ export function ConnectionNavigator({
     () => new Set(downloadedFilePaths),
     [downloadedFilePaths]
   );
-  const hasValidGlobalLocalCacheDirectory = localMappingDirectoryStatus === "valid";
+  const batchSelectionActions = useMemo<BatchSelectionActionsState>(() => {
+    const downloadableItems = selectedContentItems.filter((item) =>
+      canDownloadItem(item, fileActionAvailabilityContext)
+    );
+    const restorableItems = selectedContentItems.filter((item) =>
+      canRestoreItem(item, selectedBucketProvider)
+    );
+    const changeTierableItems = selectedContentItems.filter((item) =>
+      canChangeTierItem(item, selectedBucketProvider)
+    );
+    const deletableItems =
+      selectedBucketProvider === "aws" ? selectedContentItems : [];
+
+    return {
+      downloadableItems,
+      restorableItems,
+      changeTierableItems,
+      deletableItems,
+      canBatchDownload:
+        selectedContentItems.length > 0 && downloadableItems.length === selectedContentItems.length,
+      canBatchRestore:
+        selectedContentItems.length > 0 && restorableItems.length === selectedContentItems.length,
+      canBatchChangeTier:
+        selectedContentItems.length > 0 && changeTierableItems.length === selectedContentItems.length,
+      canBatchDelete:
+        selectedContentItems.length > 0 && deletableItems.length === selectedContentItems.length
+    };
+  }, [selectedContentItems, fileActionAvailabilityContext, selectedBucketProvider]);
   const localMappingDirectoryAlertKey =
     localMappingDirectoryStatus === "invalid"
       ? "settings.download_directory_notice_invalid"
@@ -2053,6 +2211,273 @@ function validateNewFolderNameInput(
     setRestoreSubmitError(null);
   }
 
+  function closeChangeStorageClassModal() {
+    if (isSubmittingStorageClassChange) {
+      return;
+    }
+
+    setChangeStorageClassRequest(null);
+    setChangeStorageClassSubmitError(null);
+  }
+
+  function buildRestoreRequestState(items: ContentExplorerItem[]): RestoreRequestState | null {
+    if (
+      items.length === 0 ||
+      selectedBucketProvider !== "aws" ||
+      !selectedBucketConnectionId ||
+      !selectedBucketName
+    ) {
+      return null;
+    }
+
+    const fileItems = items.filter(
+      (item): item is ContentExplorerItem & { kind: "file" } => item.kind === "file"
+    );
+
+    if (fileItems.length === 0) {
+      return null;
+    }
+
+    const totalSize = fileItems.reduce((sum, item) => sum + (item.size ?? 0), 0);
+    const storageClasses = [...new Set(fileItems.map((item) => item.storageClass).filter(Boolean))];
+    const request: RestoreRequestTarget | RestoreRequestSummary =
+      fileItems.length === 1
+        ? {
+            provider: selectedBucketProvider,
+            fileName: fileItems[0]?.name ?? "",
+            fileSizeLabel: formatBytes(fileItems[0]?.size, locale),
+            storageClass: fileItems[0]?.storageClass
+          }
+        : {
+            provider: selectedBucketProvider,
+            fileCount: fileItems.length,
+            totalSizeLabel: formatBytes(totalSize, locale),
+            storageClasses: fileItems.map((item) => item.storageClass),
+            storageClassLabel:
+              storageClasses.length === 1
+                ? storageClasses[0] ?? null
+                : t("restore.modal.batch.mixed_storage_classes")
+          };
+
+    return {
+      provider: selectedBucketProvider,
+      request,
+      connectionId: selectedBucketConnectionId,
+      bucketName: selectedBucketName,
+      bucketRegion:
+        selectedBucketRegion && selectedBucketRegion !== BUCKET_REGION_PLACEHOLDER
+          ? selectedBucketRegion
+          : null,
+      targets: fileItems.map((item) => ({
+        objectKey: item.path,
+        storageClass: item.storageClass
+      }))
+    };
+  }
+
+  function openRestoreRequestModal(items: ContentExplorerItem[]) {
+    const nextRequest = buildRestoreRequestState(items);
+
+    if (!nextRequest) {
+      return;
+    }
+
+    setOpenContentMenuItemId(null);
+    setContentMenuAnchor(null);
+    setRestoreSubmitError(null);
+    setRestoreRequest(nextRequest);
+  }
+
+  function buildChangeStorageClassRequestState(
+    items: ContentExplorerItem[]
+  ): ChangeStorageClassRequestState | null {
+    if (
+      items.length === 0 ||
+      selectedBucketProvider !== "aws" ||
+      !selectedBucketConnectionId ||
+      !selectedBucketName
+    ) {
+      return null;
+    }
+
+    const fileItems = items.filter(
+      (item): item is ContentExplorerItem & { kind: "file" } => item.kind === "file"
+    );
+
+    if (fileItems.length === 0) {
+      return null;
+    }
+
+    const totalSize = fileItems.reduce((sum, item) => sum + (item.size ?? 0), 0);
+    const storageClasses = [...new Set(fileItems.map((item) => item.storageClass).filter(Boolean))];
+    const currentStorageClass =
+      storageClasses.length === 1 ? (storageClasses[0] ?? null) : null;
+
+    return {
+      request: {
+        fileCount: fileItems.length,
+        totalSizeLabel: formatBytes(totalSize, locale),
+        currentStorageClassLabel:
+          storageClasses.length === 1
+            ? storageClasses[0] ?? null
+            : t("content.storage_class_change.multiple_current_classes")
+      },
+      connectionId: selectedBucketConnectionId,
+      bucketName: selectedBucketName,
+      bucketRegion:
+        selectedBucketRegion && selectedBucketRegion !== BUCKET_REGION_PLACEHOLDER
+          ? selectedBucketRegion
+          : null,
+      targets: fileItems.map((item) => ({
+        objectKey: item.path,
+        currentStorageClass: item.storageClass
+      })),
+      currentStorageClass
+    };
+  }
+
+  function openChangeStorageClassModal(items: ContentExplorerItem[]) {
+    const nextRequest = buildChangeStorageClassRequestState(items);
+
+    if (!nextRequest) {
+      return;
+    }
+
+    setOpenContentMenuItemId(null);
+    setContentMenuAnchor(null);
+    setChangeStorageClassSubmitError(null);
+    setChangeStorageClassRequest(nextRequest);
+  }
+
+  function handleBatchChangeTierSelection() {
+    if (!batchSelectionActions.canBatchChangeTier) {
+      return;
+    }
+
+    openChangeStorageClassModal(batchSelectionActions.changeTierableItems);
+  }
+
+  function getBatchChangeTierTooltip(): string {
+    if (
+      selectedContentItems.some(
+        (item) => item.kind === "file" && item.availabilityStatus === "archived"
+      )
+    ) {
+      return t("content.storage_class_change.tooltip_archived_requires_restore");
+    }
+
+    if (
+      isContentSelectionActive &&
+      !batchSelectionActions.canBatchChangeTier
+    ) {
+      return t("content.storage_class_change.tooltip_selection_incompatible");
+    }
+
+    return t("navigation.menu.change_tier");
+  }
+
+  function startTrackedDownloadForItem(item: ContentExplorerItem) {
+    if (
+      item.kind !== "file" ||
+      selectedBucketProvider !== "aws" ||
+      !selectedBucketConnectionId ||
+      !selectedBucketName ||
+      !selectedConnection ||
+      !canDownloadItem(item, fileActionAvailabilityContext)
+    ) {
+      return;
+    }
+
+    const operationId =
+      typeof globalThis.crypto !== "undefined" && "randomUUID" in globalThis.crypto
+        ? globalThis.crypto.randomUUID()
+        : `download-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+
+    setActiveTransfers((currentTransfers) => ({
+      ...currentTransfers,
+      [operationId]: {
+        operationId,
+        itemId: item.id,
+        fileIdentity: buildFileIdentity(
+          selectedBucketConnectionId,
+          selectedBucketName,
+          item.path
+        ),
+        fileName: item.name,
+        bucketName: selectedBucketName,
+        transferKind: "cache",
+        progressPercent: 0,
+        bytesTransferred: 0,
+        totalBytes: item.size ?? 0,
+        state: "progress"
+      }
+    }));
+
+    void (async () => {
+      try {
+        const draft = await connectionService.getAwsConnectionDraft(selectedBucketConnectionId);
+
+        await startAwsCacheDownload(
+          operationId,
+          draft.accessKeyId.trim(),
+          draft.secretAccessKey.trim(),
+          selectedBucketConnectionId,
+          selectedConnection.name,
+          selectedBucketName,
+          item.path,
+          globalLocalCacheDirectory,
+          selectedBucketRegion && selectedBucketRegion !== BUCKET_REGION_PLACEHOLDER
+            ? selectedBucketRegion
+            : undefined,
+          draft.restrictedBucketName
+        );
+      } catch (error) {
+        if (isCancelledTransferError(error)) {
+          return;
+        }
+
+        const message = extractErrorMessage(error) ?? t("content.transfer.download_failed");
+
+        setActiveTransfers((currentTransfers) => {
+          const currentTransfer = currentTransfers[operationId];
+
+          if (!currentTransfer) {
+            return currentTransfers;
+          }
+
+          return {
+            ...currentTransfers,
+            [operationId]: {
+              ...currentTransfer,
+              state: "failed",
+              error: message
+            }
+          };
+        });
+      }
+    })();
+  }
+
+  function handleBatchDownloadSelection() {
+    if (!batchSelectionActions.canBatchDownload) {
+      return;
+    }
+
+    batchSelectionActions.downloadableItems.forEach((item) => {
+      if (item.kind === "file") {
+        startTrackedDownloadForItem(item);
+      }
+    });
+  }
+
+  function handleBatchRestoreSelection() {
+    if (!batchSelectionActions.canBatchRestore) {
+      return;
+    }
+
+    openRestoreRequestModal(batchSelectionActions.restorableItems);
+  }
+
   function handleSubmitAwsRestoreRequest(input: { tier: AwsRestoreTier; days: number }) {
     if (!restoreRequest || restoreRequest.provider !== "aws") {
       return;
@@ -2064,20 +2489,21 @@ function validateNewFolderNameInput(
 
       try {
         const draft = await connectionService.getAwsConnectionDraft(restoreRequest.connectionId);
-
-        await requestAwsObjectRestore(
-          draft.accessKeyId.trim(),
-          draft.secretAccessKey.trim(),
-          restoreRequest.bucketName,
-          restoreRequest.objectKey,
-          restoreRequest.storageClass,
-          input.tier,
-          input.days,
-          restoreRequest.bucketRegion && restoreRequest.bucketRegion !== BUCKET_REGION_PLACEHOLDER
-            ? restoreRequest.bucketRegion
-            : undefined,
-          draft.restrictedBucketName
-        );
+        for (const target of restoreRequest.targets) {
+          await requestAwsObjectRestore(
+            draft.accessKeyId.trim(),
+            draft.secretAccessKey.trim(),
+            restoreRequest.bucketName,
+            target.objectKey,
+            target.storageClass,
+            input.tier,
+            input.days,
+            restoreRequest.bucketRegion && restoreRequest.bucketRegion !== BUCKET_REGION_PLACEHOLDER
+              ? restoreRequest.bucketRegion
+              : undefined,
+            draft.restrictedBucketName
+          );
+        }
 
         setRestoreRequest(null);
         setRestoreSubmitError(null);
@@ -2088,6 +2514,58 @@ function validateNewFolderNameInput(
         );
       } finally {
         setIsSubmittingRestoreRequest(false);
+      }
+    })();
+  }
+
+  function handleSubmitChangeStorageClass(storageClass: AwsUploadStorageClass) {
+    if (!changeStorageClassRequest || !selectedBucketConnectionId || selectedBucketProvider !== "aws") {
+      return;
+    }
+
+    void (async () => {
+      setChangeStorageClassSubmitError(null);
+      setIsSubmittingStorageClassChange(true);
+
+      try {
+        const draft = await connectionService.getAwsConnectionDraft(changeStorageClassRequest.connectionId);
+
+        for (const target of changeStorageClassRequest.targets) {
+          await changeAwsObjectStorageClass(
+            draft.accessKeyId.trim(),
+            draft.secretAccessKey.trim(),
+            changeStorageClassRequest.bucketName,
+            target.objectKey,
+            storageClass,
+            changeStorageClassRequest.bucketRegion &&
+              changeStorageClassRequest.bucketRegion !== BUCKET_REGION_PLACEHOLDER
+              ? changeStorageClassRequest.bucketRegion
+              : undefined,
+            draft.restrictedBucketName
+          );
+        }
+
+        setCompletionToast({
+          id:
+            typeof globalThis.crypto !== "undefined" && "randomUUID" in globalThis.crypto
+              ? globalThis.crypto.randomUUID()
+              : `toast-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+          title: t("content.storage_class_change.success_title"),
+          description: t("content.storage_class_change.success_description")
+            .replace("{count}", String(changeStorageClassRequest.targets.length))
+            .replace("{storageClass}", storageClass),
+          tone: "success"
+        });
+
+        setChangeStorageClassRequest(null);
+        setChangeStorageClassSubmitError(null);
+        await handleRefreshCurrentView();
+      } catch (error) {
+        setChangeStorageClassSubmitError(
+          extractErrorMessage(error) ?? t("content.storage_class_change.submit_failed")
+        );
+      } finally {
+        setIsSubmittingStorageClassChange(false);
       }
     })();
   }
@@ -2121,26 +2599,14 @@ function validateNewFolderNameInput(
 
     if (
       actionId === "restore" &&
-      item.kind === "file" &&
-      selectedBucketProvider === "aws" &&
-      selectedBucketConnectionId &&
-      selectedBucketName &&
-      item.availabilityStatus === "archived"
+      canRestoreItem(item, selectedBucketProvider)
     ) {
-      setRestoreSubmitError(null);
-      setRestoreRequest({
-        provider: selectedBucketProvider,
-        connectionId: selectedBucketConnectionId,
-        bucketName: selectedBucketName,
-        bucketRegion:
-          selectedBucketRegion && selectedBucketRegion !== BUCKET_REGION_PLACEHOLDER
-            ? selectedBucketRegion
-            : null,
-        objectKey: item.path,
-        fileName: item.name,
-        fileSizeLabel: formatBytes(item.size, locale),
-        storageClass: item.storageClass
-      });
+      openRestoreRequestModal([item]);
+      return;
+    }
+
+    if (actionId === "changeTier" && canChangeTierItem(item, selectedBucketProvider)) {
+      openChangeStorageClassModal([item]);
       return;
     }
 
@@ -2183,23 +2649,10 @@ function validateNewFolderNameInput(
     if (
       item.kind === "file" &&
       actionId === "downloadAs" &&
-      selectedBucketProvider === "aws" &&
+      canDownloadAsItem(item, fileActionAvailabilityContext, activeDirectDownloadItemIds) &&
       selectedBucketConnectionId &&
-      selectedBucketName &&
-      item.availabilityStatus === "available"
+      selectedBucketName
     ) {
-      const activeTransfer = activeTransferIdentityMap.get(
-        buildFileIdentity(selectedBucketConnectionId, selectedBucketName, item.path)
-      );
-
-      if (activeTransfer) {
-        return;
-      }
-
-      if (activeDirectDownloadItemIds.includes(item.id)) {
-        return;
-      }
-
       void (async () => {
         const destinationPath = await save({
           defaultPath: item.name
@@ -2279,92 +2732,12 @@ function validateNewFolderNameInput(
     if (
       item.kind !== "file" ||
       actionId !== "download" ||
-      selectedBucketProvider !== "aws" ||
-      !selectedBucketConnectionId ||
-      !selectedBucketName ||
-      !selectedConnection ||
-      !hasValidGlobalLocalCacheDirectory ||
-      item.availabilityStatus !== "available"
+      !canDownloadItem(item, fileActionAvailabilityContext)
     ) {
       return;
     }
 
-    const activeTransfer = activeTransferIdentityMap.get(
-      buildFileIdentity(selectedBucketConnectionId, selectedBucketName, item.path)
-    );
-
-    if (activeTransfer) {
-      return;
-    }
-
-    const operationId =
-      typeof globalThis.crypto !== "undefined" && "randomUUID" in globalThis.crypto
-        ? globalThis.crypto.randomUUID()
-        : `download-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-
-    setActiveTransfers((currentTransfers) => ({
-      ...currentTransfers,
-      [operationId]: {
-        operationId,
-        itemId: item.id,
-        fileIdentity: buildFileIdentity(
-          selectedBucketConnectionId,
-          selectedBucketName,
-          item.path
-        ),
-        fileName: item.name,
-        bucketName: selectedBucketName,
-        transferKind: "cache",
-        progressPercent: 0,
-        bytesTransferred: 0,
-        totalBytes: item.size ?? 0,
-        state: "progress"
-      }
-    }));
-
-    void (async () => {
-      try {
-        const draft = await connectionService.getAwsConnectionDraft(selectedBucketConnectionId);
-
-        await startAwsCacheDownload(
-          operationId,
-          draft.accessKeyId.trim(),
-          draft.secretAccessKey.trim(),
-          selectedBucketConnectionId,
-          selectedConnection.name,
-          selectedBucketName,
-          item.path,
-          globalLocalCacheDirectory,
-          selectedBucketRegion && selectedBucketRegion !== BUCKET_REGION_PLACEHOLDER
-            ? selectedBucketRegion
-            : undefined,
-          draft.restrictedBucketName
-        );
-      } catch (error) {
-        if (isCancelledTransferError(error)) {
-          return;
-        }
-
-        const message = extractErrorMessage(error) ?? t("content.transfer.download_failed");
-
-        setActiveTransfers((currentTransfers) => {
-          const currentTransfer = currentTransfers[operationId];
-
-          if (!currentTransfer) {
-            return currentTransfers;
-          }
-
-          return {
-            ...currentTransfers,
-            [operationId]: {
-              ...currentTransfer,
-              state: "failed",
-              error: message
-            }
-          };
-        });
-      }
-    })();
+    startTrackedDownloadForItem(item);
   }
 
   useEffect(() => {
@@ -4238,53 +4611,6 @@ function validateNewFolderNameInput(
                         </div>
                       ) : null}
 
-                      {canCreateFolderInCurrentContext ? (
-                        <>
-                          <span className="content-toolbar-divider" aria-hidden="true" />
-                          <button
-                            type="button"
-                            className="content-load-more-button content-load-more-button-icon content-toolbar-action-button"
-                            onClick={openCreateFolderModal}
-                            disabled={isLoadingContent || isLoadingMoreContent}
-                            title={t("content.folder.create_button")}
-                            aria-label={t("content.folder.create_button")}
-                          >
-                            <FolderPlus size={15} strokeWidth={2} />
-                          </button>
-                        </>
-                      ) : null}
-
-                      <span className="content-toolbar-divider" aria-hidden="true" />
-
-                      {selectedNode.kind === "bucket" ? (
-                        <>
-                          <button
-                            type="button"
-                            className="content-load-more-button content-load-more-button-icon content-toolbar-action-button"
-                            onClick={handlePickUploadFile}
-                            disabled={!isTauri() || isLoadingContent || isLoadingMoreContent}
-                            title={t("content.transfer.upload_button")}
-                            aria-label={t("content.transfer.upload_button")}
-                          >
-                            <Upload size={15} strokeWidth={2} />
-                          </button>
-
-                          {selectedBucketProvider === "aws" ? (
-                            <button
-                              type="button"
-                              className="content-load-more-button content-load-more-button-icon"
-                              onClick={openUploadSettingsModal}
-                              title={t("content.transfer.upload_settings_button")}
-                              aria-label={t("content.transfer.upload_settings_button")}
-                            >
-                              <Settings size={15} strokeWidth={2} />
-                            </button>
-                          ) : null}
-
-                          <span className="content-toolbar-divider" aria-hidden="true" />
-                        </>
-                      ) : null}
-
                       <div
                         className="content-view-switcher"
                         role="group"
@@ -4529,22 +4855,83 @@ function validateNewFolderNameInput(
                     </div>
 
                     <div className="content-selection-toolbar-actions">
+                      {selectedNode.kind === "bucket" ? (
+                        <button
+                          type="button"
+                          className="content-load-more-button content-load-more-button-icon"
+                          onClick={handlePickUploadFile}
+                          disabled={!isTauri() || isLoadingContent || isLoadingMoreContent}
+                          title={t("content.transfer.upload_button")}
+                          aria-label={t("content.transfer.upload_button")}
+                        >
+                          <Upload size={15} strokeWidth={2} />
+                        </button>
+                      ) : null}
+                      {selectedBucketProvider === "aws" && selectedNode.kind === "bucket" ? (
+                        <button
+                          type="button"
+                          className="content-load-more-button content-load-more-button-icon"
+                          onClick={openUploadSettingsModal}
+                          title={t("content.transfer.upload_settings_button")}
+                          aria-label={t("content.transfer.upload_settings_button")}
+                        >
+                          <Settings size={15} strokeWidth={2} />
+                        </button>
+                      ) : null}
+                      {selectedNode.kind === "bucket" ? (
+                        <span className="content-toolbar-divider" aria-hidden="true" />
+                      ) : null}
+                      {canCreateFolderInCurrentContext ? (
+                        <button
+                          type="button"
+                          className="content-load-more-button content-load-more-button-icon"
+                          onClick={openCreateFolderModal}
+                          disabled={isLoadingContent || isLoadingMoreContent}
+                          title={t("content.folder.create_button")}
+                          aria-label={t("content.folder.create_button")}
+                        >
+                          <FolderPlus size={15} strokeWidth={2} />
+                        </button>
+                      ) : null}
                       <button
                         type="button"
-                        className="secondary-button"
-                        onClick={clearContentSelection}
-                        disabled={!isContentSelectionActive}
+                        className="content-load-more-button content-load-more-button-icon"
+                        onClick={handleBatchChangeTierSelection}
+                        disabled={!batchSelectionActions.canBatchChangeTier}
+                        title={getBatchChangeTierTooltip()}
+                        aria-label={t("navigation.menu.change_tier")}
                       >
-                        {t("content.selection.clear")}
+                        <Settings size={15} strokeWidth={2} />
                       </button>
                       <button
                         type="button"
-                        className="secondary-button secondary-button-danger"
-                        onClick={() => openDeleteContentModal(selectedContentItems)}
-                        disabled={!isContentSelectionActive}
+                        className="content-load-more-button content-load-more-button-icon"
+                        onClick={handleBatchDownloadSelection}
+                        disabled={!batchSelectionActions.canBatchDownload}
+                        title={t("navigation.menu.download")}
+                        aria-label={t("navigation.menu.download")}
                       >
-                        <Trash2 size={14} strokeWidth={2} />
-                        <span>{t("content.delete.action")}</span>
+                        <Download size={15} strokeWidth={2} />
+                      </button>
+                      <button
+                        type="button"
+                        className="content-load-more-button content-load-more-button-icon"
+                        onClick={handleBatchRestoreSelection}
+                        disabled={!batchSelectionActions.canBatchRestore}
+                        title={t("navigation.menu.restore")}
+                        aria-label={t("navigation.menu.restore")}
+                      >
+                        <LoaderCircle size={15} strokeWidth={2} />
+                      </button>
+                      <button
+                        type="button"
+                        className="content-load-more-button content-load-more-button-icon"
+                        onClick={() => openDeleteContentModal(selectedContentItems)}
+                        disabled={!batchSelectionActions.canBatchDelete}
+                        title={t("content.delete.action")}
+                        aria-label={t("content.delete.action")}
+                      >
+                        <Trash2 size={15} strokeWidth={2} />
                       </button>
                     </div>
                   </div>
@@ -4676,6 +5063,7 @@ function validateNewFolderNameInput(
                                     <ContentItemMenu
                                       item={item}
                                       canRestore={false}
+                                      canChangeTier={false}
                                       canDownload={false}
                                       canDownloadAs={false}
                                       canCancelDownload={false}
@@ -4831,106 +5219,76 @@ function validateNewFolderNameInput(
                               )}
 
                               {contentViewMode === "compact" ? (
-                                <>
-                                  <span className="content-list-item-compact-footer">
-                                    <span className="content-list-item-topline-label">
-                                      {getCompactFigureLabel(item)}
-                                    </span>
-                                    <label
-                                      className="content-list-item-checkbox"
-                                      onClick={(event) => event.stopPropagation()}
-                                    >
-                                      <input
-                                        type="checkbox"
-                                        checked={selectedContentItemIdSet.has(item.id)}
-                                        onChange={() => toggleContentItemSelection(item.id)}
-                                        aria-label={t("content.selection.select_item").replace(
-                                          "{name}",
-                                          item.name
-                                        )}
-                                      />
-                                    </label>
+                                <span className="content-list-item-compact-footer">
+                                  <span className="content-list-item-topline-label">
+                                    {getCompactFigureLabel(item)}
                                   </span>
-                                  <span className="content-list-item-actions">
-                                    <ContentItemMenu
-                                      item={item}
-                                      canRestore={
-                                        selectedBucketProvider === "aws" &&
-                                        item.availabilityStatus === "archived"
-                                      }
-                                      canDownload={
-                                        hasValidGlobalLocalCacheDirectory &&
-                                        item.availabilityStatus === "available" &&
-                                        item.downloadState !== "downloaded" &&
-                                        !(
-                                          selectedBucketConnectionId &&
-                                          selectedBucketName &&
-                                          activeTransferIdentityMap.has(
-                                            buildFileIdentity(
-                                              selectedBucketConnectionId,
-                                              selectedBucketName,
-                                              item.path
-                                            )
+                                  <label
+                                    className="content-list-item-checkbox"
+                                    onClick={(event) => event.stopPropagation()}
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={selectedContentItemIdSet.has(item.id)}
+                                      onChange={() => toggleContentItemSelection(item.id)}
+                                      aria-label={t("content.selection.select_item").replace(
+                                        "{name}",
+                                        item.name
+                                      )}
+                                    />
+                                  </label>
+                                </span>
+                              ) : null}
+                              <span className="content-list-item-actions">
+                                <ContentItemMenu
+                                  item={item}
+                                  canRestore={canRestoreItem(item, selectedBucketProvider)}
+                                  canChangeTier={canChangeTierItem(item, selectedBucketProvider)}
+                                  canDownload={canDownloadItem(item, fileActionAvailabilityContext)}
+                                  canDownloadAs={canDownloadAsItem(
+                                    item,
+                                    fileActionAvailabilityContext,
+                                    activeDirectDownloadItemIds
+                                  )}
+                                  canCancelDownload={
+                                    selectedBucketConnectionId && selectedBucketName
+                                      ? activeTransferIdentityMap.has(
+                                          buildFileIdentity(
+                                            selectedBucketConnectionId,
+                                            selectedBucketName,
+                                            item.path
                                           )
                                         )
-                                      }
-                                      canDownloadAs={
-                                        item.availabilityStatus === "available" &&
-                                        !(
-                                          selectedBucketConnectionId &&
-                                          selectedBucketName &&
-                                          activeTransferIdentityMap.has(
-                                            buildFileIdentity(
-                                              selectedBucketConnectionId,
-                                              selectedBucketName,
-                                              item.path
-                                            )
-                                          )
-                                        ) &&
-                                        !activeDirectDownloadItemIds.includes(item.id)
-                                      }
-                                      canCancelDownload={
-                                        selectedBucketConnectionId &&
-                                        selectedBucketName
-                                          ? activeTransferIdentityMap.has(
-                                              buildFileIdentity(
-                                                selectedBucketConnectionId,
-                                                selectedBucketName,
-                                                item.path
-                                              )
-                                            )
-                                          : false
-                                      }
-                                      canOpenFile={
-                                        hasValidGlobalLocalCacheDirectory &&
-                                        item.downloadState === "downloaded"
-                                      }
-                                      canOpenInExplorer={
-                                        hasValidGlobalLocalCacheDirectory &&
-                                        item.downloadState === "downloaded"
-                                      }
-                                      canDelete={selectedBucketProvider === "aws"}
-                                      isOpen={openContentMenuItemId === item.id}
-                                      showTrigger={false}
-                                      anchorPosition={
-                                        contentMenuAnchor?.itemId === item.id
-                                          ? { x: contentMenuAnchor.x, y: contentMenuAnchor.y }
-                                          : null
-                                      }
-                                      onToggle={(itemId, anchorPosition) => {
-                                        setOpenContentMenuItemId(itemId);
-                                        setContentMenuAnchor(
-                                          itemId && anchorPosition
-                                            ? { itemId, x: anchorPosition.x, y: anchorPosition.y }
-                                            : null
-                                        );
-                                      }}
-                                      onAction={handlePreviewFileAction}
-                                      t={t}
-                                    />
-                                  </span>
-                                </>
-                              ) : null}
+                                      : false
+                                  }
+                                  canOpenFile={
+                                    hasValidGlobalLocalCacheDirectory &&
+                                    item.downloadState === "downloaded"
+                                  }
+                                  canOpenInExplorer={
+                                    hasValidGlobalLocalCacheDirectory &&
+                                    item.downloadState === "downloaded"
+                                  }
+                                  canDelete={selectedBucketProvider === "aws"}
+                                  isOpen={openContentMenuItemId === item.id}
+                                  showTrigger={false}
+                                  anchorPosition={
+                                    contentMenuAnchor?.itemId === item.id
+                                      ? { x: contentMenuAnchor.x, y: contentMenuAnchor.y }
+                                      : null
+                                  }
+                                  onToggle={(itemId, anchorPosition) => {
+                                    setOpenContentMenuItemId(itemId);
+                                    setContentMenuAnchor(
+                                      itemId && anchorPosition
+                                        ? { itemId, x: anchorPosition.x, y: anchorPosition.y }
+                                        : null
+                                    );
+                                  }}
+                                  onAction={handlePreviewFileAction}
+                                  t={t}
+                                />
+                              </span>
                             </div>
                           )
                         )}
@@ -5058,11 +5416,24 @@ function validateNewFolderNameInput(
       {restoreRequest ? (
         <RestoreRequestModal
           locale={locale}
-          request={restoreRequest}
+          request={restoreRequest.request}
           isSubmitting={isSubmittingRestoreRequest}
           submitError={restoreSubmitError}
           onCancel={closeRestoreRequestModal}
           onSubmitAwsRequest={handleSubmitAwsRestoreRequest}
+          t={t}
+        />
+      ) : null}
+
+      {changeStorageClassRequest ? (
+        <ChangeStorageClassModal
+          locale={locale}
+          request={changeStorageClassRequest.request}
+          initialStorageClass={changeStorageClassRequest.currentStorageClass}
+          isSubmitting={isSubmittingStorageClassChange}
+          submitError={changeStorageClassSubmitError}
+          onCancel={closeChangeStorageClassModal}
+          onSubmit={handleSubmitChangeStorageClass}
           t={t}
         />
       ) : null}
@@ -5979,6 +6350,7 @@ function TreeItemMenu({
 type ContentItemMenuProps = {
   item: ContentExplorerItem;
   canRestore: boolean;
+  canChangeTier: boolean;
   canDownload: boolean;
   canDownloadAs: boolean;
   canCancelDownload: boolean;
@@ -6059,6 +6431,7 @@ function ContentAreaContextMenu({
 function ContentItemMenu({
   item,
   canRestore,
+  canChangeTier,
   canDownload,
   canDownloadAs,
   canCancelDownload,
@@ -6164,6 +6537,18 @@ function ContentItemMenu({
                   {t("navigation.menu.restore")}
                 </button>
               ) : null}
+              <button
+                type="button"
+                className="tree-menu-action"
+                role="menuitem"
+                disabled={!canChangeTier}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onAction("changeTier", item);
+                }}
+              >
+                {t("navigation.menu.change_tier")}
+              </button>
               {canCancelDownload ? (
                 <button
                   type="button"

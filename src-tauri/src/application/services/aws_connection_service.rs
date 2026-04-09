@@ -24,6 +24,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::fs;
 use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWriteExt;
+use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
 
 use crate::domain::aws_connection::{
     AwsBucketItemsResult, AwsBucketSummary, AwsCacheDownloadResult, AwsConnectionTestInput,
@@ -38,7 +39,32 @@ pub const UPLOAD_CANCELLED_ERROR: &str = "UPLOAD_CANCELLED";
 const S3_LISTING_PAGE_SIZE: i32 = 200;
 const S3_DELETE_BATCH_SIZE: usize = 1000;
 const MULTIPART_UPLOAD_CHUNK_SIZE: usize = 8 * 1024 * 1024;
+const S3_COPY_OBJECT_MAX_SIZE: u64 = 5 * 1024 * 1024 * 1024;
+const S3_MULTIPART_MAX_PARTS: u64 = 10_000;
 const AWS_DEFAULT_REGION: &str = "us-east-1";
+const COPY_SOURCE_ENCODE_SET: &AsciiSet = &CONTROLS
+    .add(b' ')
+    .add(b'"')
+    .add(b'#')
+    .add(b'%')
+    .add(b'?')
+    .add(b'[')
+    .add(b'\\')
+    .add(b']')
+    .add(b'^')
+    .add(b'`')
+    .add(b'{')
+    .add(b'|')
+    .add(b'}');
+const S3_TAGGING_ENCODE_SET: &AsciiSet = &CONTROLS
+    .add(b' ')
+    .add(b'"')
+    .add(b'#')
+    .add(b'%')
+    .add(b'&')
+    .add(b'+')
+    .add(b'=')
+    .add(b'?');
 
 struct AwsGlobalAccessContext {
     identity: AwsConnectionTestResult,
@@ -128,6 +154,39 @@ fn parse_upload_storage_class(value: Option<&str>) -> Result<Option<StorageClass
     StorageClass::try_parse(value)
         .map(Some)
         .map_err(|_| "Unsupported AWS upload storage class.".to_string())
+}
+
+fn parse_required_storage_class(value: &str) -> Result<StorageClass, String> {
+    StorageClass::try_parse(value.trim())
+        .map_err(|_| "Unsupported AWS storage class.".to_string())
+}
+
+fn build_copy_source(bucket_name: &str, object_key: &str) -> String {
+    let encoded_object_key = utf8_percent_encode(object_key, COPY_SOURCE_ENCODE_SET).to_string();
+
+    format!("{bucket_name}/{encoded_object_key}")
+}
+
+fn build_tagging_header(tag_set: &[aws_sdk_s3::types::Tag]) -> String {
+    tag_set
+        .iter()
+        .map(|tag| {
+            let key = tag.key();
+            let value = tag.value();
+            let encoded_key = utf8_percent_encode(key, S3_TAGGING_ENCODE_SET).to_string();
+            let encoded_value = utf8_percent_encode(value, S3_TAGGING_ENCODE_SET).to_string();
+
+            format!("{encoded_key}={encoded_value}")
+        })
+        .collect::<Vec<_>>()
+        .join("&")
+}
+
+fn calculate_multipart_copy_chunk_size(object_size: u64) -> u64 {
+    let minimum_chunk_size = MULTIPART_UPLOAD_CHUNK_SIZE as u64;
+    let required_chunk_size = object_size.div_ceil(S3_MULTIPART_MAX_PARTS);
+
+    minimum_chunk_size.max(required_chunk_size)
 }
 
 fn validate_restore_tier_for_storage_class(
@@ -989,6 +1048,289 @@ impl AwsConnectionService {
 
                 error_message
             })?;
+
+        Ok(())
+    }
+
+    pub async fn change_object_storage_class(
+        input: AwsConnectionTestInput,
+        bucket_name: String,
+        object_key: String,
+        target_storage_class: String,
+        bucket_region: Option<String>,
+    ) -> Result<(), String> {
+        let access_key_id = input.access_key_id.trim().to_string();
+        let secret_access_key = input.secret_access_key.trim().to_string();
+        let bucket_name = bucket_name.trim().to_string();
+        let object_key = object_key.trim().to_string();
+        let restricted_bucket_name =
+            Self::normalize_restricted_bucket_name(input.restricted_bucket_name);
+
+        if bucket_name.is_empty() {
+            return Err("Bucket name is required for storage class changes.".to_string());
+        }
+
+        if object_key.is_empty() {
+            return Err("Object key is required for storage class changes.".to_string());
+        }
+
+        let storage_class = parse_required_storage_class(&target_storage_class)?;
+
+        eprintln!(
+            "[aws_connection_service] changing S3 storage class for bucket={} object_key={} target_storage_class={}",
+            bucket_name, object_key, target_storage_class
+        );
+
+        let resolved_bucket_region = Self::resolve_bucket_region(
+            &access_key_id,
+            &secret_access_key,
+            &bucket_name,
+            bucket_region,
+            restricted_bucket_name,
+        )
+        .await?;
+
+        let (_, s3_client) =
+            Self::build_clients(&resolved_bucket_region, access_key_id, secret_access_key).await;
+
+        let head_object_output = s3_client
+            .head_object()
+            .bucket(bucket_name.clone())
+            .key(object_key.clone())
+            .send()
+            .await
+            .map_err(|error| {
+                let error_message = error
+                    .as_service_error()
+                    .map(format_provider_service_error)
+                    .unwrap_or_else(|| error.to_string());
+
+                eprintln!(
+                    "[aws_connection_service] failed to read S3 object metadata for bucket={} object_key={} error={}",
+                    bucket_name, object_key, error_message
+                );
+
+                error_message
+            })?;
+
+        let object_size = u64::try_from(
+            head_object_output
+                .content_length()
+                .ok_or_else(|| {
+                    "AWS S3 did not return the object size for storage class changes.".to_string()
+                })?,
+        )
+        .map_err(|_| "AWS S3 returned an invalid object size for storage class changes.".to_string())?;
+
+        if object_size <= S3_COPY_OBJECT_MAX_SIZE {
+            s3_client
+                .copy_object()
+                .bucket(bucket_name.clone())
+                .key(object_key.clone())
+                .copy_source(build_copy_source(&bucket_name, &object_key))
+                .storage_class(storage_class)
+                .metadata_directive(aws_sdk_s3::types::MetadataDirective::Copy)
+                .send()
+                .await
+                .map_err(|error| {
+                    let error_message = error
+                        .as_service_error()
+                        .map(format_provider_service_error)
+                        .unwrap_or_else(|| error.to_string());
+
+                    eprintln!(
+                        "[aws_connection_service] failed to change S3 storage class for bucket={} object_key={} error={}",
+                        bucket_name, object_key, error_message
+                    );
+
+                    error_message
+                })?;
+
+            return Ok(());
+        }
+
+        let existing_tagging = s3_client
+            .get_object_tagging()
+            .bucket(bucket_name.clone())
+            .key(object_key.clone())
+            .send()
+            .await
+            .map(|output| build_tagging_header(output.tag_set()))
+            .map_err(|error| {
+                let error_message = error
+                    .as_service_error()
+                    .map(format_provider_service_error)
+                    .unwrap_or_else(|| error.to_string());
+
+                eprintln!(
+                    "[aws_connection_service] failed to read S3 object tags for bucket={} object_key={} error={}",
+                    bucket_name, object_key, error_message
+                );
+
+                error_message
+            })?;
+
+        let mut create_multipart_upload_request = s3_client
+            .create_multipart_upload()
+            .bucket(bucket_name.clone())
+            .key(object_key.clone())
+            .storage_class(storage_class);
+
+        if !existing_tagging.is_empty() {
+            create_multipart_upload_request =
+                create_multipart_upload_request.tagging(existing_tagging);
+        }
+
+        if let Some(cache_control) = head_object_output.cache_control() {
+            create_multipart_upload_request =
+                create_multipart_upload_request.cache_control(cache_control);
+        }
+
+        if let Some(content_disposition) = head_object_output.content_disposition() {
+            create_multipart_upload_request =
+                create_multipart_upload_request.content_disposition(content_disposition);
+        }
+
+        if let Some(content_encoding) = head_object_output.content_encoding() {
+            create_multipart_upload_request =
+                create_multipart_upload_request.content_encoding(content_encoding);
+        }
+
+        if let Some(content_language) = head_object_output.content_language() {
+            create_multipart_upload_request =
+                create_multipart_upload_request.content_language(content_language);
+        }
+
+        if let Some(content_type) = head_object_output.content_type() {
+            create_multipart_upload_request =
+                create_multipart_upload_request.content_type(content_type);
+        }
+
+        if let Some(metadata) = head_object_output.metadata() {
+            create_multipart_upload_request =
+                create_multipart_upload_request.set_metadata(Some(metadata.clone()));
+        }
+
+        if let Some(website_redirect_location) = head_object_output.website_redirect_location() {
+            create_multipart_upload_request = create_multipart_upload_request
+                .website_redirect_location(website_redirect_location);
+        }
+
+        let multipart_upload = create_multipart_upload_request.send().await.map_err(|error| {
+                let error_message = error
+                    .as_service_error()
+                    .map(format_provider_service_error)
+                    .unwrap_or_else(|| error.to_string());
+
+                eprintln!(
+                    "[aws_connection_service] failed to change S3 storage class for bucket={} object_key={} error={}",
+                    bucket_name, object_key, error_message
+                );
+
+                error_message
+            })?;
+
+        let upload_id = multipart_upload
+            .upload_id()
+            .map(|value| value.to_string())
+            .ok_or_else(|| "AWS S3 did not return an upload identifier for multipart copy.".to_string())?;
+        let copy_source = build_copy_source(&bucket_name, &object_key);
+        let part_size = calculate_multipart_copy_chunk_size(object_size);
+        let mut completed_parts = Vec::new();
+        let mut part_number = 1_i32;
+        let mut range_start = 0_u64;
+
+        while range_start < object_size {
+            let range_end = (range_start + part_size).min(object_size) - 1;
+            let copy_range = format!("bytes={range_start}-{range_end}");
+
+            let upload_part_copy_output = match s3_client
+                .upload_part_copy()
+                .bucket(bucket_name.clone())
+                .key(object_key.clone())
+                .upload_id(upload_id.clone())
+                .part_number(part_number)
+                .copy_source(copy_source.clone())
+                .copy_source_range(copy_range)
+                .send()
+                .await
+            {
+                Ok(output) => output,
+                Err(error) => {
+                    let _ = s3_client
+                        .abort_multipart_upload()
+                        .bucket(bucket_name.clone())
+                        .key(object_key.clone())
+                        .upload_id(upload_id.clone())
+                        .send()
+                        .await;
+
+                    let error_message = error
+                        .as_service_error()
+                        .map(format_provider_service_error)
+                        .unwrap_or_else(|| error.to_string());
+
+                    eprintln!(
+                        "[aws_connection_service] failed to copy multipart chunk for bucket={} object_key={} part_number={} error={}",
+                        bucket_name, object_key, part_number, error_message
+                    );
+
+                    return Err(error_message);
+                }
+            };
+
+            let e_tag = upload_part_copy_output
+                .copy_part_result()
+                .and_then(|result| result.e_tag())
+                .map(|value| value.to_string())
+                .ok_or_else(|| {
+                    "AWS S3 did not return an ETag for a multipart copied part.".to_string()
+                })?;
+
+            completed_parts.push(
+                CompletedPart::builder()
+                    .part_number(part_number)
+                    .e_tag(e_tag)
+                    .build(),
+            );
+
+            range_start = range_end + 1;
+            part_number += 1;
+        }
+
+        let completed_upload = CompletedMultipartUpload::builder()
+            .set_parts(Some(completed_parts))
+            .build();
+
+        if let Err(error) = s3_client
+            .complete_multipart_upload()
+            .bucket(bucket_name.clone())
+            .key(object_key.clone())
+            .upload_id(upload_id.clone())
+            .multipart_upload(completed_upload)
+            .send()
+            .await
+        {
+            let _ = s3_client
+                .abort_multipart_upload()
+                .bucket(bucket_name.clone())
+                .key(object_key.clone())
+                .upload_id(upload_id)
+                .send()
+                .await;
+
+            let error_message = error
+                .as_service_error()
+                .map(format_provider_service_error)
+                .unwrap_or_else(|| error.to_string());
+
+            eprintln!(
+                "[aws_connection_service] failed to complete multipart copy for bucket={} object_key={} error={}",
+                bucket_name, object_key, error_message
+            );
+
+            return Err(error_message);
+        }
 
         Ok(())
     }

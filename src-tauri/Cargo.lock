@@ -1027,6 +1027,7 @@ dependencies = [
  "aws-sdk-sts",
  "futures-util",
  "keyring",
+ "percent-encoding",
  "reqwest",
  "serde",
  "serde_json",

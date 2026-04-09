@@ -7,6 +7,8 @@ import { getAwsRestoreTierContent } from "../aws/awsProviderContent";
 type AwsRestoreRequestPanelProps = {
   locale: Locale;
   storageClass?: string | null;
+  storageClasses?: Array<string | null | undefined>;
+  fileCount?: number;
   isSubmitting: boolean;
   submitError: string | null;
   onCancel: () => void;
@@ -17,22 +19,26 @@ type AwsRestoreRequestPanelProps = {
 export function AwsRestoreRequestPanel({
   locale,
   storageClass,
+  storageClasses,
+  fileCount = 1,
   isSubmitting,
   submitError,
   onCancel,
   onSubmit,
   t
 }: AwsRestoreRequestPanelProps) {
-  const content = getAwsRestoreTierContent(locale);
+  const content = getAwsRestoreTierContent(t);
   const availableTierDescriptors = useMemo(() => {
-    const normalizedStorageClass = storageClass?.trim().toUpperCase() ?? "";
+    const normalizedStorageClasses =
+      storageClasses?.map((value) => value?.trim().toUpperCase() ?? "") ??
+      [storageClass?.trim().toUpperCase() ?? ""];
 
-    if (normalizedStorageClass.includes("DEEP_ARCHIVE")) {
+    if (normalizedStorageClasses.some((value) => value.includes("DEEP_ARCHIVE"))) {
       return content.options.filter((descriptor) => descriptor.tier !== "expedited");
     }
 
     return content.options;
-  }, [content.options, storageClass]);
+  }, [content.options, storageClass, storageClasses]);
   const [selectedTier, setSelectedTier] = useState<AwsRestoreTier>(
     availableTierDescriptors.some((descriptor) => descriptor.tier === "standard")
       ? "standard"
@@ -166,8 +172,17 @@ export function AwsRestoreRequestPanel({
           <div className="restore-modal-section restore-modal-confirmation">
             <strong>{t("restore.modal.confirmation_title")}</strong>
             <p>
-              {t("restore.modal.aws.confirmation_summary")
-                .replace("{tier}", selectedTierDescriptor ? selectedTierDescriptor.title : selectedTier)
+              {(fileCount > 1
+                ? t("restore.modal.aws.confirmation_summary_batch").replace(
+                    "{count}",
+                    String(fileCount)
+                  )
+                : t("restore.modal.aws.confirmation_summary")
+              )
+                .replace(
+                  "{tier}",
+                  selectedTierDescriptor ? selectedTierDescriptor.title : selectedTier
+                )
                 .replace(
                   "{days}",
                   String(isRetentionDaysValid ? parsedRetentionDays : retentionDays || "-")
