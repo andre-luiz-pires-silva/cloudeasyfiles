@@ -2366,6 +2366,7 @@ body {
 .modal-backdrop {
   position: fixed;
   inset: 0;
+  z-index: 80;
   display: grid;
   place-items: center;
   padding: 24px;
