@@ -89,6 +89,26 @@ import {
   type ChangeStorageClassRequestSummary
 } from "../storage-class/ChangeStorageClassModal";
 
+function Globe2Icon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      width="18"
+      height="18"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <circle cx="12" cy="12" r="10" />
+      <path d="M2 12h20" />
+      <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10Z" />
+    </svg>
+  );
+}
+
 type NavigatorView = "home" | "node";
 type ConnectionTestStatus = "idle" | "testing" | "success" | "error";
 type ConnectionIndicatorStatus = "disconnected" | "connecting" | "connected" | "error";
@@ -4645,73 +4665,128 @@ function validateNewFolderNameInput(
           <div className="content-panel-scroll-viewport">
           <div className="content-panel-body">
           {selectedView === "home" ? (
-            <div className="home-card">
-              <div className="home-header">
-                <div className="home-brand">
-                  <img src={logoPrimary} alt="" className="home-logo" />
+            <div className="home-card home-stage">
+              <section className="home-hero">
+                <div className="home-hero-copy">
+                  <div className="home-brand">
+                    <img src={logoPrimary} alt="" className="home-logo" />
 
-                  <div>
-                    <h2 className="home-title">{t("app.title")}</h2>
-                    <p className="eyebrow home-eyebrow">{t("hero.eyebrow")}</p>
+                    <div>
+                      <p className="eyebrow home-eyebrow">{t("hero.eyebrow")}</p>
+                      <h2 className="home-title">{t("app.title")}</h2>
+                    </div>
                   </div>
+
+                  <p className="home-kicker">{t("home.hero.kicker")}</p>
+                  <p className="home-display">{t("home.hero.title")}</p>
+                  <p className="home-lead">{t("home.hero.body")}</p>
                 </div>
 
-                <label
-                  className="field-group compact-field-group home-locale-field"
-                  htmlFor={localeFieldId}
-                >
-                  <span>{t("settings.language")}</span>
-                  <select
-                    id={localeFieldId}
-                    aria-label={t("settings.language")}
-                    value={locale}
-                    onChange={(event) => {
-                      void onLocaleChange(event.target.value);
-                    }}
-                  >
-                    <option value="en-US">English (US)</option>
-                    <option value="pt-BR">Portuguese (Brazil)</option>
-                  </select>
-                </label>
-              </div>
-
-              <p className="content-description">{t("hero.subtitle")}</p>
-
-              <label className="field-group" htmlFor={globalCacheDirectoryFieldId}>
-                <span>{t("settings.download_directory")}</span>
-                <div className="path-picker-row">
-                  <input
-                    id={globalCacheDirectoryFieldId}
-                    type="text"
-                    value={globalLocalCacheDirectory}
-                    placeholder={t("settings.download_directory_placeholder")}
-                    readOnly
-                  />
-                  <button
-                    type="button"
-                    className="secondary-button"
-                    onClick={handlePickGlobalCacheDirectory}
-                    disabled={!isTauri()}
-                  >
-                    {t("settings.download_directory_pick")}
-                  </button>
-                  <button
-                    type="button"
-                    className="secondary-button"
-                    onClick={() => setGlobalLocalCacheDirectory("")}
-                    disabled={!globalLocalCacheDirectory.trim()}
-                  >
-                    {t("common.clear")}
-                  </button>
-                </div>
-                <span className="field-helper">{t("settings.download_directory_helper")}</span>
-                {localMappingDirectoryAlertKey ? (
-                  <div className="content-toolbar-notice" role="alert">
-                    <CircleAlert size={16} strokeWidth={2} />
-                    <p>{t(localMappingDirectoryAlertKey)}</p>
+                <div className="home-hero-visual" aria-hidden="true">
+                  <div className="home-visual-orbit home-visual-orbit-primary" />
+                  <div className="home-visual-orbit home-visual-orbit-secondary" />
+                  <div className="home-visual-grid" />
+                  <div className="home-visual-badge home-visual-badge-top">
+                    <Cloud size={16} strokeWidth={2} />
+                    <span>{t("home.visual.badge_primary")}</span>
                   </div>
-                ) : null}
-              </label>
+                  <div className="home-visual-core">
+                    <span>{t("home.visual.core_label")}</span>
+                    <strong>{t("home.visual.core_value")}</strong>
+                  </div>
+                </div>
+              </section>
+
+              <section className="home-support-grid">
+                <div className="home-settings-panel">
+                  <div className="home-panel-header">
+                    <Settings size={18} strokeWidth={2} />
+                    <div>
+                      <p className="home-panel-eyebrow">{t("home.settings.eyebrow")}</p>
+                      <h3>{t("home.settings.title")}</h3>
+                    </div>
+                  </div>
+
+                  <label
+                    className="field-group compact-field-group home-locale-field"
+                    htmlFor={localeFieldId}
+                  >
+                    <span className="home-field-label">
+                      <Globe2Icon />
+                      <span>{t("settings.language")}</span>
+                    </span>
+                    <select
+                      id={localeFieldId}
+                      aria-label={t("settings.language")}
+                      value={locale}
+                      onChange={(event) => {
+                        void onLocaleChange(event.target.value);
+                      }}
+                    >
+                      <option value="en-US">English (US)</option>
+                      <option value="pt-BR">Portuguese (Brazil)</option>
+                    </select>
+                  </label>
+
+                  <label
+                    className="field-group compact-field-group home-settings-path-field"
+                    htmlFor={globalCacheDirectoryFieldId}
+                  >
+                    <span className="home-field-label">
+                      <Folder size={16} strokeWidth={2} />
+                      <span>{t("settings.download_directory")}</span>
+                    </span>
+                    <div className="path-picker-row">
+                      <input
+                        id={globalCacheDirectoryFieldId}
+                        type="text"
+                        value={globalLocalCacheDirectory}
+                        placeholder={t("settings.download_directory_placeholder")}
+                        readOnly
+                      />
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        onClick={handlePickGlobalCacheDirectory}
+                        disabled={!isTauri()}
+                      >
+                        {t("settings.download_directory_pick")}
+                      </button>
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        onClick={() => setGlobalLocalCacheDirectory("")}
+                        disabled={!globalLocalCacheDirectory.trim()}
+                      >
+                        {t("common.clear")}
+                      </button>
+                    </div>
+                    <span className="field-helper">{t("settings.download_directory_helper")}</span>
+                    {localMappingDirectoryAlertKey ? (
+                      <div className="content-toolbar-notice" role="alert">
+                        <CircleAlert size={16} strokeWidth={2} />
+                        <p>{t(localMappingDirectoryAlertKey)}</p>
+                      </div>
+                    ) : (
+                      <div className="home-inline-success">
+                        <CheckCircle2 size={16} strokeWidth={2} />
+                        <p>{t("home.settings.path_status_ready")}</p>
+                      </div>
+                    )}
+                  </label>
+                </div>
+
+                <div className="home-notice-panel" role="alert">
+                  <div className="home-panel-header">
+                    <CircleAlert size={18} strokeWidth={2} />
+                    <div>
+                      <p className="home-panel-eyebrow">{t("home.cost_notice.eyebrow")}</p>
+                      <h3>{t("home.cost_notice.title")}</h3>
+                    </div>
+                  </div>
+                  <p>{t("home.cost_notice.body")}</p>
+                </div>
+              </section>
 
               {submitError ? <p className="status-message-error">{submitError}</p> : null}
             </div>

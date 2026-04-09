@@ -1,6 +1,5 @@
 use aws_config::Region;
 use aws_credential_types::Credentials;
-use aws_sdk_s3::Client as S3Client;
 use aws_sdk_s3::primitives::ByteStream;
 use aws_sdk_s3::types::BucketLocationConstraint;
 use aws_sdk_s3::types::CompletedMultipartUpload;
@@ -12,9 +11,11 @@ use aws_sdk_s3::types::OptionalObjectAttributes;
 use aws_sdk_s3::types::RestoreRequest;
 use aws_sdk_s3::types::StorageClass;
 use aws_sdk_s3::types::Tier;
+use aws_sdk_s3::Client as S3Client;
 use aws_sdk_sts::error::ProvideErrorMetadata;
 use aws_sdk_sts::operation::RequestId;
 use aws_sdk_sts::Client;
+use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -24,7 +25,6 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::fs;
 use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWriteExt;
-use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
 
 use crate::domain::aws_connection::{
     AwsBucketItemsResult, AwsBucketSummary, AwsCacheDownloadResult, AwsConnectionTestInput,
@@ -112,7 +112,10 @@ where
     let request_id = service_error.meta().request_id();
 
     if let Some(request_id) = request_id {
-        return format!("{}: {} (request id: {})", error_code, error_message, request_id);
+        return format!(
+            "{}: {} (request id: {})",
+            error_code, error_message, request_id
+        );
     }
 
     format!("{}: {}", error_code, error_message)
@@ -147,7 +150,10 @@ fn parse_restore_tier(value: &str) -> Result<Tier, String> {
 }
 
 fn parse_upload_storage_class(value: Option<&str>) -> Result<Option<StorageClass>, String> {
-    let Some(value) = value.map(|value| value.trim()).filter(|value| !value.is_empty()) else {
+    let Some(value) = value
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+    else {
         return Ok(None);
     };
 
@@ -157,8 +163,7 @@ fn parse_upload_storage_class(value: Option<&str>) -> Result<Option<StorageClass
 }
 
 fn parse_required_storage_class(value: &str) -> Result<StorageClass, String> {
-    StorageClass::try_parse(value.trim())
-        .map_err(|_| "Unsupported AWS storage class.".to_string())
+    StorageClass::try_parse(value.trim()).map_err(|_| "Unsupported AWS storage class.".to_string())
 }
 
 fn build_copy_source(bucket_name: &str, object_key: &str) -> String {
@@ -193,7 +198,10 @@ fn validate_restore_tier_for_storage_class(
     storage_class: Option<&str>,
     restore_tier: &Tier,
 ) -> Result<(), String> {
-    let normalized_storage_class = storage_class.unwrap_or_default().trim().to_ascii_uppercase();
+    let normalized_storage_class = storage_class
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_uppercase();
 
     if normalized_storage_class.contains("DEEP_ARCHIVE") && matches!(restore_tier, Tier::Expedited)
     {
@@ -267,8 +275,11 @@ impl AwsConnectionService {
             return Err("Connection name is required for local cache operations.".to_string());
         }
 
-        Ok(PathBuf::from(global_local_cache_directory)
-            .join(Self::normalize_cache_path_segment(normalized_connection_name)))
+        Ok(
+            PathBuf::from(global_local_cache_directory).join(Self::normalize_cache_path_segment(
+                normalized_connection_name,
+            )),
+        )
     }
 
     fn build_primary_cache_object_path(
@@ -281,18 +292,15 @@ impl AwsConnectionService {
             return Err("Object key is required for local cache operations.".to_string());
         }
 
-        let normalized_object_path = object_key
-            .split('/')
-            .fold(PathBuf::new(), |path, segment| {
-                path.join(Self::normalize_cache_path_segment(segment))
-            });
+        let normalized_object_path = object_key.split('/').fold(PathBuf::new(), |path, segment| {
+            path.join(Self::normalize_cache_path_segment(segment))
+        });
 
-        Ok(Self::build_connection_cache_root(
-            global_local_cache_directory,
-            connection_name,
-        )?
-        .join(bucket_name)
-        .join(normalized_object_path))
+        Ok(
+            Self::build_connection_cache_root(global_local_cache_directory, connection_name)?
+                .join(bucket_name)
+                .join(normalized_object_path),
+        )
     }
 
     fn build_legacy_raw_cache_object_path(
@@ -321,11 +329,9 @@ impl AwsConnectionService {
             return Err("Object key is required for local cache operations.".to_string());
         }
 
-        let encoded_object_path = object_key
-            .split('/')
-            .fold(PathBuf::new(), |path, segment| {
-                path.join(Self::encode_cache_path_segment(segment))
-            });
+        let encoded_object_path = object_key.split('/').fold(PathBuf::new(), |path, segment| {
+            path.join(Self::encode_cache_path_segment(segment))
+        });
 
         Ok(PathBuf::from(global_local_cache_directory)
             .join(connection_id)
@@ -342,11 +348,9 @@ impl AwsConnectionService {
             return Err("Object key is required for local cache operations.".to_string());
         }
 
-        let normalized_object_path = object_key
-            .split('/')
-            .fold(PathBuf::new(), |path, segment| {
-                path.join(Self::normalize_cache_path_segment(segment))
-            });
+        let normalized_object_path = object_key.split('/').fold(PathBuf::new(), |path, segment| {
+            path.join(Self::normalize_cache_path_segment(segment))
+        });
 
         Ok(PathBuf::from(global_local_cache_directory)
             .join(bucket_name)
@@ -482,23 +486,19 @@ impl AwsConnectionService {
         )
         .await;
 
-        let identity_response = client
-            .get_caller_identity()
-            .send()
-            .await
-            .map_err(|error| {
-                let error_message = error
-                    .as_service_error()
-                    .map(format_provider_service_error)
-                    .unwrap_or_else(|| error.to_string());
+        let identity_response = client.get_caller_identity().send().await.map_err(|error| {
+            let error_message = error
+                .as_service_error()
+                .map(format_provider_service_error)
+                .unwrap_or_else(|| error.to_string());
 
-                eprintln!(
-                    "[aws_connection_service] STS caller identity failed for region={} error={}",
-                    AWS_DEFAULT_REGION, error_message
-                );
+            eprintln!(
+                "[aws_connection_service] STS caller identity failed for region={} error={}",
+                AWS_DEFAULT_REGION, error_message
+            );
 
-                error_message
-            })?;
+            error_message
+        })?;
 
         s3_client.list_buckets().send().await.map_err(|error| {
             let error_code = error
@@ -514,7 +514,10 @@ impl AwsConnectionService {
                 AWS_DEFAULT_REGION, error_message
             );
 
-            if matches!(error_code, Some("AccessDenied") | Some("UnauthorizedAccess")) {
+            if matches!(
+                error_code,
+                Some("AccessDenied") | Some("UnauthorizedAccess")
+            ) {
                 return MISSING_MINIMUM_S3_PERMISSION_ERROR.to_string();
             }
 
@@ -568,16 +571,12 @@ impl AwsConnectionService {
             secret_access_key.to_string(),
         )
         .await;
-        let identity_response = client
-            .get_caller_identity()
-            .send()
-            .await
-            .map_err(|error| {
-                error
-                    .as_service_error()
-                    .map(format_provider_service_error)
-                    .unwrap_or_else(|| error.to_string())
-            })?;
+        let identity_response = client.get_caller_identity().send().await.map_err(|error| {
+            error
+                .as_service_error()
+                .map(format_provider_service_error)
+                .unwrap_or_else(|| error.to_string())
+        })?;
 
         Ok(AwsConnectionTestResult {
             account_id: identity_response.account().unwrap_or_default().to_string(),
@@ -625,10 +624,7 @@ impl AwsConnectionService {
         bucket_region: Option<String>,
         restricted_bucket_name: Option<String>,
     ) -> Result<String, String> {
-        Self::validate_bucket_matches_restriction(
-            bucket_name,
-            restricted_bucket_name.as_deref(),
-        )?;
+        Self::validate_bucket_matches_restriction(bucket_name, restricted_bucket_name.as_deref())?;
 
         if let Some(bucket_region) = bucket_region {
             if !bucket_region.trim().is_empty() && bucket_region != "..." {
@@ -654,7 +650,9 @@ impl AwsConnectionService {
                     .unwrap_or_else(|| error.to_string())
             })?;
 
-        Ok(normalize_bucket_region(bucket_location.location_constraint()))
+        Ok(normalize_bucket_region(
+            bucket_location.location_constraint(),
+        ))
     }
 
     pub async fn test_connection(
@@ -719,19 +717,24 @@ impl AwsConnectionService {
 
         let context =
             Self::resolve_global_access_context(&access_key_id, &secret_access_key).await?;
-        let response = context.s3_client.list_buckets().send().await.map_err(|error| {
-            let error_message = error
-                .as_service_error()
-                .map(format_provider_service_error)
-                .unwrap_or_else(|| error.to_string());
+        let response = context
+            .s3_client
+            .list_buckets()
+            .send()
+            .await
+            .map_err(|error| {
+                let error_message = error
+                    .as_service_error()
+                    .map(format_provider_service_error)
+                    .unwrap_or_else(|| error.to_string());
 
-            eprintln!(
-                "[aws_connection_service] failed to list S3 buckets error={}",
+                eprintln!(
+                    "[aws_connection_service] failed to list S3 buckets error={}",
+                    error_message
+                );
+
                 error_message
-            );
-
-            error_message
-        })?;
+            })?;
 
         let mut buckets = Vec::new();
 
@@ -792,6 +795,8 @@ impl AwsConnectionService {
         let secret_access_key = input.secret_access_key.trim().to_string();
         let bucket_name = bucket_name.trim().to_string();
         let prefix = prefix.unwrap_or_default();
+        let restricted_bucket_name =
+            Self::normalize_restricted_bucket_name(input.restricted_bucket_name);
 
         eprintln!(
             "[aws_connection_service] listing S3 objects for bucket={} prefix={}",
@@ -803,16 +808,12 @@ impl AwsConnectionService {
             &secret_access_key,
             &bucket_name,
             bucket_region,
-            None,
+            restricted_bucket_name,
         )
         .await?;
 
-        let (_, s3_client) = Self::build_clients(
-            &resolved_bucket_region,
-            access_key_id,
-            secret_access_key,
-        )
-        .await;
+        let (_, s3_client) =
+            Self::build_clients(&resolved_bucket_region, access_key_id, secret_access_key).await;
 
         let mut seen_directories = HashSet::new();
         let mut seen_files = HashSet::new();
@@ -877,7 +878,8 @@ impl AwsConnectionService {
                             .map(|storage_class| storage_class.as_str().to_string())
                             .unwrap_or_else(|| "STANDARD".to_string()),
                     ),
-                    restore_in_progress: restore_status.and_then(|status| status.is_restore_in_progress()),
+                    restore_in_progress: restore_status
+                        .and_then(|status| status.is_restore_in_progress()),
                     restore_expiry_date: restore_status
                         .and_then(|status| status.restore_expiry_date())
                         .map(ToString::to_string),
@@ -886,7 +888,8 @@ impl AwsConnectionService {
         }
 
         let next_continuation_token = response.next_continuation_token().map(ToString::to_string);
-        let has_more = response.is_truncated().unwrap_or(false) && next_continuation_token.is_some();
+        let has_more =
+            response.is_truncated().unwrap_or(false) && next_continuation_token.is_some();
 
         Ok(AwsBucketItemsResult {
             bucket_region: resolved_bucket_region,
@@ -910,6 +913,8 @@ impl AwsConnectionService {
         let secret_access_key = input.secret_access_key.trim().to_string();
         let bucket_name = bucket_name.trim().to_string();
         let object_key = object_key.trim().to_string();
+        let restricted_bucket_name =
+            Self::normalize_restricted_bucket_name(input.restricted_bucket_name);
 
         if bucket_name.is_empty() {
             return Err("Bucket name is required for restore requests.".to_string());
@@ -936,7 +941,7 @@ impl AwsConnectionService {
             &secret_access_key,
             &bucket_name,
             bucket_region,
-            None,
+            restricted_bucket_name,
         )
         .await?;
 
@@ -987,6 +992,8 @@ impl AwsConnectionService {
         let secret_access_key = input.secret_access_key.trim().to_string();
         let bucket_name = bucket_name.trim().to_string();
         let folder_name = folder_name.trim().to_string();
+        let restricted_bucket_name =
+            Self::normalize_restricted_bucket_name(input.restricted_bucket_name);
         let normalized_parent_path = parent_path
             .unwrap_or_default()
             .trim()
@@ -1021,7 +1028,7 @@ impl AwsConnectionService {
             &secret_access_key,
             &bucket_name,
             bucket_region,
-            None,
+            restricted_bucket_name,
         )
         .await?;
 
@@ -1113,14 +1120,12 @@ impl AwsConnectionService {
                 error_message
             })?;
 
-        let object_size = u64::try_from(
-            head_object_output
-                .content_length()
-                .ok_or_else(|| {
-                    "AWS S3 did not return the object size for storage class changes.".to_string()
-                })?,
-        )
-        .map_err(|_| "AWS S3 returned an invalid object size for storage class changes.".to_string())?;
+        let object_size = u64::try_from(head_object_output.content_length().ok_or_else(|| {
+            "AWS S3 did not return the object size for storage class changes.".to_string()
+        })?)
+        .map_err(|_| {
+            "AWS S3 returned an invalid object size for storage class changes.".to_string()
+        })?;
 
         if object_size <= S3_COPY_OBJECT_MAX_SIZE {
             s3_client
@@ -1233,7 +1238,9 @@ impl AwsConnectionService {
         let upload_id = multipart_upload
             .upload_id()
             .map(|value| value.to_string())
-            .ok_or_else(|| "AWS S3 did not return an upload identifier for multipart copy.".to_string())?;
+            .ok_or_else(|| {
+                "AWS S3 did not return an upload identifier for multipart copy.".to_string()
+            })?;
         let copy_source = build_copy_source(&bucket_name, &object_key);
         let part_size = calculate_multipart_copy_chunk_size(object_size);
         let mut completed_parts = Vec::new();
@@ -1539,6 +1546,8 @@ impl AwsConnectionService {
         let bucket_name = bucket_name.trim().to_string();
         let object_key = object_key.trim().to_string();
         let global_local_cache_directory = global_local_cache_directory.trim().to_string();
+        let restricted_bucket_name =
+            Self::normalize_restricted_bucket_name(input.restricted_bucket_name);
         let (cancellation_flag, _cancellation_guard) =
             Self::register_download_cancellation(&operation_id)?;
 
@@ -1551,7 +1560,7 @@ impl AwsConnectionService {
             &secret_access_key,
             &bucket_name,
             bucket_region,
-            None,
+            restricted_bucket_name,
         )
         .await?;
 
@@ -1609,11 +1618,7 @@ impl AwsConnectionService {
             return Err(DOWNLOAD_CANCELLED_ERROR.to_string());
         }
 
-        while let Some(chunk) = stream
-            .try_next()
-            .await
-            .map_err(|error| error.to_string())?
-        {
+        while let Some(chunk) = stream.try_next().await.map_err(|error| error.to_string())? {
             if cancellation_flag.load(Ordering::SeqCst) {
                 drop(file);
                 Self::remove_temp_file_if_exists(&temp_path).await?;
@@ -1672,6 +1677,8 @@ impl AwsConnectionService {
         let bucket_name = bucket_name.trim().to_string();
         let object_key = object_key.trim().to_string();
         let destination_path = destination_path.trim().to_string();
+        let restricted_bucket_name =
+            Self::normalize_restricted_bucket_name(input.restricted_bucket_name);
         let (cancellation_flag, _cancellation_guard) =
             Self::register_download_cancellation(&operation_id)?;
 
@@ -1684,7 +1691,7 @@ impl AwsConnectionService {
             &secret_access_key,
             &bucket_name,
             bucket_region,
-            None,
+            restricted_bucket_name,
         )
         .await?;
 
@@ -1725,11 +1732,7 @@ impl AwsConnectionService {
             return Err(DOWNLOAD_CANCELLED_ERROR.to_string());
         }
 
-        while let Some(chunk) = stream
-            .try_next()
-            .await
-            .map_err(|error| error.to_string())?
-        {
+        while let Some(chunk) = stream.try_next().await.map_err(|error| error.to_string())? {
             if cancellation_flag.load(Ordering::SeqCst) {
                 drop(file);
                 Self::remove_temp_file_if_exists(&temp_path).await?;
@@ -1778,6 +1781,8 @@ impl AwsConnectionService {
         let secret_access_key = input.secret_access_key.trim().to_string();
         let bucket_name = bucket_name.trim().to_string();
         let object_key = object_key.trim().to_string();
+        let restricted_bucket_name =
+            Self::normalize_restricted_bucket_name(input.restricted_bucket_name);
 
         if object_key.is_empty() {
             return Err("Object key is required.".to_string());
@@ -1788,7 +1793,7 @@ impl AwsConnectionService {
             &secret_access_key,
             &bucket_name,
             bucket_region,
-            None,
+            restricted_bucket_name,
         )
         .await?;
 
@@ -1837,6 +1842,8 @@ impl AwsConnectionService {
         let object_key = object_key.trim().to_string();
         let local_file_path = local_file_path.trim().to_string();
         let storage_class = parse_upload_storage_class(storage_class.as_deref())?;
+        let restricted_bucket_name =
+            Self::normalize_restricted_bucket_name(input.restricted_bucket_name);
         let (cancellation_flag, _cancellation_guard) =
             Self::register_upload_cancellation(&operation_id)?;
 
@@ -1865,7 +1872,7 @@ impl AwsConnectionService {
             &secret_access_key,
             &bucket_name,
             bucket_region,
-            None,
+            restricted_bucket_name,
         )
         .await?;
 
@@ -2053,6 +2060,8 @@ impl AwsConnectionService {
         let object_key = object_key.trim().to_string();
         let file_name = file_name.trim().to_string();
         let storage_class = parse_upload_storage_class(storage_class.as_deref())?;
+        let restricted_bucket_name =
+            Self::normalize_restricted_bucket_name(input.restricted_bucket_name);
         let (cancellation_flag, _cancellation_guard) =
             Self::register_upload_cancellation(&operation_id)?;
 
@@ -2072,7 +2081,7 @@ impl AwsConnectionService {
             &secret_access_key,
             &bucket_name,
             bucket_region,
-            None,
+            restricted_bucket_name,
         )
         .await?;
 
