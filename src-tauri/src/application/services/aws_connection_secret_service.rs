@@ -1,6 +1,4 @@
-use crate::domain::connection_secrets::{
-    AwsConnectionSecretsInput, AwsConnectionSecretsOutput,
-};
+use crate::domain::connection_secrets::{AwsConnectionSecretsInput, AwsConnectionSecretsOutput};
 use keyring::{Entry, Error as KeyringError};
 
 const SERVICE_NAME: &str = "CloudEasyFiles.AwsConnection";
@@ -34,8 +32,7 @@ impl AwsConnectionSecretService {
             if let Err(rollback_error) = access_key_entry.delete_credential() {
                 eprintln!(
                     "[aws_connection_secret_service] rollback failed for connection_id={} error={}",
-                    input.connection_id,
-                    rollback_error
+                    input.connection_id, rollback_error
                 );
             }
 
@@ -60,13 +57,14 @@ impl AwsConnectionSecretService {
             connection_id
         );
 
-        let access_key_id = Self::build_entry(connection_id, ACCESS_KEY_ACCOUNT, "load-access-key")?
-            .get_password()
-            .map_err(|error| Self::map_error("load-access-key", connection_id, error))?;
+        let access_key_id =
+            Self::build_entry(connection_id, ACCESS_KEY_ACCOUNT, "load-access-key")?
+                .get_password()
+                .map_err(|error| Self::map_error("load-access-key", connection_id, error))?;
         let secret_access_key =
             Self::build_entry(connection_id, SECRET_KEY_ACCOUNT, "load-secret-key")?
-            .get_password()
-            .map_err(|error| Self::map_error("load-secret-key", connection_id, error))?;
+                .get_password()
+                .map_err(|error| Self::map_error("load-secret-key", connection_id, error))?;
 
         eprintln!(
             "[aws_connection_secret_service] loaded AWS credentials for connection_id={}",

@@ -13,9 +13,7 @@ struct SavedWindowState {
 
 pub fn restore_main_window_size<R: Runtime>(app: &AppHandle<R>) {
     let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) else {
-        eprintln!(
-            "[window_state] main window not found while trying to restore saved size"
-        );
+        eprintln!("[window_state] main window not found while trying to restore saved size");
         return;
     };
 
@@ -33,34 +31,38 @@ pub fn restore_main_window_size<R: Runtime>(app: &AppHandle<R>) {
 
 pub fn handle_window_event<R: Runtime>(window: &Window<R>, event: &WindowEvent) {
     match event {
-        WindowEvent::Resized(size) => {
-            match window.scale_factor() {
-                Ok(scale_factor) => {
-                    let logical_size = size.to_logical::<f64>(scale_factor);
-                    save_window_state(&window.app_handle(), logical_size.width, logical_size.height);
-                }
-                Err(error) => {
-                    eprintln!(
-                        "[window_state] failed to resolve scale factor for resize event error={}",
-                        error
-                    );
-                }
+        WindowEvent::Resized(size) => match window.scale_factor() {
+            Ok(scale_factor) => {
+                let logical_size = size.to_logical::<f64>(scale_factor);
+                save_window_state(
+                    &window.app_handle(),
+                    logical_size.width,
+                    logical_size.height,
+                );
             }
-        }
-        WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
-            match window.scale_factor() {
-                Ok(scale_factor) => {
-                    let logical_size = new_inner_size.to_logical::<f64>(scale_factor);
-                    save_window_state(&window.app_handle(), logical_size.width, logical_size.height);
-                }
-                Err(error) => {
-                    eprintln!(
+            Err(error) => {
+                eprintln!(
+                    "[window_state] failed to resolve scale factor for resize event error={}",
+                    error
+                );
+            }
+        },
+        WindowEvent::ScaleFactorChanged { new_inner_size, .. } => match window.scale_factor() {
+            Ok(scale_factor) => {
+                let logical_size = new_inner_size.to_logical::<f64>(scale_factor);
+                save_window_state(
+                    &window.app_handle(),
+                    logical_size.width,
+                    logical_size.height,
+                );
+            }
+            Err(error) => {
+                eprintln!(
                         "[window_state] failed to resolve scale factor for scale-factor change error={}",
                         error
                     );
-                }
             }
-        }
+        },
         _ => {}
     }
 }

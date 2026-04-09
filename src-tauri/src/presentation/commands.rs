@@ -1,7 +1,7 @@
+use crate::application::services::aws_connection_secret_service::AwsConnectionSecretService;
 use crate::application::services::aws_connection_service::{
     AwsConnectionService, DOWNLOAD_CANCELLED_ERROR, UPLOAD_CANCELLED_ERROR,
 };
-use crate::application::services::aws_connection_secret_service::AwsConnectionSecretService;
 use crate::application::services::greeting_service::GreetingService;
 use crate::domain::aws_connection::{
     AwsBucketItemsResult, AwsBucketSummary, AwsConnectionTestInput, AwsConnectionTestResult,
@@ -208,7 +208,10 @@ pub async fn get_aws_bucket_region(
     .await;
 
     if let Err(error) = &result {
-        eprintln!("[commands] get_aws_bucket_region failed with error={}", error);
+        eprintln!(
+            "[commands] get_aws_bucket_region failed with error={}",
+            error
+        );
     }
 
     result
@@ -244,7 +247,10 @@ pub async fn list_aws_bucket_items(
     .await;
 
     if let Err(error) = &result {
-        eprintln!("[commands] list_aws_bucket_items failed with error={}", error);
+        eprintln!(
+            "[commands] list_aws_bucket_items failed with error={}",
+            error
+        );
     }
 
     result
@@ -468,7 +474,6 @@ pub async fn change_aws_object_storage_class(
 
     result
 }
-
 
 #[tauri::command]
 pub async fn start_aws_cache_download(
