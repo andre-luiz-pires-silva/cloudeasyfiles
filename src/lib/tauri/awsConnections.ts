@@ -112,7 +112,8 @@ export async function listAwsBucketItems(
   prefix?: string,
   bucketRegion?: string,
   continuationToken?: string,
-  restrictedBucketName?: string
+  restrictedBucketName?: string,
+  pageSize?: number
 ): Promise<AwsBucketItemsResult> {
   return invoke<AwsBucketItemsResult>("list_aws_bucket_items", {
     accessKeyId,
@@ -121,7 +122,8 @@ export async function listAwsBucketItems(
     prefix,
     bucketRegion,
     continuationToken,
-    restrictedBucketName
+    restrictedBucketName,
+    pageSize
   });
 }
 

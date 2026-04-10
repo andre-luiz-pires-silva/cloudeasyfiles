@@ -69,14 +69,16 @@ export async function listAzureContainerItems(
   accountKey: string,
   containerName: string,
   prefix?: string,
-  continuationToken?: string
+  continuationToken?: string,
+  pageSize?: number
 ): Promise<AzureContainerItemsResult> {
   return invoke<AzureContainerItemsResult>("list_azure_container_items", {
     storageAccountName,
     accountKey,
     containerName,
     prefix,
-    continuationToken
+    continuationToken,
+    pageSize
   });
 }
 

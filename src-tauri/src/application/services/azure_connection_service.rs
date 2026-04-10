@@ -17,7 +17,8 @@ use tokio::fs;
 use tokio::io::AsyncReadExt;
 
 const AZURE_BLOB_API_VERSION: &str = "2023-11-03";
-const DEFAULT_MAX_RESULTS: usize = 5000;
+const DEFAULT_MAX_RESULTS: usize = 200;
+const MAX_LISTING_PAGE_SIZE: usize = 1000;
 const AZURE_UPLOAD_BLOCK_SIZE: usize = 8 * 1024 * 1024;
 pub const AZURE_UPLOAD_CANCELLED_ERROR: &str = "UPLOAD_CANCELLED";
 
@@ -148,6 +149,7 @@ impl AzureConnectionService {
         container_name: String,
         prefix: Option<String>,
         continuation_token: Option<String>,
+        page_size: Option<i32>,
     ) -> Result<AzureContainerItemsResult, String> {
         let storage_account_name = normalize_storage_account_name(&input.storage_account_name)?;
         let normalized_container_name = container_name.trim().to_string();
@@ -157,11 +159,12 @@ impl AzureConnectionService {
         }
 
         let client = Client::new();
+        let page_size = normalize_listing_page_size(page_size);
         let mut query = vec![
             ("restype".to_string(), "container".to_string()),
             ("comp".to_string(), "list".to_string()),
             ("delimiter".to_string(), "/".to_string()),
-            ("maxresults".to_string(), DEFAULT_MAX_RESULTS.to_string()),
+            ("maxresults".to_string(), page_size.to_string()),
         ];
 
         if let Some(prefix_value) = normalize_prefix(prefix) {
@@ -842,6 +845,14 @@ fn parse_access_tier(value: Option<&str>) -> Result<Option<String>, String> {
     match value {
         "Hot" | "Cool" | "Cold" | "Archive" => Ok(Some(value.to_string())),
         _ => Err("Unsupported Azure upload access tier.".to_string()),
+    }
+}
+
+fn normalize_listing_page_size(value: Option<i32>) -> usize {
+    match value.unwrap_or(DEFAULT_MAX_RESULTS as i32) {
+        value if value < 1 => 1,
+        value if value > MAX_LISTING_PAGE_SIZE as i32 => MAX_LISTING_PAGE_SIZE,
+        value => value as usize,
     }
 }
 

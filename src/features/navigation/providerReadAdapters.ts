@@ -106,6 +106,7 @@ export async function listContainerItemsForSavedConnection(
     path?: string;
     region?: string | null;
     continuationToken?: string | null;
+    pageSize?: number;
   } = {}
 ): Promise<CloudContainerItemsResult> {
   if (connection.provider === "aws") {
@@ -117,7 +118,8 @@ export async function listContainerItemsForSavedConnection(
       options.path || undefined,
       options.region ?? undefined,
       options.continuationToken ?? undefined,
-      draft.restrictedBucketName
+      draft.restrictedBucketName,
+      options.pageSize
     );
 
     return {
@@ -146,7 +148,8 @@ export async function listContainerItemsForSavedConnection(
     draft.accountKey.trim(),
     containerName,
     options.path || undefined,
-    options.continuationToken ?? undefined
+    options.continuationToken ?? undefined,
+    options.pageSize
   );
 
   return {

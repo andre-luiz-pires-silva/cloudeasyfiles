@@ -36,7 +36,8 @@ const MISSING_MINIMUM_S3_PERMISSION_ERROR: &str = "AWS_S3_LIST_BUCKETS_PERMISSIO
 const RESTRICTED_BUCKET_MISMATCH_ERROR: &str = "AWS_S3_RESTRICTED_BUCKET_MISMATCH";
 pub const DOWNLOAD_CANCELLED_ERROR: &str = "DOWNLOAD_CANCELLED";
 pub const UPLOAD_CANCELLED_ERROR: &str = "UPLOAD_CANCELLED";
-const S3_LISTING_PAGE_SIZE: i32 = 200;
+const DEFAULT_S3_LISTING_PAGE_SIZE: i32 = 200;
+const MAX_S3_LISTING_PAGE_SIZE: i32 = 1000;
 const S3_DELETE_BATCH_SIZE: usize = 1000;
 const MULTIPART_UPLOAD_CHUNK_SIZE: usize = 8 * 1024 * 1024;
 const S3_COPY_OBJECT_MAX_SIZE: u64 = 5 * 1024 * 1024 * 1024;
@@ -192,6 +193,14 @@ fn calculate_multipart_copy_chunk_size(object_size: u64) -> u64 {
     let required_chunk_size = object_size.div_ceil(S3_MULTIPART_MAX_PARTS);
 
     minimum_chunk_size.max(required_chunk_size)
+}
+
+fn normalize_listing_page_size(page_size: Option<i32>) -> i32 {
+    match page_size.unwrap_or(DEFAULT_S3_LISTING_PAGE_SIZE) {
+        value if value < 1 => 1,
+        value if value > MAX_S3_LISTING_PAGE_SIZE => MAX_S3_LISTING_PAGE_SIZE,
+        value => value,
+    }
 }
 
 fn validate_restore_tier_for_storage_class(
@@ -790,6 +799,7 @@ impl AwsConnectionService {
         prefix: Option<String>,
         bucket_region: Option<String>,
         continuation_token: Option<String>,
+        page_size: Option<i32>,
     ) -> Result<AwsBucketItemsResult, String> {
         let access_key_id = input.access_key_id.trim().to_string();
         let secret_access_key = input.secret_access_key.trim().to_string();
@@ -811,6 +821,7 @@ impl AwsConnectionService {
             restricted_bucket_name,
         )
         .await?;
+        let page_size = normalize_listing_page_size(page_size);
 
         let (_, s3_client) =
             Self::build_clients(&resolved_bucket_region, access_key_id, secret_access_key).await;
@@ -823,7 +834,7 @@ impl AwsConnectionService {
             .list_objects_v2()
             .bucket(bucket_name.clone())
             .delimiter("/")
-            .max_keys(S3_LISTING_PAGE_SIZE)
+            .max_keys(page_size)
             .optional_object_attributes(OptionalObjectAttributes::RestoreStatus)
             .set_prefix((!prefix.is_empty()).then_some(prefix.clone()))
             .set_continuation_token(continuation_token)
@@ -1485,7 +1496,7 @@ impl AwsConnectionService {
             let response = s3_client
                 .list_objects_v2()
                 .bucket(bucket_name.clone())
-                .max_keys(S3_LISTING_PAGE_SIZE)
+                .max_keys(DEFAULT_S3_LISTING_PAGE_SIZE)
                 .set_prefix(Some(recursive_prefix.clone()))
                 .set_continuation_token(continuation_token.clone())
                 .send()

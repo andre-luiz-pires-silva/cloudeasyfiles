@@ -44,6 +44,12 @@ import {
   type AzureUploadTier
 } from "../connections/azureUploadTiers";
 import { appSettingsStore } from "../settings/persistence/appSettingsStore";
+import {
+  DEFAULT_CONTENT_LISTING_PAGE_SIZE,
+  MAX_CONTENT_LISTING_PAGE_SIZE,
+  MIN_CONTENT_LISTING_PAGE_SIZE,
+  normalizeContentListingPageSize
+} from "../settings/persistence/appSettingsStore";
 import type {
   AwsConnectionDraft,
   AzureAuthenticationMethod,
@@ -1070,6 +1076,16 @@ function loadInitialGlobalCacheDirectory(): string {
   return loadLegacyGlobalCacheDirectoryCandidate() ?? "";
 }
 
+function loadInitialContentListingPageSize(): number {
+  const appSettings = appSettingsStore.load();
+
+  if (typeof appSettings.contentListingPageSize === "number") {
+    return normalizeContentListingPageSize(appSettings.contentListingPageSize);
+  }
+
+  return DEFAULT_CONTENT_LISTING_PAGE_SIZE;
+}
+
 type ActiveTransfer = {
   operationId: string;
   itemId: string;
@@ -1190,6 +1206,9 @@ export function ConnectionNavigator({
     useState<AzureUploadTier>(DEFAULT_AZURE_UPLOAD_TIER);
   const [globalLocalCacheDirectory, setGlobalLocalCacheDirectory] = useState(
     loadInitialGlobalCacheDirectory
+  );
+  const [contentListingPageSize, setContentListingPageSize] = useState(
+    loadInitialContentListingPageSize
   );
   const [localMappingDirectoryStatus, setLocalMappingDirectoryStatus] =
     useState<LocalMappingDirectoryStatus>(() =>
@@ -3612,7 +3631,8 @@ function validateNewFolderNameInput(
           region:
             selectedBucketRegion && selectedBucketRegion !== BUCKET_REGION_PLACEHOLDER
               ? selectedBucketRegion
-              : undefined
+              : undefined,
+          pageSize: contentListingPageSize
         });
         const nextItems = buildContentItems(result);
 
@@ -3665,6 +3685,7 @@ function validateNewFolderNameInput(
     selectedBucketRegion,
     selectedConnection,
     contentRefreshNonce,
+    contentListingPageSize,
     t
   ]);
 
@@ -3685,12 +3706,15 @@ function validateNewFolderNameInput(
   }, [contentViewMode]);
 
   useEffect(() => {
+    appSettingsStore.save({
+      globalLocalCacheDirectory: globalLocalCacheDirectory.trim() || undefined,
+      contentListingPageSize
+    });
+  }, [contentListingPageSize, globalLocalCacheDirectory]);
+
+  useEffect(() => {
     let isActive = true;
     const normalizedPath = globalLocalCacheDirectory.trim();
-
-    appSettingsStore.save({
-      globalLocalCacheDirectory: normalizedPath || undefined
-    });
 
     if (!normalizedPath) {
       setLocalMappingDirectoryStatus("missing");
@@ -3893,7 +3917,8 @@ function validateNewFolderNameInput(
           selectedBucketRegion && selectedBucketRegion !== BUCKET_REGION_PLACEHOLDER
             ? selectedBucketRegion
             : undefined,
-        continuationToken: contentContinuationToken
+        continuationToken: contentContinuationToken,
+        pageSize: contentListingPageSize
       });
       const nextItems = buildContentItems(result);
 
@@ -5043,6 +5068,48 @@ function validateNewFolderNameInput(
                       <option value="en-US">English (US)</option>
                       <option value="pt-BR">Portuguese (Brazil)</option>
                     </select>
+                  </label>
+
+                  <label
+                    className="field-group compact-field-group home-settings-path-field"
+                    htmlFor="content-listing-page-size"
+                  >
+                    <span className="home-field-label">
+                      <Database size={16} strokeWidth={2} />
+                      <span>{t("settings.content_listing_page_size")}</span>
+                    </span>
+                    <div className="path-picker-row">
+                      <input
+                        id="content-listing-page-size"
+                        type="number"
+                        min={MIN_CONTENT_LISTING_PAGE_SIZE}
+                        max={MAX_CONTENT_LISTING_PAGE_SIZE}
+                        step={1}
+                        value={contentListingPageSize}
+                        onChange={(event) => {
+                          const parsedValue = Number(event.target.value);
+                          setContentListingPageSize(normalizeContentListingPageSize(parsedValue));
+                        }}
+                      />
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        onClick={() =>
+                          setContentListingPageSize(DEFAULT_CONTENT_LISTING_PAGE_SIZE)
+                        }
+                        disabled={
+                          contentListingPageSize === DEFAULT_CONTENT_LISTING_PAGE_SIZE
+                        }
+                      >
+                        {t("common.reset")}
+                      </button>
+                    </div>
+                    <span className="field-helper">
+                      {t("settings.content_listing_page_size_helper")
+                        .replace("{default}", String(DEFAULT_CONTENT_LISTING_PAGE_SIZE))
+                        .replace("{min}", String(MIN_CONTENT_LISTING_PAGE_SIZE))
+                        .replace("{max}", String(MAX_CONTENT_LISTING_PAGE_SIZE))}
+                    </span>
                   </label>
 
                   <label

@@ -247,6 +247,7 @@ pub async fn list_azure_container_items(
     container_name: String,
     prefix: Option<String>,
     continuation_token: Option<String>,
+    page_size: Option<i32>,
 ) -> Result<AzureContainerItemsResult, String> {
     AzureConnectionService::list_container_items(
         AzureConnectionTestInput {
@@ -256,6 +257,7 @@ pub async fn list_azure_container_items(
         container_name,
         prefix,
         continuation_token,
+        page_size,
     )
     .await
 }
@@ -341,6 +343,7 @@ pub async fn list_aws_bucket_items(
     bucket_region: Option<String>,
     continuation_token: Option<String>,
     restricted_bucket_name: Option<String>,
+    page_size: Option<i32>,
 ) -> Result<AwsBucketItemsResult, String> {
     eprintln!(
         "[commands] list_aws_bucket_items called for bucket_name={} prefix={}",
@@ -358,6 +361,7 @@ pub async fn list_aws_bucket_items(
         prefix,
         bucket_region,
         continuation_token,
+        page_size,
     )
     .await;
 
