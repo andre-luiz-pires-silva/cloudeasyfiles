@@ -1,5 +1,26 @@
 # Implementation Plan: Azure Support
 
+## Status
+
+Azure support is implemented through all eight phases described in this document.
+
+Delivered scope:
+
+- Azure connection create, edit, test, save, and delete using `Shared Key`
+- Azure container and blob browsing with normalized folders and `Load more`
+- Azure default upload tier configuration with `Hot`, `Cool`, `Cold`, and `Archive`
+- Azure uploads with progress, cancelation, overwrite handling, and automatic refresh
+- Azure downloads with tracked cache downloads, direct downloads, progress, and cancelation
+- Azure folder creation and recursive delete
+- Azure tier changes
+- Azure archive rehydration with destination-tier and priority selection
+
+Known current constraints:
+
+- `Microsoft Entra ID` remains visible in the UI as `coming soon` and is not implemented
+- Azure container listing is not yet paginated; blob listing is paginated
+- Validation has been completed with `npm run build` and `cargo check`; manual mixed-provider regression remains an operational checklist rather than a recorded automated suite
+
 ## Summary
 
 Implement Azure Blob Storage support across the existing CloudEasyFiles workflow model while preserving the current AWS-first architecture style. The first Azure release will use `Shared Key` authentication with `Microsoft Entra ID` visible in the UI as an upcoming option, require `storageAccountName`, support full container and blob browsing, reuse the current transfer-monitor approach for downloads and uploads, expose Azure-native access tiers for upload and tier changes, and implement Azure Archive rehydration through a provider-specific flow that stays honest about its differences from AWS restore.
@@ -95,6 +116,12 @@ Implement Azure Blob Storage support across the existing CloudEasyFiles workflow
 - Document the restore-model difference between AWS temporary restore availability and Azure in-place rehydration to an online tier.
 - Update any provider abstraction references that currently imply Azure support is planned but not yet modeled in implementation detail.
 - Add Azure-specific notes wherever current documentation still says upload, restore, or tier-change behavior is AWS-only.
+
+Documentation updates completed in this phase:
+
+- Azure support is now documented as implemented rather than planned
+- AWS temporary restore versus Azure in-place rehydration is called out explicitly
+- Azure `Archive` is documented as a supported upload and tier target
 
 ## Verification
 
@@ -245,8 +272,24 @@ Functional tests after Phase 7:
 - Document the semantic difference between AWS temporary restore availability and Azure in-place rehydration.
 - Run a mixed-provider regression pass across the full app.
 
+Phase 8 outcome:
+
+- Documentation updated to reflect implemented Azure support
+- Regression checklist defined for mixed AWS and Azure validation
+- Build validation completed with `npm run build` and `cargo check`
+
 Functional tests after Phase 8:
 
 - Read the updated docs and verify Azure support and archival-backup positioning are explicit and consistent.
 - Execute a smoke test covering one AWS connection and one Azure connection in the same app session.
 - Verify create, connect, browse, upload, download, delete, tier change, and restore or rehydration all work in their respective providers without cross-provider regressions.
+
+Recommended mixed-provider regression checklist:
+
+- Create, edit, test, and delete one AWS connection and one Azure connection in the same session
+- Browse AWS buckets and Azure containers, including nested folders and `Load more`
+- Upload one file and one batch to AWS and Azure, including overwrite resolution
+- Download one file through tracked `Download` and one file through `Download As` in AWS and Azure
+- Create and delete folders in AWS and Azure
+- Change tier on one AWS object and one Azure blob
+- Start an AWS restore request and an Azure rehydration request, then confirm provider-specific copy and state handling remain correct

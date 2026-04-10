@@ -2,21 +2,29 @@
 
 ## Objective
 
-Define how CloudEasyFiles exposes restoration of archived files, starting with AWS S3 Glacier and related AWS archival tiers.
+Define how CloudEasyFiles exposes restoration of archived files while preserving provider-specific restore semantics across AWS and Azure.
 
 ## Context
 
-Archived files are not immediately downloadable. The product needs a restore workflow that is transparent about AWS behavior, cost tradeoffs, and temporary availability without inventing a fake cross-provider abstraction.
+Archived files are not immediately downloadable. The product needs restore workflows that are transparent about provider behavior, cost tradeoffs, and availability semantics without inventing a fake cross-provider abstraction.
 
 ## Functional Requirements
 
 - Archived AWS files must expose a `Restore` action in the file row or contextual actions.
 - Triggering `Restore` must open an AWS-specific restore modal.
+- Archived Azure blobs must expose a restore entry point that opens an Azure-specific rehydration modal.
 - The restore modal must show file name and file size before confirmation.
 - The modal must let the user choose one AWS restore tier:
   - `Expedited`
   - `Standard`
   - `Bulk`
+- The Azure rehydration modal must let the user choose one destination tier:
+  - `Hot`
+  - `Cool`
+  - `Cold`
+- The Azure rehydration modal must let the user choose one rehydration priority:
+  - `Standard`
+  - `High`
 - Each tier option must show:
   - estimated restore time
   - approximate cost guidance
@@ -25,6 +33,8 @@ Archived files are not immediately downloadable. The product needs a restore wor
 - The modal must explain that the file returns to Glacier or the original archival tier after the retention period.
 - The modal must explain that retention days affect temporary storage cost, not the restore request fee itself.
 - The modal must show visible links to AWS official restore and pricing documentation.
+- The Azure rehydration modal must explain that the blob is rehydrated in place to the selected online tier and does not use an AWS-style restore-expiry window.
+- The Azure rehydration modal must show visible links to Azure documentation and pricing guidance.
 - The modal must show a confirmation summary before the user submits the request.
 - The explorer and related UI must reflect provider-reported availability states:
   - `Archived`
@@ -37,7 +47,7 @@ Archived files are not immediately downloadable. The product needs a restore wor
 
 ## Non-Functional Requirements
 
-- Restore UX must remain explicit about AWS-specific behavior rather than hiding it behind generic language.
+- Restore UX must remain explicit about provider-specific behavior rather than hiding it behind generic language.
 - Restore-related state shown in the UI must come from the provider, not from local persisted history.
 - The product should help users make cost-sensitive decisions without claiming exact pricing.
 - Restore monitoring must not require continuous background polling.
@@ -46,7 +56,7 @@ Archived files are not immediately downloadable. The product needs a restore wor
 
 - Restore is not a provider-generic workflow in V1.
 - AWS restore is implemented as a provider-specific feature and should live in an AWS-specific implementation area such as `src/features/aws-restore/`.
-- Future Azure rehydration support must be documented and implemented separately rather than forced into the AWS model.
+- Azure rehydration is implemented as a provider-specific feature and should live in an Azure-specific implementation area such as `src/features/azure-restore/`.
 - The restore modal content may use repository-maintained static estimates for time and cost.
 - Static estimates are advisory only and do not replace AWS official values.
 - The cloud provider is the source of truth for current restore state.
@@ -68,12 +78,15 @@ Archived files are not immediately downloadable. The product needs a restore wor
 - Restore monitoring should feel current when the user navigates or refreshes the current context, without implying real-time streaming updates.
 - Files that are already restoring should not invite duplicate restore requests from the main list.
 - Files that are temporarily restored should communicate both immediate usability and continued archival origin.
+- Azure rehydration should communicate that the result is a persistent tier transition back to an online tier, not a temporary restore window.
 
 ## Acceptance Criteria
 
 - An AWS archived file shows a `Restore` action.
-- Triggering that action opens an AWS-specific restore modal rather than a generic provider-neutral dialog.
+- An Azure archived blob also shows a restore entry point, but it opens an Azure-specific rehydration modal rather than reusing the AWS contract.
+- Triggering AWS restore opens an AWS-specific restore modal rather than a generic provider-neutral dialog.
 - The modal shows file name, file size, restore-tier options, retention days, AWS documentation links, and a confirmation summary.
+- The Azure rehydration modal shows file name, file size, destination-tier options, rehydration-priority options, Azure documentation links, and a confirmation summary.
 - Restore-tier options include estimated time, approximate cost guidance, and explanation text.
 - The main file list can represent `Archived`, `Restoring`, and `Available` based on provider state.
 - A temporarily restored archival file can simultaneously communicate `Available` and `Archived` before it has been downloaded.
@@ -81,6 +94,7 @@ Archived files are not immediately downloadable. The product needs a restore wor
 - The loaded-context summary shows restore detail only for the currently loaded bucket or folder contents.
 - Without explicit refresh or context navigation, the app does not auto-poll restore status.
 - When AWS no longer reports a file as restoring in the loaded context, the summary and file row update on the next context load or refresh.
+- When Azure no longer reports archive rehydration in progress in the loaded context, the summary and file row update on the next context load or refresh.
 
 ## Out of Scope
 

@@ -43,7 +43,9 @@ The listing abstraction should not require:
 
 - numbered pages
 - exact global totals for the current directory
-- user-configurable page size as part of V1 explorer UX
+- user-configurable page size to be expressed in provider terminology
+
+The current implementation does expose a global application setting for explorer page size, defaulting to `200`, and applies it to AWS object listing and Azure blob listing.
 
 ## StorageClass
 
@@ -133,8 +135,11 @@ The product may expose a common concept of restoring archived content, but the w
 - restore is a single-file action
 - restore execution details are provider-specific
 - AWS restore state is inferred from object metadata such as restore headers rather than from a global restore-jobs API
+- Azure rehydration state is inferred from blob tier and archive-status metadata rather than from a separate job API
 - the current AWS implementation requests `RestoreStatus` during object listing so the same loaded dataset can represent archived, restoring, and temporarily restored items
+- the current Azure implementation requests the metadata needed to represent archived and rehydrating items in the same loaded dataset
 - AWS restore-expiry metadata can be surfaced in the UI to show how long a temporary restored copy remains downloadable
+- Azure rehydration does not expose an AWS-style restore-expiry window because the blob is moved in place to the chosen online tier
 - restore activity is rediscovered from the provider on connection initialization, screen open, navigation, and explicit refresh
 - the app does not persist restore history locally
 - the app does not continuously poll restore status in the background
@@ -164,14 +169,15 @@ Rules:
 
 ## Upload Rule
 
-The current simple upload implementation is AWS-only and targets the currently open bucket path.
+The current upload implementation supports both AWS and Azure in the currently open bucket or container path.
 
 Rules:
 
 - `SimpleUpload` sends one or more local files to the currently open bucket root or folder path.
 - the object key is derived from the current logical path plus the original local file name
 - the current AWS implementation uses `PutObject` for smaller files and multipart upload when needed internally
-- the current upload flow uses a per-connection AWS `StorageClass` default configured in the connection settings
+- the current Azure implementation uses single-request upload for smaller files and block upload when needed internally
+- the current upload flow uses a per-connection provider-native default tier or storage class configured in the connection settings
 - the app does not expose advanced upload parameterization; provider-specific options beyond the default flow belong in the provider console
 - the current upload flow preflights destination conflicts and resolves them in a dedicated batch modal with per-item and apply-to-all decisions
 - uploads participate in the same transfer monitor used for downloads, including progress and cancelation
