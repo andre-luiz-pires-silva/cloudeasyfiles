@@ -49,6 +49,20 @@ export type AzureUploadProgressEvent = {
   error?: string | null;
 };
 
+export type AzureDownloadProgressEvent = {
+  operationId: string;
+  transferKind: "cache" | "direct";
+  connectionId: string;
+  bucketName: string;
+  objectKey: string;
+  targetPath?: string | null;
+  bytesReceived: number;
+  totalBytes: number;
+  progressPercent: number;
+  state: "progress" | "completed" | "failed" | "cancelled";
+  error?: string | null;
+};
+
 export async function testAzureConnection(
   storageAccountName: string,
   accountKey: string
@@ -142,6 +156,102 @@ export async function deleteAzurePrefix(
     accountKey,
     containerName,
     prefix
+  });
+}
+
+export async function startAzureCacheDownload(
+  operationId: string,
+  storageAccountName: string,
+  accountKey: string,
+  connectionId: string,
+  connectionName: string,
+  containerName: string,
+  blobName: string,
+  globalLocalCacheDirectory: string
+): Promise<string> {
+  return invoke<string>("start_azure_cache_download", {
+    operationId,
+    storageAccountName,
+    accountKey,
+    connectionId,
+    connectionName,
+    containerName,
+    blobName,
+    globalLocalCacheDirectory
+  });
+}
+
+export async function downloadAzureBlobToPath(
+  operationId: string,
+  storageAccountName: string,
+  accountKey: string,
+  connectionId: string,
+  containerName: string,
+  blobName: string,
+  destinationPath: string
+): Promise<string> {
+  return invoke<string>("download_azure_blob_to_path", {
+    operationId,
+    storageAccountName,
+    accountKey,
+    connectionId,
+    containerName,
+    blobName,
+    destinationPath
+  });
+}
+
+export async function cancelAzureDownload(operationId: string): Promise<void> {
+  await invoke("cancel_azure_download", {
+    operationId
+  });
+}
+
+export async function findAzureCachedObjects(
+  connectionId: string,
+  connectionName: string,
+  containerName: string,
+  globalLocalCacheDirectory: string,
+  blobNames: string[]
+): Promise<string[]> {
+  return invoke<string[]>("find_azure_cached_objects", {
+    connectionId,
+    connectionName,
+    containerName,
+    globalLocalCacheDirectory,
+    blobNames
+  });
+}
+
+export async function openAzureCachedObjectParent(
+  connectionId: string,
+  connectionName: string,
+  containerName: string,
+  globalLocalCacheDirectory: string,
+  blobName: string
+): Promise<void> {
+  await invoke("open_azure_cached_object_parent", {
+    connectionId,
+    connectionName,
+    containerName,
+    globalLocalCacheDirectory,
+    blobName
+  });
+}
+
+export async function openAzureCachedObject(
+  connectionId: string,
+  connectionName: string,
+  containerName: string,
+  globalLocalCacheDirectory: string,
+  blobName: string
+): Promise<void> {
+  await invoke("open_azure_cached_object", {
+    connectionId,
+    connectionName,
+    containerName,
+    globalLocalCacheDirectory,
+    blobName
   });
 }
 

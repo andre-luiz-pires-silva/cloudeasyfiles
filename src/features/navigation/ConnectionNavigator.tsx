@@ -89,13 +89,20 @@ import {
 } from "../../lib/tauri/awsConnections";
 import {
   azureBlobExists,
+  cancelAzureDownload,
   createAzureFolder,
+  downloadAzureBlobToPath,
   deleteAzureObjects,
   deleteAzurePrefix,
+  findAzureCachedObjects,
+  openAzureCachedObject,
+  openAzureCachedObjectParent,
   cancelAzureUpload,
+  startAzureCacheDownload,
   startAzureUpload,
   startAzureUploadFromBytes,
   testAzureConnection,
+  type AzureDownloadProgressEvent,
   type AzureUploadProgressEvent
 } from "../../lib/tauri/azureConnections";
 import type { Locale } from "../../lib/i18n/I18nProvider";
@@ -934,7 +941,7 @@ function canChangeTierItem(
 function canDownloadItem(item: ContentExplorerItem, context: FileActionAvailabilityContext): boolean {
   return (
     item.kind === "file" &&
-    context.provider === "aws" &&
+    !!context.provider &&
     context.hasValidLocalCacheDirectory &&
     item.availabilityStatus === "available" &&
     item.downloadState !== "downloaded" &&
@@ -954,7 +961,7 @@ function canDownloadAsItem(
 ): boolean {
   return (
     item.kind === "file" &&
-    context.provider === "aws" &&
+    !!context.provider &&
     item.availabilityStatus === "available" &&
     !hasActiveTransferForItem(
       item,
@@ -980,6 +987,7 @@ function isFileIdentityInContext(
 }
 
 async function resolveCachedFileIdentities(
+  provider: ConnectionProvider,
   connectionId: string,
   connectionName: string,
   bucketName: string,
@@ -998,13 +1006,22 @@ async function resolveCachedFileIdentities(
     return new Set();
   }
 
-  const cachedObjectKeys = await findAwsCachedObjects(
-    connectionId,
-    connectionName,
-    bucketName,
-    globalLocalCacheDirectory,
-    objectKeys
-  );
+  const cachedObjectKeys =
+    provider === "aws"
+      ? await findAwsCachedObjects(
+          connectionId,
+          connectionName,
+          bucketName,
+          globalLocalCacheDirectory,
+          objectKeys
+        )
+      : await findAzureCachedObjects(
+          connectionId,
+          connectionName,
+          bucketName,
+          globalLocalCacheDirectory,
+          objectKeys
+        );
 
   return new Set(
     cachedObjectKeys.map((objectKey) => buildFileIdentity(connectionId, bucketName, objectKey))
@@ -1764,7 +1781,13 @@ function validateNewFolderNameInput(
   function handleCancelActiveDownload(operationId: string) {
     void (async () => {
       try {
-        await cancelAwsDownload(operationId);
+        const activeTransfer = activeTransfers[operationId];
+
+        if (activeTransfer?.provider === "azure") {
+          await cancelAzureDownload(operationId);
+        } else {
+          await cancelAwsDownload(operationId);
+        }
       } catch (error) {
         if (isCancelledTransferError(error)) {
           return;
@@ -2589,7 +2612,7 @@ function validateNewFolderNameInput(
   function startTrackedDownloadForItem(item: ContentExplorerItem) {
     if (
       item.kind !== "file" ||
-      selectedBucketProvider !== "aws" ||
+      !selectedBucketProvider ||
       !selectedBucketConnectionId ||
       !selectedBucketName ||
       !selectedConnection ||
@@ -2626,22 +2649,37 @@ function validateNewFolderNameInput(
 
     void (async () => {
       try {
-        const draft = await connectionService.getAwsConnectionDraft(selectedBucketConnectionId);
+        if (selectedBucketProvider === "aws") {
+          const draft = await connectionService.getAwsConnectionDraft(selectedBucketConnectionId);
 
-        await startAwsCacheDownload(
-          operationId,
-          draft.accessKeyId.trim(),
-          draft.secretAccessKey.trim(),
-          selectedBucketConnectionId,
-          selectedConnection.name,
-          selectedBucketName,
-          item.path,
-          globalLocalCacheDirectory,
-          selectedBucketRegion && selectedBucketRegion !== BUCKET_REGION_PLACEHOLDER
-            ? selectedBucketRegion
-            : undefined,
-          draft.restrictedBucketName
-        );
+          await startAwsCacheDownload(
+            operationId,
+            draft.accessKeyId.trim(),
+            draft.secretAccessKey.trim(),
+            selectedBucketConnectionId,
+            selectedConnection.name,
+            selectedBucketName,
+            item.path,
+            globalLocalCacheDirectory,
+            selectedBucketRegion && selectedBucketRegion !== BUCKET_REGION_PLACEHOLDER
+              ? selectedBucketRegion
+              : undefined,
+            draft.restrictedBucketName
+          );
+        } else {
+          const draft = await connectionService.getAzureConnectionDraft(selectedBucketConnectionId);
+
+          await startAzureCacheDownload(
+            operationId,
+            draft.storageAccountName,
+            draft.accountKey.trim(),
+            selectedBucketConnectionId,
+            selectedConnection.name,
+            selectedBucketName,
+            item.path,
+            globalLocalCacheDirectory
+          );
+        }
       } catch (error) {
         if (isCancelledTransferError(error)) {
           return;
@@ -2829,13 +2867,23 @@ function validateNewFolderNameInput(
       selectedConnection &&
       hasValidGlobalLocalCacheDirectory
     ) {
-      void openAwsCachedObject(
-        selectedBucketConnectionId,
-        selectedConnection.name,
-        selectedBucketName,
-        globalLocalCacheDirectory,
-        item.path
-      );
+      if (selectedBucketProvider === "aws") {
+        void openAwsCachedObject(
+          selectedBucketConnectionId,
+          selectedConnection.name,
+          selectedBucketName,
+          globalLocalCacheDirectory,
+          item.path
+        );
+      } else {
+        void openAzureCachedObject(
+          selectedBucketConnectionId,
+          selectedConnection.name,
+          selectedBucketName,
+          globalLocalCacheDirectory,
+          item.path
+        );
+      }
       return;
     }
 
@@ -2847,13 +2895,23 @@ function validateNewFolderNameInput(
       selectedConnection &&
       hasValidGlobalLocalCacheDirectory
     ) {
-      void openAwsCachedObjectParent(
-        selectedBucketConnectionId,
-        selectedConnection.name,
-        selectedBucketName,
-        globalLocalCacheDirectory,
-        item.path
-      );
+      if (selectedBucketProvider === "aws") {
+        void openAwsCachedObjectParent(
+          selectedBucketConnectionId,
+          selectedConnection.name,
+          selectedBucketName,
+          globalLocalCacheDirectory,
+          item.path
+        );
+      } else {
+        void openAzureCachedObjectParent(
+          selectedBucketConnectionId,
+          selectedConnection.name,
+          selectedBucketName,
+          globalLocalCacheDirectory,
+          item.path
+        );
+      }
       return;
     }
 
@@ -2906,21 +2964,35 @@ function validateNewFolderNameInput(
         didCreateTransferEntry = true;
 
         try {
-          const draft = await connectionService.getAwsConnectionDraft(selectedBucketConnectionId);
+          if (selectedBucketProvider === "aws") {
+            const draft = await connectionService.getAwsConnectionDraft(selectedBucketConnectionId);
 
-          await downloadAwsObjectToPath(
-            operationId,
-            draft.accessKeyId.trim(),
-            draft.secretAccessKey.trim(),
-            selectedBucketConnectionId,
-            selectedBucketName,
-            item.path,
-            destinationPath,
-            selectedBucketRegion && selectedBucketRegion !== BUCKET_REGION_PLACEHOLDER
-              ? selectedBucketRegion
-              : undefined,
-            draft.restrictedBucketName
-          );
+            await downloadAwsObjectToPath(
+              operationId,
+              draft.accessKeyId.trim(),
+              draft.secretAccessKey.trim(),
+              selectedBucketConnectionId,
+              selectedBucketName,
+              item.path,
+              destinationPath,
+              selectedBucketRegion && selectedBucketRegion !== BUCKET_REGION_PLACEHOLDER
+                ? selectedBucketRegion
+                : undefined,
+              draft.restrictedBucketName
+            );
+          } else {
+            const draft = await connectionService.getAzureConnectionDraft(selectedBucketConnectionId);
+
+            await downloadAzureBlobToPath(
+              operationId,
+              draft.storageAccountName,
+              draft.accountKey.trim(),
+              selectedBucketConnectionId,
+              selectedBucketName,
+              item.path,
+              destinationPath
+            );
+          }
         } catch (error) {
           if (isCancelledTransferError(error)) {
             return;
@@ -3038,6 +3110,101 @@ function validateNewFolderNameInput(
         };
       } catch (error) {
         console.warn("[ui] failed to register aws download listener", error);
+      }
+    })();
+
+    return () => {
+      isActive = false;
+      cleanup?.();
+    };
+  }, [t]);
+
+  useEffect(() => {
+    let isActive = true;
+    let cleanup: (() => void) | null = null;
+
+    if (!isTauri()) {
+      return undefined;
+    }
+
+    void (async () => {
+      try {
+        const unlisten = await listen<AzureDownloadProgressEvent>(
+          "azure-download-progress",
+          (event) => {
+            if (!isActive) {
+              return;
+            }
+
+            const payload = event.payload;
+
+            setActiveTransfers((currentTransfers) => {
+              const existingTransfer = currentTransfers[payload.operationId];
+
+              if (!existingTransfer) {
+                return currentTransfers;
+              }
+
+              return {
+                ...currentTransfers,
+                [payload.operationId]: {
+                  ...existingTransfer,
+                  progressPercent: payload.progressPercent,
+                  bytesTransferred: payload.bytesReceived,
+                  totalBytes: payload.totalBytes,
+                  state: payload.state,
+                  transferKind: payload.transferKind,
+                  targetPath: payload.targetPath,
+                  error: payload.error
+                }
+              };
+            });
+
+            if (payload.state === "completed" && payload.transferKind === "cache") {
+              const fileIdentity = buildFileIdentity(
+                payload.connectionId,
+                payload.bucketName,
+                payload.objectKey
+              );
+
+              setDownloadedFilePaths((currentPaths) =>
+                currentPaths.includes(fileIdentity)
+                  ? currentPaths
+                  : [...currentPaths, fileIdentity]
+              );
+              setContentItems((currentItems) =>
+                currentItems.map((currentItem) =>
+                  currentItem.kind === "file" && currentItem.path === payload.objectKey
+                    ? { ...currentItem, downloadState: "downloaded" }
+                    : currentItem
+                )
+              );
+            }
+
+            if (payload.state === "completed" && payload.transferKind === "direct") {
+              setCompletionToast({
+                id: payload.operationId,
+                title: t("content.transfer.download_as_completed"),
+                description:
+                  payload.targetPath ?? t("content.transfer.download_as_completed_fallback"),
+                tone: "success"
+              });
+            } else if (payload.state === "failed" && payload.error) {
+              showTransferErrorToast(payload.error);
+            }
+          }
+        );
+
+        if (!isActive) {
+          void unlisten();
+          return;
+        }
+
+        cleanup = () => {
+          void unlisten();
+        };
+      } catch (error) {
+        console.warn("[ui] failed to register azure download listener", error);
       }
     })();
 
@@ -3345,7 +3512,7 @@ function validateNewFolderNameInput(
 
   useEffect(() => {
     if (
-      selectedBucketProvider !== "aws" ||
+      !selectedBucketProvider ||
       !selectedBucketConnectionId ||
       !selectedBucketName ||
       !selectedConnection ||
@@ -3360,6 +3527,7 @@ function validateNewFolderNameInput(
     void (async () => {
       try {
         const cachedFileIdentities = await resolveCachedFileIdentities(
+          selectedBucketProvider,
           selectedBucketConnectionId,
           selectedConnection.name,
           selectedBucketName,

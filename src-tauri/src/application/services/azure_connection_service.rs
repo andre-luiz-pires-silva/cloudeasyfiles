@@ -1,6 +1,7 @@
 use crate::domain::azure_connection::{
-    AzureBlobSummary, AzureConnectionTestInput, AzureConnectionTestResult, AzureContainerItemsResult,
-    AzureContainerSummary, AzureDeleteResult, AzureVirtualDirectorySummary,
+    AzureBlobSummary, AzureCacheDownloadResult, AzureConnectionTestInput,
+    AzureConnectionTestResult, AzureContainerItemsResult, AzureContainerSummary,
+    AzureDeleteResult, AzureVirtualDirectorySummary,
 };
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use chrono::Utc;
@@ -12,15 +13,19 @@ use serde::Deserialize;
 use sha2::Sha256;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
+use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, LazyLock, Mutex};
+use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::fs;
 use tokio::io::AsyncReadExt;
+use tokio::io::AsyncWriteExt;
 
 const AZURE_BLOB_API_VERSION: &str = "2023-11-03";
 const DEFAULT_MAX_RESULTS: usize = 200;
 const MAX_LISTING_PAGE_SIZE: usize = 1000;
 const AZURE_UPLOAD_BLOCK_SIZE: usize = 8 * 1024 * 1024;
+pub const AZURE_DOWNLOAD_CANCELLED_ERROR: &str = "DOWNLOAD_CANCELLED";
 pub const AZURE_UPLOAD_CANCELLED_ERROR: &str = "UPLOAD_CANCELLED";
 const AZURE_FOLDER_PLACEHOLDER_METADATA_KEY: &str = "hdi_isfolder";
 const AZURE_FOLDER_PLACEHOLDER_METADATA_VALUE: &str = "true";
@@ -41,12 +46,26 @@ const AZURE_BLOB_PATH_ENCODE_SET: &AsciiSet = &CONTROLS
 
 type HmacSha256 = Hmac<Sha256>;
 
+struct DownloadCancellationGuard {
+    operation_id: String,
+}
+
 struct UploadCancellationGuard {
     operation_id: String,
 }
 
+static DOWNLOAD_CANCELLATIONS: LazyLock<Mutex<BTreeMap<String, Arc<AtomicBool>>>> =
+    LazyLock::new(|| Mutex::new(BTreeMap::new()));
 static UPLOAD_CANCELLATIONS: LazyLock<Mutex<BTreeMap<String, Arc<AtomicBool>>>> =
     LazyLock::new(|| Mutex::new(BTreeMap::new()));
+
+impl Drop for DownloadCancellationGuard {
+    fn drop(&mut self) {
+        if let Ok(mut cancellations) = DOWNLOAD_CANCELLATIONS.lock() {
+            cancellations.remove(&self.operation_id);
+        }
+    }
+}
 
 impl Drop for UploadCancellationGuard {
     fn drop(&mut self) {
@@ -137,6 +156,9 @@ struct ListBlobMetadataNode {
 pub struct AzureConnectionService;
 
 impl AzureConnectionService {
+    const CACHE_TEMP_DIRECTORY: &'static str = ".cloudeasyfiles-tmp";
+    const CACHE_ESCAPED_SEGMENT_PREFIX: &'static str = ".cloudeasyfiles-segment-";
+
     pub async fn test_connection(
         input: AzureConnectionTestInput,
     ) -> Result<AzureConnectionTestResult, String> {
@@ -500,6 +522,348 @@ impl AzureConnectionService {
         })
     }
 
+    pub async fn download_blob_to_cache<F>(
+        operation_id: String,
+        input: AzureConnectionTestInput,
+        connection_id: String,
+        connection_name: String,
+        container_name: String,
+        blob_name: String,
+        global_local_cache_directory: String,
+        mut on_progress: F,
+    ) -> Result<AzureCacheDownloadResult, String>
+    where
+        F: FnMut(i64, i64, &str) -> Result<(), String>,
+    {
+        let _connection_id = connection_id.trim().to_string();
+        let connection_name = connection_name.trim().to_string();
+        let storage_account_name = normalize_storage_account_name(&input.storage_account_name)?;
+        let normalized_container_name = container_name.trim().to_string();
+        let normalized_blob_name = blob_name.trim().to_string();
+        let global_local_cache_directory = global_local_cache_directory.trim().to_string();
+        let (cancellation_flag, _cancellation_guard) =
+            Self::register_download_cancellation(&operation_id)?;
+
+        if global_local_cache_directory.is_empty() {
+            return Err("Local cache directory is required for tracked downloads.".to_string());
+        }
+
+        let client = Client::new();
+        let response = download_blob_response(
+            &client,
+            &storage_account_name,
+            &input.account_key,
+            &normalized_container_name,
+            &normalized_blob_name,
+        )
+        .await?;
+        let total_bytes = response.content_length().unwrap_or(0) as i64;
+        let final_path = Self::build_primary_cache_object_path(
+            &global_local_cache_directory,
+            &connection_name,
+            &normalized_container_name,
+            &normalized_blob_name,
+        )?;
+        let temp_path = Self::build_cache_temp_object_path(
+            &global_local_cache_directory,
+            &connection_name,
+            &normalized_container_name,
+            &normalized_blob_name,
+        )?;
+
+        if let Some(parent_directory) = final_path.parent() {
+            fs::create_dir_all(parent_directory)
+                .await
+                .map_err(|error| error.to_string())?;
+        }
+
+        if let Some(temp_parent_directory) = temp_path.parent() {
+            fs::create_dir_all(temp_parent_directory)
+                .await
+                .map_err(|error| error.to_string())?;
+        }
+
+        let mut file = fs::File::create(&temp_path)
+            .await
+            .map_err(|error| error.to_string())?;
+        let mut response = response;
+        let mut written_bytes = 0_i64;
+        let final_path_string = final_path.to_string_lossy().to_string();
+
+        if cancellation_flag.load(Ordering::SeqCst) {
+            Self::remove_temp_file_if_exists(&temp_path).await?;
+            return Err(AZURE_DOWNLOAD_CANCELLED_ERROR.to_string());
+        }
+
+        while let Some(chunk) = response.chunk().await.map_err(|error| error.to_string())? {
+            if cancellation_flag.load(Ordering::SeqCst) {
+                drop(file);
+                Self::remove_temp_file_if_exists(&temp_path).await?;
+                return Err(AZURE_DOWNLOAD_CANCELLED_ERROR.to_string());
+            }
+
+            file.write_all(&chunk)
+                .await
+                .map_err(|error| error.to_string())?;
+
+            written_bytes += chunk.len() as i64;
+            on_progress(written_bytes, total_bytes, &final_path_string)?;
+        }
+
+        file.flush().await.map_err(|error| error.to_string())?;
+        drop(file);
+
+        if cancellation_flag.load(Ordering::SeqCst) {
+            Self::remove_temp_file_if_exists(&temp_path).await?;
+            return Err(AZURE_DOWNLOAD_CANCELLED_ERROR.to_string());
+        }
+
+        if fs::try_exists(&final_path)
+            .await
+            .map_err(|error| error.to_string())?
+        {
+            fs::remove_file(&final_path)
+                .await
+                .map_err(|error| error.to_string())?;
+        }
+
+        fs::rename(&temp_path, &final_path)
+            .await
+            .map_err(|error| error.to_string())?;
+
+        Ok(AzureCacheDownloadResult {
+            local_path: final_path_string,
+            bytes_written: written_bytes,
+        })
+    }
+
+    pub async fn download_blob_to_path<F>(
+        operation_id: String,
+        input: AzureConnectionTestInput,
+        container_name: String,
+        blob_name: String,
+        destination_path: String,
+        mut on_progress: F,
+    ) -> Result<String, String>
+    where
+        F: FnMut(i64, i64, &str) -> Result<(), String>,
+    {
+        let storage_account_name = normalize_storage_account_name(&input.storage_account_name)?;
+        let normalized_container_name = container_name.trim().to_string();
+        let normalized_blob_name = blob_name.trim().to_string();
+        let destination_path = destination_path.trim().to_string();
+        let (cancellation_flag, _cancellation_guard) =
+            Self::register_download_cancellation(&operation_id)?;
+
+        if destination_path.is_empty() {
+            return Err("Destination path is required for direct downloads.".to_string());
+        }
+
+        let client = Client::new();
+        let response = download_blob_response(
+            &client,
+            &storage_account_name,
+            &input.account_key,
+            &normalized_container_name,
+            &normalized_blob_name,
+        )
+        .await?;
+        let final_path = PathBuf::from(&destination_path);
+        let temp_path = Self::build_temp_file_path(&final_path)?;
+        let total_bytes = response.content_length().unwrap_or(0) as i64;
+
+        if let Some(parent_directory) = final_path.parent() {
+            fs::create_dir_all(parent_directory)
+                .await
+                .map_err(|error| error.to_string())?;
+        }
+
+        let mut file = fs::File::create(&temp_path)
+            .await
+            .map_err(|error| error.to_string())?;
+        let mut response = response;
+        let mut written_bytes = 0_i64;
+
+        if cancellation_flag.load(Ordering::SeqCst) {
+            Self::remove_temp_file_if_exists(&temp_path).await?;
+            return Err(AZURE_DOWNLOAD_CANCELLED_ERROR.to_string());
+        }
+
+        while let Some(chunk) = response.chunk().await.map_err(|error| error.to_string())? {
+            if cancellation_flag.load(Ordering::SeqCst) {
+                drop(file);
+                Self::remove_temp_file_if_exists(&temp_path).await?;
+                return Err(AZURE_DOWNLOAD_CANCELLED_ERROR.to_string());
+            }
+
+            file.write_all(&chunk)
+                .await
+                .map_err(|error| error.to_string())?;
+
+            written_bytes += chunk.len() as i64;
+            on_progress(written_bytes, total_bytes, &destination_path)?;
+        }
+
+        file.flush().await.map_err(|error| error.to_string())?;
+        drop(file);
+
+        if cancellation_flag.load(Ordering::SeqCst) {
+            Self::remove_temp_file_if_exists(&temp_path).await?;
+            return Err(AZURE_DOWNLOAD_CANCELLED_ERROR.to_string());
+        }
+
+        if fs::try_exists(&final_path)
+            .await
+            .map_err(|error| error.to_string())?
+        {
+            fs::remove_file(&final_path)
+                .await
+                .map_err(|error| error.to_string())?;
+        }
+
+        fs::rename(&temp_path, &final_path)
+            .await
+            .map_err(|error| error.to_string())?;
+
+        Ok(destination_path)
+    }
+
+    pub async fn find_cached_objects(
+        connection_id: String,
+        connection_name: String,
+        container_name: String,
+        global_local_cache_directory: String,
+        blob_names: Vec<String>,
+    ) -> Result<Vec<String>, String> {
+        let connection_id = connection_id.trim().to_string();
+        let connection_name = connection_name.trim().to_string();
+        let container_name = container_name.trim().to_string();
+        let global_local_cache_directory = global_local_cache_directory.trim().to_string();
+
+        if global_local_cache_directory.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut cached_blob_names = Vec::new();
+
+        for blob_name in blob_names {
+            let normalized_blob_name = blob_name.trim().to_string();
+
+            if normalized_blob_name.is_empty() {
+                continue;
+            }
+
+            let blob_paths = Self::build_cache_object_path_candidates(
+                &global_local_cache_directory,
+                &connection_id,
+                &connection_name,
+                &container_name,
+                &normalized_blob_name,
+            )?;
+
+            for blob_path in blob_paths {
+                let exists = fs::try_exists(&blob_path)
+                    .await
+                    .map_err(|error| error.to_string())?;
+
+                if exists {
+                    cached_blob_names.push(normalized_blob_name.clone());
+                    break;
+                }
+            }
+        }
+
+        Ok(cached_blob_names)
+    }
+
+    pub async fn open_cached_object_parent(
+        connection_id: String,
+        connection_name: String,
+        container_name: String,
+        global_local_cache_directory: String,
+        blob_name: String,
+    ) -> Result<(), String> {
+        let object_path = Self::resolve_cached_object_path(
+            connection_id,
+            connection_name,
+            container_name,
+            global_local_cache_directory,
+            blob_name,
+        )
+        .await?;
+
+        let parent_directory = object_path
+            .parent()
+            .ok_or_else(|| "Unable to resolve the local directory for this file.".to_string())?;
+
+        #[cfg(target_os = "windows")]
+        let mut command = {
+            let mut command = Command::new("explorer");
+            command.arg(parent_directory);
+            command
+        };
+
+        #[cfg(target_os = "macos")]
+        let mut command = {
+            let mut command = Command::new("open");
+            command.arg(parent_directory);
+            command
+        };
+
+        #[cfg(all(unix, not(target_os = "macos")))]
+        let mut command = {
+            let mut command = Command::new("xdg-open");
+            command.arg(parent_directory);
+            command
+        };
+
+        command.spawn().map_err(|error| error.to_string())?;
+
+        Ok(())
+    }
+
+    pub async fn open_cached_object(
+        connection_id: String,
+        connection_name: String,
+        container_name: String,
+        global_local_cache_directory: String,
+        blob_name: String,
+    ) -> Result<(), String> {
+        let object_path = Self::resolve_cached_object_path(
+            connection_id,
+            connection_name,
+            container_name,
+            global_local_cache_directory,
+            blob_name,
+        )
+        .await?;
+
+        #[cfg(target_os = "windows")]
+        let mut command = {
+            let mut command = Command::new("cmd");
+            command.args(["/C", "start", "", object_path.to_string_lossy().as_ref()]);
+            command
+        };
+
+        #[cfg(target_os = "macos")]
+        let mut command = {
+            let mut command = Command::new("open");
+            command.arg(&object_path);
+            command
+        };
+
+        #[cfg(all(unix, not(target_os = "macos")))]
+        let mut command = {
+            let mut command = Command::new("xdg-open");
+            command.arg(&object_path);
+            command
+        };
+
+        command.spawn().map_err(|error| error.to_string())?;
+
+        Ok(())
+    }
+
     pub async fn upload_blob_from_path<F>(
         operation_id: String,
         input: AzureConnectionTestInput,
@@ -791,6 +1155,310 @@ impl AzureConnectionService {
         let cancellations = UPLOAD_CANCELLATIONS
             .lock()
             .map_err(|_| "Unable to access upload cancellation state.".to_string())?;
+
+        let Some(cancellation_flag) = cancellations.get(&operation_id) else {
+            return Ok(false);
+        };
+
+        cancellation_flag.store(true, Ordering::SeqCst);
+
+        Ok(true)
+    }
+
+    fn encode_cache_path_segment(segment: &str) -> String {
+        let mut encoded = String::with_capacity(segment.len() * 2 + 4);
+        encoded.push_str(Self::CACHE_ESCAPED_SEGMENT_PREFIX);
+
+        for byte in segment.as_bytes() {
+            encoded.push_str(&format!("{byte:02x}"));
+        }
+
+        encoded
+    }
+
+    fn normalize_cache_path_segment(segment: &str) -> String {
+        let is_reserved = segment.is_empty()
+            || segment == "."
+            || segment == ".."
+            || segment == Self::CACHE_TEMP_DIRECTORY
+            || segment.starts_with(Self::CACHE_ESCAPED_SEGMENT_PREFIX)
+            || segment.contains('\\')
+            || segment.contains(':')
+            || segment.contains('\0');
+
+        if is_reserved {
+            return Self::encode_cache_path_segment(segment);
+        }
+
+        #[cfg(target_os = "windows")]
+        {
+            let normalized = segment.trim_end_matches([' ', '.']);
+
+            if normalized.is_empty() {
+                return Self::encode_cache_path_segment(segment);
+            }
+
+            let uppercase = normalized.to_ascii_uppercase();
+            let reserved_names = [
+                "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6",
+                "COM7", "COM8", "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6",
+                "LPT7", "LPT8", "LPT9",
+            ];
+
+            if reserved_names.contains(&uppercase.as_str()) {
+                return Self::encode_cache_path_segment(segment);
+            }
+
+            return normalized.to_string();
+        }
+
+        segment.to_string()
+    }
+
+    fn build_connection_cache_root(
+        global_local_cache_directory: &str,
+        connection_name: &str,
+    ) -> Result<PathBuf, String> {
+        let normalized_connection_name = connection_name.trim();
+
+        if normalized_connection_name.is_empty() {
+            return Err("Connection name is required for local cache operations.".to_string());
+        }
+
+        Ok(PathBuf::from(global_local_cache_directory)
+            .join(Self::normalize_cache_path_segment(normalized_connection_name)))
+    }
+
+    fn build_primary_cache_object_path(
+        global_local_cache_directory: &str,
+        connection_name: &str,
+        container_name: &str,
+        blob_name: &str,
+    ) -> Result<PathBuf, String> {
+        if blob_name.is_empty() {
+            return Err("Blob name is required for local cache operations.".to_string());
+        }
+
+        let normalized_object_path = blob_name.split('/').fold(PathBuf::new(), |path, segment| {
+            path.join(Self::normalize_cache_path_segment(segment))
+        });
+
+        Ok(Self::build_connection_cache_root(global_local_cache_directory, connection_name)?
+            .join(container_name)
+            .join(normalized_object_path))
+    }
+
+    fn build_legacy_raw_cache_object_path(
+        global_local_cache_directory: &str,
+        connection_id: &str,
+        container_name: &str,
+        blob_name: &str,
+    ) -> Result<PathBuf, String> {
+        if blob_name.is_empty() {
+            return Err("Blob name is required for local cache operations.".to_string());
+        }
+
+        Ok(PathBuf::from(global_local_cache_directory)
+            .join(connection_id)
+            .join(container_name)
+            .join(blob_name))
+    }
+
+    fn build_legacy_encoded_cache_object_path(
+        global_local_cache_directory: &str,
+        connection_id: &str,
+        container_name: &str,
+        blob_name: &str,
+    ) -> Result<PathBuf, String> {
+        if blob_name.is_empty() {
+            return Err("Blob name is required for local cache operations.".to_string());
+        }
+
+        let encoded_object_path = blob_name.split('/').fold(PathBuf::new(), |path, segment| {
+            path.join(Self::encode_cache_path_segment(segment))
+        });
+
+        Ok(PathBuf::from(global_local_cache_directory)
+            .join(connection_id)
+            .join(container_name)
+            .join(encoded_object_path))
+    }
+
+    fn build_recent_legacy_cache_object_path(
+        global_local_cache_directory: &str,
+        container_name: &str,
+        blob_name: &str,
+    ) -> Result<PathBuf, String> {
+        if blob_name.is_empty() {
+            return Err("Blob name is required for local cache operations.".to_string());
+        }
+
+        let normalized_object_path = blob_name.split('/').fold(PathBuf::new(), |path, segment| {
+            path.join(Self::normalize_cache_path_segment(segment))
+        });
+
+        Ok(PathBuf::from(global_local_cache_directory)
+            .join(container_name)
+            .join(normalized_object_path))
+    }
+
+    fn build_cache_object_path_candidates(
+        global_local_cache_directory: &str,
+        connection_id: &str,
+        connection_name: &str,
+        container_name: &str,
+        blob_name: &str,
+    ) -> Result<Vec<PathBuf>, String> {
+        let mut paths = Vec::new();
+
+        paths.push(Self::build_primary_cache_object_path(
+            global_local_cache_directory,
+            connection_name,
+            container_name,
+            blob_name,
+        )?);
+
+        let recent_legacy_path = Self::build_recent_legacy_cache_object_path(
+            global_local_cache_directory,
+            container_name,
+            blob_name,
+        )?;
+
+        if !paths.contains(&recent_legacy_path) {
+            paths.push(recent_legacy_path);
+        }
+
+        let legacy_raw_path = Self::build_legacy_raw_cache_object_path(
+            global_local_cache_directory,
+            connection_id,
+            container_name,
+            blob_name,
+        )?;
+
+        if !paths.contains(&legacy_raw_path) {
+            paths.push(legacy_raw_path);
+        }
+
+        let legacy_encoded_path = Self::build_legacy_encoded_cache_object_path(
+            global_local_cache_directory,
+            connection_id,
+            container_name,
+            blob_name,
+        )?;
+
+        if !paths.contains(&legacy_encoded_path) {
+            paths.push(legacy_encoded_path);
+        }
+
+        Ok(paths)
+    }
+
+    fn build_cache_temp_object_path(
+        global_local_cache_directory: &str,
+        connection_name: &str,
+        container_name: &str,
+        blob_name: &str,
+    ) -> Result<PathBuf, String> {
+        let cache_object_path = Self::build_primary_cache_object_path(
+            global_local_cache_directory,
+            connection_name,
+            container_name,
+            blob_name,
+        )?;
+        let connection_cache_root =
+            Self::build_connection_cache_root(global_local_cache_directory, connection_name)?;
+        let relative_path = cache_object_path
+            .strip_prefix(&connection_cache_root)
+            .map_err(|error| error.to_string())?;
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|error| error.to_string())?
+            .as_nanos();
+
+        Ok(PathBuf::from(global_local_cache_directory)
+            .join(Self::CACHE_TEMP_DIRECTORY)
+            .join(Self::normalize_cache_path_segment(connection_name.trim()))
+            .join(relative_path)
+            .with_extension(format!("part-{}-{timestamp}", std::process::id())))
+    }
+
+    fn build_temp_file_path(final_path: &std::path::Path) -> Result<PathBuf, String> {
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|error| error.to_string())?
+            .as_nanos();
+        let file_name = final_path
+            .file_name()
+            .and_then(|value| value.to_str())
+            .ok_or_else(|| "Unable to resolve a valid destination filename.".to_string())?;
+
+        Ok(final_path.with_file_name(format!(
+            ".{file_name}.cloudeasyfiles.part-{}-{timestamp}",
+            std::process::id()
+        )))
+    }
+
+    async fn remove_temp_file_if_exists(path: &PathBuf) -> Result<(), String> {
+        if fs::try_exists(path)
+            .await
+            .map_err(|error| error.to_string())?
+        {
+            fs::remove_file(path).await.map_err(|error| error.to_string())?;
+        }
+
+        Ok(())
+    }
+
+    async fn resolve_cached_object_path(
+        connection_id: String,
+        connection_name: String,
+        container_name: String,
+        global_local_cache_directory: String,
+        blob_name: String,
+    ) -> Result<PathBuf, String> {
+        let object_paths = Self::build_cache_object_path_candidates(
+            global_local_cache_directory.trim(),
+            connection_id.trim(),
+            connection_name.trim(),
+            container_name.trim(),
+            blob_name.trim(),
+        )?;
+
+        for object_path in object_paths {
+            let exists = fs::try_exists(&object_path)
+                .await
+                .map_err(|error| error.to_string())?;
+
+            if exists {
+                return Ok(object_path);
+            }
+        }
+
+        Err("The requested file is not available in the local cache.".to_string())
+    }
+
+    fn register_download_cancellation(
+        operation_id: &str,
+    ) -> Result<(Arc<AtomicBool>, DownloadCancellationGuard), String> {
+        let cancellation_flag = Arc::new(AtomicBool::new(false));
+        let mut cancellations = DOWNLOAD_CANCELLATIONS
+            .lock()
+            .map_err(|_| "Unable to access download cancellation state.".to_string())?;
+
+        cancellations.insert(operation_id.to_string(), cancellation_flag.clone());
+
+        Ok((
+            cancellation_flag,
+            DownloadCancellationGuard {
+                operation_id: operation_id.to_string(),
+            },
+        ))
+    }
+
+    pub fn cancel_download(operation_id: String) -> Result<bool, String> {
+        let cancellations = DOWNLOAD_CANCELLATIONS
+            .lock()
+            .map_err(|_| "Unable to access download cancellation state.".to_string())?;
 
         let Some(cancellation_flag) = cancellations.get(&operation_id) else {
             return Ok(false);
@@ -1242,6 +1910,35 @@ async fn delete_blob_names(
     }
 
     Ok(())
+}
+
+async fn download_blob_response(
+    client: &Client,
+    storage_account_name: &str,
+    account_key: &str,
+    container_name: &str,
+    blob_name: &str,
+) -> Result<Response, String> {
+    let url = build_blob_url(storage_account_name, container_name, blob_name, &[])?;
+    let response = execute_signed_request(
+        client,
+        Method::GET,
+        storage_account_name,
+        account_key,
+        url,
+        format!("/{container_name}/{blob_name}"),
+        None,
+        Vec::new(),
+    )
+    .await?;
+    let status = response.status();
+
+    if status.is_success() {
+        return Ok(response);
+    }
+
+    let body = response.text().await.map_err(|error| error.to_string())?;
+    Err(format!("Azure Blob Storage request failed ({status}): {body}"))
 }
 
 async fn list_blob_names_with_prefix(

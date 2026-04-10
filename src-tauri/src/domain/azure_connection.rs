@@ -54,3 +54,10 @@ pub struct AzureDeleteResult {
     pub deleted_object_count: i64,
     pub deleted_directory_count: i64,
 }
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AzureCacheDownloadResult {
+    pub local_path: String,
+    pub bytes_written: i64,
+}

@@ -1,6 +1,6 @@
 use crate::application::services::azure_connection_secret_service::AzureConnectionSecretService;
 use crate::application::services::azure_connection_service::{
-    AzureConnectionService, AZURE_UPLOAD_CANCELLED_ERROR,
+    AzureConnectionService, AZURE_DOWNLOAD_CANCELLED_ERROR, AZURE_UPLOAD_CANCELLED_ERROR,
 };
 use crate::application::services::aws_connection_secret_service::AwsConnectionSecretService;
 use crate::application::services::aws_connection_service::{
@@ -8,8 +8,8 @@ use crate::application::services::aws_connection_service::{
 };
 use crate::application::services::greeting_service::GreetingService;
 use crate::domain::azure_connection::{
-    AzureConnectionTestInput, AzureConnectionTestResult, AzureContainerItemsResult,
-    AzureContainerSummary, AzureDeleteResult,
+    AzureCacheDownloadResult, AzureConnectionTestInput, AzureConnectionTestResult,
+    AzureContainerItemsResult, AzureContainerSummary, AzureDeleteResult,
 };
 use crate::domain::aws_connection::{
     AwsBucketItemsResult, AwsBucketSummary, AwsConnectionTestInput, AwsConnectionTestResult,
@@ -50,6 +50,10 @@ fn is_cancelled_azure_upload_error(error: &str) -> bool {
     error == AZURE_UPLOAD_CANCELLED_ERROR
 }
 
+fn is_cancelled_azure_download_error(error: &str) -> bool {
+    error == AZURE_DOWNLOAD_CANCELLED_ERROR
+}
+
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct AwsUploadEvent {
@@ -74,6 +78,22 @@ struct AzureUploadEvent {
     object_key: String,
     local_file_path: String,
     bytes_transferred: i64,
+    total_bytes: i64,
+    progress_percent: f64,
+    state: String,
+    error: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AzureDownloadEvent {
+    operation_id: String,
+    transfer_kind: String,
+    connection_id: String,
+    bucket_name: String,
+    object_key: String,
+    target_path: Option<String>,
+    bytes_received: i64,
     total_bytes: i64,
     progress_percent: f64,
     state: String,
@@ -880,6 +900,210 @@ pub async fn download_aws_object_to_path(
 }
 
 #[tauri::command]
+pub async fn start_azure_cache_download(
+    window: Window,
+    operation_id: String,
+    storage_account_name: String,
+    account_key: String,
+    connection_id: String,
+    connection_name: String,
+    container_name: String,
+    blob_name: String,
+    global_local_cache_directory: String,
+) -> Result<String, String> {
+    let emit_event = |event: AzureDownloadEvent| -> Result<(), String> {
+        window
+            .emit("azure-download-progress", event)
+            .map_err(|error| error.to_string())
+    };
+
+    let operation_id_for_progress = operation_id.clone();
+    let connection_id_for_progress = connection_id.clone();
+    let container_name_for_progress = container_name.clone();
+    let blob_name_for_progress = blob_name.clone();
+
+    let result = AzureConnectionService::download_blob_to_cache(
+        operation_id.clone(),
+        AzureConnectionTestInput {
+            storage_account_name,
+            account_key,
+        },
+        connection_id.clone(),
+        connection_name,
+        container_name.clone(),
+        blob_name.clone(),
+        global_local_cache_directory,
+        |bytes_received, total_bytes, local_path| {
+            let progress_percent = if total_bytes > 0 {
+                (bytes_received as f64 / total_bytes as f64) * 100.0
+            } else {
+                0.0
+            };
+
+            emit_event(AzureDownloadEvent {
+                operation_id: operation_id_for_progress.clone(),
+                transfer_kind: "cache".to_string(),
+                connection_id: connection_id_for_progress.clone(),
+                bucket_name: container_name_for_progress.clone(),
+                object_key: blob_name_for_progress.clone(),
+                target_path: Some(local_path.to_string()),
+                bytes_received,
+                total_bytes,
+                progress_percent,
+                state: "progress".to_string(),
+                error: None,
+            })
+        },
+    )
+    .await;
+
+    match result {
+        Ok(AzureCacheDownloadResult {
+            local_path,
+            bytes_written,
+        }) => {
+            emit_event(AzureDownloadEvent {
+                operation_id: operation_id.clone(),
+                transfer_kind: "cache".to_string(),
+                connection_id,
+                bucket_name: container_name,
+                object_key: blob_name,
+                target_path: Some(local_path),
+                bytes_received: bytes_written,
+                total_bytes: bytes_written,
+                progress_percent: 100.0,
+                state: "completed".to_string(),
+                error: None,
+            })?;
+
+            Ok(operation_id)
+        }
+        Err(error) => {
+            let state = if is_cancelled_azure_download_error(&error) {
+                "cancelled"
+            } else {
+                "failed"
+            };
+
+            emit_event(AzureDownloadEvent {
+                operation_id: operation_id.clone(),
+                transfer_kind: "cache".to_string(),
+                connection_id,
+                bucket_name: container_name,
+                object_key: blob_name,
+                target_path: None,
+                bytes_received: 0,
+                total_bytes: 0,
+                progress_percent: 0.0,
+                state: state.to_string(),
+                error: Some(error.clone()),
+            })?;
+
+            Err(error)
+        }
+    }
+}
+
+#[tauri::command]
+pub async fn download_azure_blob_to_path(
+    window: Window,
+    operation_id: String,
+    storage_account_name: String,
+    account_key: String,
+    connection_id: String,
+    container_name: String,
+    blob_name: String,
+    destination_path: String,
+) -> Result<String, String> {
+    let emit_event = |event: AzureDownloadEvent| -> Result<(), String> {
+        window
+            .emit("azure-download-progress", event)
+            .map_err(|error| error.to_string())
+    };
+
+    let operation_id_for_progress = operation_id.clone();
+    let connection_id_for_progress = connection_id.clone();
+    let container_name_for_progress = container_name.clone();
+    let blob_name_for_progress = blob_name.clone();
+
+    let result = AzureConnectionService::download_blob_to_path(
+        operation_id.clone(),
+        AzureConnectionTestInput {
+            storage_account_name,
+            account_key,
+        },
+        container_name.clone(),
+        blob_name.clone(),
+        destination_path,
+        |bytes_received, total_bytes, target_path| {
+            let progress_percent = if total_bytes > 0 {
+                (bytes_received as f64 / total_bytes as f64) * 100.0
+            } else {
+                0.0
+            };
+
+            emit_event(AzureDownloadEvent {
+                operation_id: operation_id_for_progress.clone(),
+                transfer_kind: "direct".to_string(),
+                connection_id: connection_id_for_progress.clone(),
+                bucket_name: container_name_for_progress.clone(),
+                object_key: blob_name_for_progress.clone(),
+                target_path: Some(target_path.to_string()),
+                bytes_received,
+                total_bytes,
+                progress_percent,
+                state: "progress".to_string(),
+                error: None,
+            })
+        },
+    )
+    .await;
+
+    match result {
+        Ok(target_path) => {
+            emit_event(AzureDownloadEvent {
+                operation_id,
+                transfer_kind: "direct".to_string(),
+                connection_id,
+                bucket_name: container_name,
+                object_key: blob_name,
+                target_path: Some(target_path.clone()),
+                bytes_received: 0,
+                total_bytes: 0,
+                progress_percent: 100.0,
+                state: "completed".to_string(),
+                error: None,
+            })?;
+
+            Ok(target_path)
+        }
+        Err(error) => {
+            let state = if is_cancelled_azure_download_error(&error) {
+                "cancelled"
+            } else {
+                "failed"
+            };
+
+            emit_event(AzureDownloadEvent {
+                operation_id,
+                transfer_kind: "direct".to_string(),
+                connection_id,
+                bucket_name: container_name,
+                object_key: blob_name,
+                target_path: None,
+                bytes_received: 0,
+                total_bytes: 0,
+                progress_percent: 0.0,
+                state: state.to_string(),
+                error: Some(error.clone()),
+            })?;
+
+            Err(error)
+        }
+    }
+}
+
+#[tauri::command]
 pub async fn start_aws_upload(
     window: Window,
     operation_id: String,
@@ -1316,6 +1540,24 @@ pub async fn find_aws_cached_objects(
 }
 
 #[tauri::command]
+pub async fn find_azure_cached_objects(
+    connection_id: String,
+    connection_name: String,
+    container_name: String,
+    global_local_cache_directory: String,
+    blob_names: Vec<String>,
+) -> Result<Vec<String>, String> {
+    AzureConnectionService::find_cached_objects(
+        connection_id,
+        connection_name,
+        container_name,
+        global_local_cache_directory,
+        blob_names,
+    )
+    .await
+}
+
+#[tauri::command]
 pub async fn open_aws_cached_object_parent(
     connection_id: String,
     connection_name: String,
@@ -1329,6 +1571,24 @@ pub async fn open_aws_cached_object_parent(
         bucket_name,
         global_local_cache_directory,
         object_key,
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn open_azure_cached_object_parent(
+    connection_id: String,
+    connection_name: String,
+    container_name: String,
+    global_local_cache_directory: String,
+    blob_name: String,
+) -> Result<(), String> {
+    AzureConnectionService::open_cached_object_parent(
+        connection_id,
+        connection_name,
+        container_name,
+        global_local_cache_directory,
+        blob_name,
     )
     .await
 }
@@ -1352,8 +1612,33 @@ pub async fn open_aws_cached_object(
 }
 
 #[tauri::command]
+pub async fn open_azure_cached_object(
+    connection_id: String,
+    connection_name: String,
+    container_name: String,
+    global_local_cache_directory: String,
+    blob_name: String,
+) -> Result<(), String> {
+    AzureConnectionService::open_cached_object(
+        connection_id,
+        connection_name,
+        container_name,
+        global_local_cache_directory,
+        blob_name,
+    )
+    .await
+}
+
+#[tauri::command]
 pub async fn cancel_aws_download(operation_id: String) -> Result<(), String> {
     let _was_cancelled = AwsConnectionService::cancel_download(operation_id)?;
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn cancel_azure_download(operation_id: String) -> Result<(), String> {
+    let _was_cancelled = AzureConnectionService::cancel_download(operation_id)?;
 
     Ok(())
 }

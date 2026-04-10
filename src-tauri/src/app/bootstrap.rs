@@ -49,17 +49,23 @@ pub fn run() {
             commands::change_aws_object_storage_class,
             commands::open_external_url,
             commands::start_aws_cache_download,
+            commands::start_azure_cache_download,
             commands::download_aws_object_to_path,
+            commands::download_azure_blob_to_path,
             commands::start_aws_upload,
             commands::start_aws_upload_bytes,
             commands::start_azure_upload,
             commands::start_azure_upload_bytes,
             commands::cancel_aws_download,
+            commands::cancel_azure_download,
             commands::cancel_aws_upload,
             commands::cancel_azure_upload,
             commands::find_aws_cached_objects,
+            commands::find_azure_cached_objects,
             commands::open_aws_cached_object,
-            commands::open_aws_cached_object_parent
+            commands::open_aws_cached_object_parent,
+            commands::open_azure_cached_object,
+            commands::open_azure_cached_object_parent
         ])
         .run(tauri::generate_context!())
         .expect("failed to run CloudEasyFiles application");
