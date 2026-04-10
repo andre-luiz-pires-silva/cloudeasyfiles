@@ -5337,8 +5337,14 @@ function validateNewFolderNameInput(
                     <span>{t("home.visual.badge_primary")}</span>
                   </div>
                   <div className="home-visual-core">
-                    <span>{t("home.visual.core_label")}</span>
-                    <strong>{t("home.visual.core_value")}</strong>
+                    <div className="home-visual-provider-card home-visual-provider-card-aws">
+                      <span>{t("home.visual.aws.label")}</span>
+                      <strong>{t("home.visual.aws.value")}</strong>
+                    </div>
+                    <div className="home-visual-provider-card home-visual-provider-card-azure">
+                      <span>{t("home.visual.azure.label")}</span>
+                      <strong>{t("home.visual.azure.value")}</strong>
+                    </div>
                   </div>
                 </div>
               </section>

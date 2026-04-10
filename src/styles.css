@@ -1174,24 +1174,42 @@ body {
   right: 24px;
   bottom: auto;
   display: grid;
-  gap: 6px;
+  gap: 10px;
   width: min(220px, calc(100% - 48px));
-  padding: 16px 18px;
   transform: translateY(-50%);
+}
+
+.home-visual-provider-card {
+  display: grid;
+  gap: 6px;
+  padding: 16px 18px;
   border-radius: 16px;
   background: rgba(6, 13, 27, 0.62);
   border: 1px solid rgba(187, 217, 255, 0.16);
   backdrop-filter: blur(10px);
+  box-shadow: 0 14px 28px rgba(3, 8, 20, 0.18);
 }
 
-.home-visual-core span {
+.home-visual-provider-card-aws {
+  background:
+    linear-gradient(180deg, rgba(255, 180, 0, 0.12), rgba(6, 13, 27, 0.62)),
+    rgba(6, 13, 27, 0.62);
+}
+
+.home-visual-provider-card-azure {
+  background:
+    linear-gradient(180deg, rgba(11, 87, 208, 0.18), rgba(6, 13, 27, 0.62)),
+    rgba(6, 13, 27, 0.62);
+}
+
+.home-visual-provider-card span {
   font-size: 0.72rem;
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: rgba(184, 210, 255, 0.72);
 }
 
-.home-visual-core strong {
+.home-visual-provider-card strong {
   font-size: 1.3rem;
   letter-spacing: -0.03em;
 }

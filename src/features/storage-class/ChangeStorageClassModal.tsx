@@ -187,33 +187,33 @@ export function ChangeStorageClassModal({
               ) : null}
 
               {submitError ? <p className="status-message-error">{submitError}</p> : null}
-            </div>
-          </div>
 
-          <div className="modal-actions">
-            <button type="button" className="secondary-button" onClick={onCancel}>
-              {t("common.cancel")}
-            </button>
-            <button
-              type="submit"
-              className="primary-button"
-              disabled={isSubmitting || isSameStorageClass || !hasSelectedStorageClass}
-            >
-              {isSubmitting ? (
-                <>
-                  <LoaderCircle size={16} strokeWidth={2} className="restore-submit-spinner" />
-                  <span>
-                    {t(
-                      isAws
-                        ? "content.storage_class_change.submitting"
-                        : "content.azure_storage_class_change.submitting"
-                    )}
-                  </span>
-                </>
-              ) : (
-                t("navigation.menu.change_tier")
-              )}
-            </button>
+              <div className="modal-actions">
+                <button type="button" className="secondary-button" onClick={onCancel}>
+                  {t("common.cancel")}
+                </button>
+                <button
+                  type="submit"
+                  className="primary-button"
+                  disabled={isSubmitting || isSameStorageClass || !hasSelectedStorageClass}
+                >
+                  {isSubmitting ? (
+                    <>
+                      <LoaderCircle size={16} strokeWidth={2} className="restore-submit-spinner" />
+                      <span>
+                        {t(
+                          isAws
+                            ? "content.storage_class_change.submitting"
+                            : "content.azure_storage_class_change.submitting"
+                        )}
+                      </span>
+                    </>
+                  ) : (
+                    t("navigation.menu.change_tier")
+                  )}
+                </button>
+              </div>
+            </div>
           </div>
         </form>
       </div>
