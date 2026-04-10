@@ -1,7 +1,13 @@
 import type { SavedConnectionSummary } from "../models";
 import { normalizeAwsUploadStorageClass } from "../awsUploadStorageClasses";
+import type { AzureAuthenticationMethod } from "../models";
+import { normalizeAzureUploadTier } from "../azureUploadTiers";
 
 const STORAGE_KEY = "cloudeasyfiles.connection-metadata";
+
+function isAzureAuthenticationMethod(value: unknown): value is AzureAuthenticationMethod {
+  return value === "shared_key" || value === "entra_id";
+}
 
 function isSavedConnectionSummary(value: unknown): value is SavedConnectionSummary {
   if (!value || typeof value !== "object") {
@@ -22,7 +28,14 @@ function isSavedConnectionSummary(value: unknown): value is SavedConnectionSumma
   }
 
   if (candidate.provider === "azure") {
-    return true;
+    return (
+      typeof candidate.storageAccountName === "string" &&
+      isAzureAuthenticationMethod(candidate.authenticationMethod) &&
+      (typeof candidate.defaultUploadTier === "undefined" ||
+        (typeof candidate.defaultUploadTier === "string" &&
+          normalizeAzureUploadTier(candidate.defaultUploadTier) ===
+            candidate.defaultUploadTier.trim()))
+    );
   }
 
   return (

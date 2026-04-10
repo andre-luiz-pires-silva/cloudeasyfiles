@@ -31,15 +31,21 @@ import {
 import logoPrimary from "../../assets/logo-primary.svg";
 import { AwsConnectionFields } from "../connections/components/AwsConnectionFields";
 import { AwsUploadStorageClassField } from "../connections/components/AwsUploadStorageClassField";
-import { AzureConnectionPlaceholder } from "../connections/components/AzureConnectionPlaceholder";
+import { AzureConnectionFields } from "../connections/components/AzureConnectionFields";
 import {
   DEFAULT_AWS_UPLOAD_STORAGE_CLASS,
   normalizeAwsUploadStorageClass,
   type AwsUploadStorageClass
 } from "../connections/awsUploadStorageClasses";
+import {
+  DEFAULT_AZURE_UPLOAD_TIER,
+  normalizeAzureUploadTier,
+  type AzureUploadTier
+} from "../connections/azureUploadTiers";
 import { appSettingsStore } from "../settings/persistence/appSettingsStore";
 import type {
   AwsConnectionDraft,
+  AzureAuthenticationMethod,
   ConnectionFormMode,
   ConnectionProvider,
   SavedConnectionSummary
@@ -48,6 +54,7 @@ import { connectionService } from "../connections/services/connectionService";
 import {
   isConnectionNameFormatValid,
   isRestrictedBucketNameFormatValid,
+  isStorageAccountNameFormatValid,
   MAX_CONNECTION_NAME_LENGTH
 } from "../connections/services/connectionService";
 import {
@@ -65,8 +72,6 @@ import {
   downloadAwsObjectToPath,
   findAwsCachedObjects,
   getAwsBucketRegion,
-  listAwsBucketItems,
-  listAwsBuckets,
   openAwsCachedObject,
   openAwsCachedObjectParent,
   requestAwsObjectRestore,
@@ -75,7 +80,7 @@ import {
   startAwsCacheDownload,
   testAwsConnection
 } from "../../lib/tauri/awsConnections";
-import type { AwsBucketItemsResult } from "../../lib/tauri/awsConnections";
+import { testAzureConnection } from "../../lib/tauri/azureConnections";
 import type { Locale } from "../../lib/i18n/I18nProvider";
 import { useI18n } from "../../lib/i18n/useI18n";
 import { validateLocalMappingDirectory } from "../../lib/tauri/commands";
@@ -88,6 +93,13 @@ import {
   ChangeStorageClassModal,
   type ChangeStorageClassRequestSummary
 } from "../storage-class/ChangeStorageClassModal";
+import {
+  type CloudContainerItemsResult,
+  type CloudContainerSummary,
+  listContainerItemsForSavedConnection,
+  listContainersForSavedConnection,
+  testConnectionForSavedConnection
+} from "./providerReadAdapters";
 
 function Globe2Icon() {
   return (
@@ -113,7 +125,16 @@ type NavigatorView = "home" | "node";
 type ConnectionTestStatus = "idle" | "testing" | "success" | "error";
 type ConnectionIndicatorStatus = "disconnected" | "connecting" | "connected" | "error";
 type FormErrors = Partial<
-  Record<"connectionName" | "accessKeyId" | "secretAccessKey" | "restrictedBucketName", string>
+  Record<
+    | "connectionName"
+    | "accessKeyId"
+    | "secretAccessKey"
+    | "restrictedBucketName"
+    | "storageAccountName"
+    | "authenticationMethod"
+    | "accountKey",
+    string
+  >
 >;
 type NodeAction = {
   id: "connect" | "cancelConnect" | "disconnect" | "edit" | "remove";
@@ -261,7 +282,7 @@ function sortTreeNodes(nodes: ExplorerTreeNode[]): ExplorerTreeNode[] {
 
 function buildBucketNodes(
   connection: SavedConnectionSummary,
-  buckets: AwsBucketSummary[]
+  buckets: CloudContainerSummary[]
 ): ExplorerTreeNode[] {
   return sortTreeNodes(
     buckets.map((bucket) => ({
@@ -270,7 +291,10 @@ function buildBucketNodes(
       connectionId: connection.id,
       provider: connection.provider,
       name: bucket.name,
-      region: BUCKET_REGION_PLACEHOLDER,
+      region:
+        connection.provider === "aws"
+          ? bucket.region ?? BUCKET_REGION_PLACEHOLDER
+          : undefined,
       bucketName: bucket.name,
       path: "",
       children: []
@@ -366,7 +390,7 @@ function buildPreviewFileState(
   };
 }
 
-function buildContentItems(result: AwsBucketItemsResult): ContentExplorerItem[] {
+function buildContentItems(result: CloudContainerItemsResult): ContentExplorerItem[] {
   const directories: ContentExplorerItem[] = result.directories
     .map((directory) => ({
       id: `directory:${directory.path}`,
@@ -384,10 +408,10 @@ function buildContentItems(result: AwsBucketItemsResult): ContentExplorerItem[] 
   const files: ContentExplorerItem[] = result.files
     .map((file) => ({
       ...buildPreviewFileState(file.storageClass, file.restoreInProgress, file.restoreExpiryDate),
-      id: `file:${file.key}`,
+      id: `file:${file.path}`,
       kind: "file" as const,
-      name: file.key.split("/").pop() || file.key,
-      path: file.key,
+      name: file.path.split("/").pop() || file.path,
+      path: file.path,
       size: file.size,
       lastModified: file.lastModified,
       storageClass: file.storageClass,
@@ -1126,6 +1150,9 @@ export function ConnectionNavigator({
   const accessKeyFieldId = useId();
   const secretKeyFieldId = useId();
   const restrictedBucketNameFieldId = useId();
+  const storageAccountNameFieldId = useId();
+  const azureAuthenticationMethodFieldId = useId();
+  const azureAccountKeyFieldId = useId();
   const connectOnStartupFieldId = useId();
   const newFolderNameFieldId = useId();
   const localeFieldId = useId();
@@ -1141,9 +1168,15 @@ export function ConnectionNavigator({
   const [accessKeyId, setAccessKeyId] = useState("");
   const [secretAccessKey, setSecretAccessKey] = useState("");
   const [restrictedBucketName, setRestrictedBucketName] = useState("");
+  const [storageAccountName, setStorageAccountName] = useState("");
+  const [azureAuthenticationMethod, setAzureAuthenticationMethod] =
+    useState<AzureAuthenticationMethod>("shared_key");
+  const [azureAccountKey, setAzureAccountKey] = useState("");
   const [connectOnStartup, setConnectOnStartup] = useState(false);
   const [defaultAwsUploadStorageClass, setDefaultAwsUploadStorageClass] =
     useState<AwsUploadStorageClass>(DEFAULT_AWS_UPLOAD_STORAGE_CLASS);
+  const [defaultAzureUploadTier, setDefaultAzureUploadTier] =
+    useState<AzureUploadTier>(DEFAULT_AZURE_UPLOAD_TIER);
   const [globalLocalCacheDirectory, setGlobalLocalCacheDirectory] = useState(
     loadInitialGlobalCacheDirectory
   );
@@ -1618,9 +1651,7 @@ export function ConnectionNavigator({
         <span className="content-list-item-icon content-list-item-icon-bucket">
           <Database size={18} strokeWidth={1.9} />
         </span>
-        <span className="content-list-item-compact-tier">
-          {region ?? BUCKET_REGION_PLACEHOLDER}
-        </span>
+        {region ? <span className="content-list-item-compact-tier">{region}</span> : null}
       </span>
     );
   }
@@ -3355,7 +3386,7 @@ function validateNewFolderNameInput(
 
   useEffect(() => {
     async function loadContentItems() {
-      if (!selectedBucketId || !selectedBucketConnectionId || !selectedBucketName) {
+      if (!selectedBucketId || !selectedBucketConnectionId || !selectedBucketName || !selectedConnection) {
         contentRequestIdRef.current += 1;
         setContentItems([]);
         setContentContinuationToken(null);
@@ -3379,22 +3410,13 @@ function validateNewFolderNameInput(
       setContentHasMore(false);
 
       try {
-        if (selectedBucketProvider !== "aws") {
-          throw new Error(t("navigation.connection_status.unsupported_provider"));
-        }
-
-        const draft = await connectionService.getAwsConnectionDraft(selectedBucketConnectionId);
-        const result = await listAwsBucketItems(
-          draft.accessKeyId.trim(),
-          draft.secretAccessKey.trim(),
-          selectedBucketName,
-          selectedBucketPath || undefined,
-          selectedBucketRegion && selectedBucketRegion !== BUCKET_REGION_PLACEHOLDER
-            ? selectedBucketRegion
-            : undefined,
-          undefined,
-          draft.restrictedBucketName
-        );
+        const result = await listContainerItemsForSavedConnection(selectedConnection, selectedBucketName, {
+          path: selectedBucketPath || undefined,
+          region:
+            selectedBucketRegion && selectedBucketRegion !== BUCKET_REGION_PLACEHOLDER
+              ? selectedBucketRegion
+              : undefined
+        });
         const nextItems = buildContentItems(result);
 
         if (contentRequestIdRef.current !== requestId) {
@@ -3415,10 +3437,10 @@ function validateNewFolderNameInput(
         setIsLoadingContent(false);
         setLoadMoreContentError(null);
 
-        if (result.bucketRegion && result.bucketRegion !== selectedBucketRegion) {
+        if (result.region && result.region !== selectedBucketRegion) {
           updateBucketNode(selectedBucketConnectionId, selectedBucketId, (node) => ({
             ...node,
-            region: result.bucketRegion
+            region: result.region ?? undefined
           }));
         }
       } catch (error) {
@@ -3444,6 +3466,7 @@ function validateNewFolderNameInput(
     selectedBucketPath,
     selectedBucketProvider,
     selectedBucketRegion,
+    selectedConnection,
     contentRefreshNonce,
     t
   ]);
@@ -3531,8 +3554,12 @@ function validateNewFolderNameInput(
     setAccessKeyId("");
     setSecretAccessKey("");
     setRestrictedBucketName("");
+    setStorageAccountName("");
+    setAzureAuthenticationMethod("shared_key");
+    setAzureAccountKey("");
     setConnectOnStartup(false);
     setDefaultAwsUploadStorageClass(DEFAULT_AWS_UPLOAD_STORAGE_CLASS);
+    setDefaultAzureUploadTier(DEFAULT_AZURE_UPLOAD_TIER);
     setFormErrors({});
     setSubmitError(null);
   }
@@ -3567,24 +3594,42 @@ function validateNewFolderNameInput(
       setRestrictedBucketName(
         connection.provider === "aws" ? connection.restrictedBucketName ?? "" : ""
       );
+      setStorageAccountName(
+        connection.provider === "azure" ? connection.storageAccountName ?? "" : ""
+      );
+      setAzureAuthenticationMethod(
+        connection.provider === "azure" ? connection.authenticationMethod : "shared_key"
+      );
+      setAzureAccountKey("");
+      setDefaultAzureUploadTier(
+        connection.provider === "azure"
+          ? normalizeAzureUploadTier(connection.defaultUploadTier)
+          : DEFAULT_AZURE_UPLOAD_TIER
+      );
       setConnectOnStartup(connection.connectOnStartup === true);
       setDefaultAwsUploadStorageClass(DEFAULT_AWS_UPLOAD_STORAGE_CLASS);
       resetConnectionTestState();
       setFormErrors({});
       setIsModalOpen(true);
 
-      if (connection.provider !== "aws") {
+      if (connection.provider === "aws") {
+        const draft = await connectionService.getAwsConnectionDraft(connectionId);
+        setAccessKeyId(draft.accessKeyId);
+        setSecretAccessKey(draft.secretAccessKey);
+        setRestrictedBucketName(draft.restrictedBucketName ?? "");
+        setConnectOnStartup(draft.connectOnStartup === true);
+        setDefaultAwsUploadStorageClass(
+          normalizeAwsUploadStorageClass(draft.defaultUploadStorageClass)
+        );
         return;
       }
 
-      const draft = await connectionService.getAwsConnectionDraft(connectionId);
-      setAccessKeyId(draft.accessKeyId);
-      setSecretAccessKey(draft.secretAccessKey);
-      setRestrictedBucketName(draft.restrictedBucketName ?? "");
+      const draft = await connectionService.getAzureConnectionDraft(connectionId);
+      setStorageAccountName(draft.storageAccountName);
+      setAzureAuthenticationMethod(draft.authenticationMethod);
+      setAzureAccountKey(draft.accountKey);
       setConnectOnStartup(draft.connectOnStartup === true);
-      setDefaultAwsUploadStorageClass(
-        normalizeAwsUploadStorageClass(draft.defaultUploadStorageClass)
-      );
+      setDefaultAzureUploadTier(normalizeAzureUploadTier(draft.defaultUploadTier));
     } catch (error) {
       setSubmitError(
         error instanceof Error
@@ -3632,6 +3677,7 @@ function validateNewFolderNameInput(
     if (
       !selectedBucketConnectionId ||
       !selectedBucketName ||
+      !selectedConnection ||
       !contentContinuationToken ||
       isLoadingContent ||
       isLoadingMoreContent
@@ -3644,22 +3690,14 @@ function validateNewFolderNameInput(
     setLoadMoreContentError(null);
 
     try {
-      if (selectedBucketProvider !== "aws") {
-        throw new Error(t("navigation.connection_status.unsupported_provider"));
-      }
-
-      const draft = await connectionService.getAwsConnectionDraft(selectedBucketConnectionId);
-      const result = await listAwsBucketItems(
-        draft.accessKeyId.trim(),
-        draft.secretAccessKey.trim(),
-        selectedBucketName,
-        selectedBucketPath || undefined,
-        selectedBucketRegion && selectedBucketRegion !== BUCKET_REGION_PLACEHOLDER
-          ? selectedBucketRegion
-          : undefined,
-        contentContinuationToken,
-        draft.restrictedBucketName
-      );
+      const result = await listContainerItemsForSavedConnection(selectedConnection, selectedBucketName, {
+        path: selectedBucketPath || undefined,
+        region:
+          selectedBucketRegion && selectedBucketRegion !== BUCKET_REGION_PLACEHOLDER
+            ? selectedBucketRegion
+            : undefined,
+        continuationToken: contentContinuationToken
+      });
       const nextItems = buildContentItems(result);
 
       if (contentRequestIdRef.current !== requestId) {
@@ -3680,10 +3718,10 @@ function validateNewFolderNameInput(
       setIsLoadingMoreContent(false);
       setLoadMoreContentError(null);
 
-      if (result.bucketRegion && result.bucketRegion !== selectedBucketRegion && selectedBucketId) {
+      if (result.region && result.region !== selectedBucketRegion && selectedBucketId) {
         updateBucketNode(selectedBucketConnectionId, selectedBucketId, (node) => ({
           ...node,
-          region: result.bucketRegion
+          region: result.region ?? undefined
         }));
       }
     } catch (error) {
@@ -3799,47 +3837,29 @@ function validateNewFolderNameInput(
     clearConnectionBuckets(connectionId);
     updateConnectionIndicator(connectionId, { status: "connecting" });
 
-    if (connection.provider !== "aws") {
-      if (connectionRequestIdsRef.current[connectionId] !== requestId) {
-        return;
-      }
-
-      updateConnectionIndicator(connectionId, {
-        status: "error",
-        message: t("navigation.connection_status.unsupported_provider")
-      });
-      return;
-    }
-
     try {
-      const draft = await connectionService.getAwsConnectionDraft(connectionId);
-      const result = await testAwsConnection(
-        draft.accessKeyId.trim(),
-        draft.secretAccessKey.trim(),
-        draft.restrictedBucketName
-      );
+      const result = await testConnectionForSavedConnection(connection);
 
       if (connectionRequestIdsRef.current[connectionId] !== requestId) {
         return;
       }
 
-      if (!result.accountId) {
+      if (!result.accountLabel) {
         updateConnectionIndicator(connectionId, {
           status: "error",
-          message: t("navigation.modal.aws.test_connection_failure")
+          message:
+            connection.provider === "aws"
+              ? t("navigation.modal.aws.test_connection_failure")
+              : t("navigation.modal.azure.test_connection_failure")
         });
         return;
       }
 
       setConnectionProviderAccountIds((previousProviderAccountIds) => ({
         ...previousProviderAccountIds,
-        [connectionId]: result.accountId
+        [connectionId]: result.accountLabel
       }));
-      const buckets = await listAwsBuckets(
-        draft.accessKeyId.trim(),
-        draft.secretAccessKey.trim(),
-        draft.restrictedBucketName
-      );
+      const buckets = await listContainersForSavedConnection(connection);
 
       if (connectionRequestIdsRef.current[connectionId] !== requestId) {
         return;
@@ -3850,14 +3870,22 @@ function validateNewFolderNameInput(
         [connectionId]: buildBucketNodes(connection, buckets)
       }));
 
-      void hydrateBucketRegions(
-        connectionId,
-        requestId,
-        draft.accessKeyId.trim(),
-        draft.secretAccessKey.trim(),
-        buckets,
-        draft.restrictedBucketName
-      );
+      if (connection.provider === "aws") {
+        const draft = await connectionService.getAwsConnectionDraft(connectionId);
+
+        if (connectionRequestIdsRef.current[connectionId] !== requestId) {
+          return;
+        }
+
+        void hydrateBucketRegions(
+          connectionId,
+          requestId,
+          draft.accessKeyId.trim(),
+          draft.secretAccessKey.trim(),
+          buckets.map((bucket) => ({ name: bucket.name })),
+          draft.restrictedBucketName
+        );
+      }
 
       updateConnectionIndicator(connectionId, { status: "connected" });
     } catch (error) {
@@ -3912,19 +3940,41 @@ function validateNewFolderNameInput(
   function validateConnectionTestFields(): FormErrors {
     const nextErrors: FormErrors = {};
 
-    if (!accessKeyId.trim()) {
-      nextErrors.accessKeyId = t("navigation.modal.validation.access_key_required");
-    }
+    if (connectionProvider === "aws") {
+      if (!accessKeyId.trim()) {
+        nextErrors.accessKeyId = t("navigation.modal.validation.access_key_required");
+      }
 
-    if (!secretAccessKey.trim()) {
-      nextErrors.secretAccessKey = t("navigation.modal.validation.secret_key_required");
-    }
+      if (!secretAccessKey.trim()) {
+        nextErrors.secretAccessKey = t("navigation.modal.validation.secret_key_required");
+      }
 
-    if (
-      restrictedBucketName.trim() &&
-      !isRestrictedBucketNameFormatValid(restrictedBucketName.trim())
-    ) {
-      nextErrors.restrictedBucketName = t("navigation.modal.validation.restricted_bucket_invalid");
+      if (
+        restrictedBucketName.trim() &&
+        !isRestrictedBucketNameFormatValid(restrictedBucketName.trim())
+      ) {
+        nextErrors.restrictedBucketName = t("navigation.modal.validation.restricted_bucket_invalid");
+      }
+    } else {
+      if (!storageAccountName.trim()) {
+        nextErrors.storageAccountName = t(
+          "navigation.modal.validation.storage_account_name_required"
+        );
+      } else if (!isStorageAccountNameFormatValid(storageAccountName.trim())) {
+        nextErrors.storageAccountName = t(
+          "navigation.modal.validation.storage_account_name_invalid"
+        );
+      }
+
+      if (azureAuthenticationMethod !== "shared_key") {
+        nextErrors.authenticationMethod = t(
+          "navigation.modal.validation.azure_authentication_method_invalid"
+        );
+      }
+
+      if (!azureAccountKey.trim()) {
+        nextErrors.accountKey = t("navigation.modal.validation.account_key_required");
+      }
     }
 
     return nextErrors;
@@ -3936,38 +3986,69 @@ function validateNewFolderNameInput(
 
     if (Object.keys(nextErrors).length > 0) {
       setConnectionTestStatus("error");
-      setConnectionTestMessage(t("navigation.modal.aws.test_connection_validation_error"));
+      setConnectionTestMessage(
+        connectionProvider === "aws"
+          ? t("navigation.modal.aws.test_connection_validation_error")
+          : t("navigation.modal.azure.test_connection_validation_error")
+      );
       return;
     }
 
     setConnectionTestStatus("testing");
-    setConnectionTestMessage(t("navigation.modal.aws.test_connection_in_progress"));
+    setConnectionTestMessage(
+      connectionProvider === "aws"
+        ? t("navigation.modal.aws.test_connection_in_progress")
+        : t("navigation.modal.azure.test_connection_in_progress")
+    );
 
     const requestId = connectionTestRequestIdRef.current + 1;
     connectionTestRequestIdRef.current = requestId;
 
     try {
-      const result = await testAwsConnection(
-        accessKeyId.trim(),
-        secretAccessKey.trim(),
-        restrictedBucketName.trim() || undefined
-      );
+      if (connectionProvider === "aws") {
+        const result = await testAwsConnection(
+          accessKeyId.trim(),
+          secretAccessKey.trim(),
+          restrictedBucketName.trim() || undefined
+        );
+
+        if (connectionTestRequestIdRef.current !== requestId) {
+          return;
+        }
+
+        if (!result.accountId) {
+          setConnectionTestStatus("error");
+          setConnectionTestMessage(t("navigation.modal.aws.test_connection_failure"));
+          return;
+        }
+
+        setConnectionTestStatus("success");
+        setConnectionTestMessage(
+          t("navigation.modal.aws.test_connection_success").replace(
+            "{accountId}",
+            result.accountId
+          )
+        );
+        return;
+      }
+
+      const result = await testAzureConnection(storageAccountName.trim(), azureAccountKey.trim());
 
       if (connectionTestRequestIdRef.current !== requestId) {
         return;
       }
 
-      if (!result.accountId) {
+      if (!result.storageAccountName) {
         setConnectionTestStatus("error");
-        setConnectionTestMessage(t("navigation.modal.aws.test_connection_failure"));
+        setConnectionTestMessage(t("navigation.modal.azure.test_connection_failure"));
         return;
       }
 
       setConnectionTestStatus("success");
       setConnectionTestMessage(
-        t("navigation.modal.aws.test_connection_success").replace(
-          "{accountId}",
-          result.accountId
+        t("navigation.modal.azure.test_connection_success").replace(
+          "{storageAccountName}",
+          result.storageAccountName
         )
       );
     } catch (error) {
@@ -3976,7 +4057,11 @@ function validateNewFolderNameInput(
       }
 
       setConnectionTestStatus("error");
-      setConnectionTestMessage(buildConnectionFailureMessage(error, t));
+      setConnectionTestMessage(
+        connectionProvider === "aws"
+          ? buildConnectionFailureMessage(error, t)
+          : extractErrorMessage(error) ?? t("navigation.modal.azure.test_connection_failure")
+      );
     }
   }
 
@@ -4162,16 +4247,28 @@ function validateNewFolderNameInput(
       ) {
         nextErrors.restrictedBucketName = t("navigation.modal.validation.restricted_bucket_invalid");
       }
+    } else {
+      if (!storageAccountName.trim()) {
+        nextErrors.storageAccountName = t("navigation.modal.validation.storage_account_name_required");
+      } else if (!isStorageAccountNameFormatValid(storageAccountName.trim())) {
+        nextErrors.storageAccountName = t("navigation.modal.validation.storage_account_name_invalid");
+      }
+
+      if (azureAuthenticationMethod !== "shared_key") {
+        nextErrors.authenticationMethod = t(
+          "navigation.modal.validation.azure_authentication_method_invalid"
+        );
+      }
+
+      if (!azureAccountKey.trim()) {
+        nextErrors.accountKey = t("navigation.modal.validation.account_key_required");
+      }
     }
 
     return nextErrors;
   }
 
   async function handleSaveConnection() {
-    if (connectionProvider !== "aws") {
-      return;
-    }
-
     const nextErrors = validateForm();
     setFormErrors(nextErrors);
 
@@ -4183,16 +4280,28 @@ function validateNewFolderNameInput(
     setSubmitError(null);
 
     try {
-      const savedConnection = await connectionService.saveAwsConnection({
-        id: modalMode === "edit" ? editingConnectionId ?? undefined : undefined,
-        name: connectionName,
-        provider: "aws",
-        accessKeyId,
-        secretAccessKey: secretAccessKey.trim(),
-        restrictedBucketName,
-        connectOnStartup,
-        defaultUploadStorageClass: defaultAwsUploadStorageClass
-      } satisfies AwsConnectionDraft);
+      const savedConnection =
+        connectionProvider === "aws"
+          ? await connectionService.saveAwsConnection({
+              id: modalMode === "edit" ? editingConnectionId ?? undefined : undefined,
+              name: connectionName,
+              provider: "aws",
+              accessKeyId,
+              secretAccessKey: secretAccessKey.trim(),
+              restrictedBucketName,
+              connectOnStartup,
+              defaultUploadStorageClass: defaultAwsUploadStorageClass
+            } satisfies AwsConnectionDraft)
+          : await connectionService.saveAzureConnection({
+              id: modalMode === "edit" ? editingConnectionId ?? undefined : undefined,
+              name: connectionName,
+              provider: "azure",
+              storageAccountName,
+              authenticationMethod: azureAuthenticationMethod,
+              accountKey: azureAccountKey.trim(),
+              connectOnStartup,
+              defaultUploadTier: defaultAzureUploadTier
+            });
 
       const savedConnections = await connectionService.listConnections();
       setConnections(savedConnections);
@@ -4880,7 +4989,7 @@ function validateNewFolderNameInput(
                                     </span>
                                   </span>
                                   <span className="content-list-item-column">
-                                    {bucketNode.region ?? BUCKET_REGION_PLACEHOLDER}
+                                    {bucketNode.region ?? ""}
                                   </span>
                                   <span className="content-list-item-column content-list-item-column-end">
                                     {t("content.type.container")}
@@ -5629,7 +5738,7 @@ function validateNewFolderNameInput(
       {isModalOpen ? (
         <div className="modal-backdrop" role="presentation">
           <div
-            className={`modal-card${connectionProvider === "aws" ? " modal-card-wide" : ""}`}
+            className="modal-card modal-card-wide"
             role="dialog"
             aria-modal="true"
             aria-labelledby="connection-modal-title"
@@ -5681,6 +5790,7 @@ function validateNewFolderNameInput(
                     <select
                       id={providerFieldId}
                       value={connectionProvider}
+                      disabled={modalMode === "edit"}
                       onChange={(event) => {
                         setConnectionProvider(event.target.value as ConnectionProvider);
                         resetConnectionTestState();
@@ -5725,7 +5835,37 @@ function validateNewFolderNameInput(
                       t={t}
                     />
                   ) : (
-                    <AzureConnectionPlaceholder t={t} />
+                    <AzureConnectionFields
+                      storageAccountNameFieldId={storageAccountNameFieldId}
+                      authenticationMethodFieldId={azureAuthenticationMethodFieldId}
+                      accountKeyFieldId={azureAccountKeyFieldId}
+                      connectOnStartupFieldId={connectOnStartupFieldId}
+                      storageAccountName={storageAccountName}
+                      authenticationMethod={azureAuthenticationMethod}
+                      accountKey={azureAccountKey}
+                      connectOnStartup={connectOnStartup}
+                      defaultUploadTier={defaultAzureUploadTier}
+                      errors={{
+                        storageAccountName: formErrors.storageAccountName,
+                        authenticationMethod: formErrors.authenticationMethod,
+                        accountKey: formErrors.accountKey
+                      }}
+                      onStorageAccountNameChange={(value) => {
+                        setStorageAccountName(value);
+                        resetConnectionTestState();
+                      }}
+                      onAuthenticationMethodChange={(value) => {
+                        setAzureAuthenticationMethod(value);
+                        resetConnectionTestState();
+                      }}
+                      onAccountKeyChange={(value) => {
+                        setAzureAccountKey(value);
+                        resetConnectionTestState();
+                      }}
+                      onConnectOnStartupChange={setConnectOnStartup}
+                      onDefaultUploadTierChange={setDefaultAzureUploadTier}
+                      t={t}
+                    />
                   )}
 
                   {submitError ? <p className="status-message-error">{submitError}</p> : null}
@@ -5733,47 +5873,51 @@ function validateNewFolderNameInput(
               </div>
 
               <div className="connection-modal-footer">
-                {connectionProvider === "aws" ? (
-                  <div className="connection-test-footer">
-                    <button
-                      type="button"
-                      className="secondary-button"
-                      disabled={isSubmitting || connectionTestStatus === "testing"}
-                      onClick={handleTestConnection}
-                      title={t("navigation.modal.aws.test_connection_helper")}
-                    >
-                      {t("navigation.modal.aws.test_connection_button")}
-                    </button>
+                <div className="connection-test-footer">
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    disabled={isSubmitting || connectionTestStatus === "testing"}
+                    onClick={handleTestConnection}
+                    title={t(
+                      connectionProvider === "aws"
+                        ? "navigation.modal.aws.test_connection_helper"
+                        : "navigation.modal.azure.test_connection_helper"
+                    )}
+                  >
+                    {t(
+                      connectionProvider === "aws"
+                        ? "navigation.modal.aws.test_connection_button"
+                        : "navigation.modal.azure.test_connection_button"
+                    )}
+                  </button>
 
-                    {connectionTestStatus !== "idle" ? (
-                      <span
-                        className={`connection-test-status-icon is-${connectionTestStatus}`}
-                        title={`${t(`navigation.modal.aws.test_connection_status.${connectionTestStatus}`)}${
-                          connectionTestMessage ? `: ${connectionTestMessage}` : ""
-                        }`}
-                        aria-label={`${t(`navigation.modal.aws.test_connection_status.${connectionTestStatus}`)}${
-                          connectionTestMessage ? `: ${connectionTestMessage}` : ""
-                        }`}
-                      >
-                        {connectionTestStatus === "success" ? (
-                          <CheckCircle2 size={16} strokeWidth={2} />
-                        ) : connectionTestStatus === "error" ? (
-                          <XCircle size={16} strokeWidth={2} />
-                        ) : connectionTestStatus === "testing" ? (
-                          <LoaderCircle
-                            size={16}
-                            strokeWidth={2}
-                            className="connection-test-spinner"
-                          />
-                        ) : (
-                          <AlertCircle size={16} strokeWidth={2} />
-                        )}
-                      </span>
-                    ) : null}
-                  </div>
-                ) : (
-                  <div />
-                )}
+                  {connectionTestStatus !== "idle" ? (
+                    <span
+                      className={`connection-test-status-icon is-${connectionTestStatus}`}
+                      title={`${t(
+                        `navigation.modal.${connectionProvider}.test_connection_status.${connectionTestStatus}`
+                      )}${connectionTestMessage ? `: ${connectionTestMessage}` : ""}`}
+                      aria-label={`${t(
+                        `navigation.modal.${connectionProvider}.test_connection_status.${connectionTestStatus}`
+                      )}${connectionTestMessage ? `: ${connectionTestMessage}` : ""}`}
+                    >
+                      {connectionTestStatus === "success" ? (
+                        <CheckCircle2 size={16} strokeWidth={2} />
+                      ) : connectionTestStatus === "error" ? (
+                        <XCircle size={16} strokeWidth={2} />
+                      ) : connectionTestStatus === "testing" ? (
+                        <LoaderCircle
+                          size={16}
+                          strokeWidth={2}
+                          className="connection-test-spinner"
+                        />
+                      ) : (
+                        <AlertCircle size={16} strokeWidth={2} />
+                      )}
+                    </span>
+                  ) : null}
+                </div>
 
                 <div className="modal-actions modal-actions-inline">
                   <button type="button" className="secondary-button" onClick={closeModal}>
@@ -5782,7 +5926,7 @@ function validateNewFolderNameInput(
                   <button
                     type="submit"
                     className="primary-button"
-                    disabled={isSubmitting || connectionProvider !== "aws"}
+                    disabled={isSubmitting}
                   >
                     {modalMode === "edit" ? t("common.update") : t("common.save")}
                   </button>

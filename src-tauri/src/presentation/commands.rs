@@ -1,13 +1,22 @@
+use crate::application::services::azure_connection_secret_service::AzureConnectionSecretService;
+use crate::application::services::azure_connection_service::AzureConnectionService;
 use crate::application::services::aws_connection_secret_service::AwsConnectionSecretService;
 use crate::application::services::aws_connection_service::{
     AwsConnectionService, DOWNLOAD_CANCELLED_ERROR, UPLOAD_CANCELLED_ERROR,
 };
 use crate::application::services::greeting_service::GreetingService;
+use crate::domain::azure_connection::{
+    AzureConnectionTestInput, AzureConnectionTestResult, AzureContainerItemsResult,
+    AzureContainerSummary,
+};
 use crate::domain::aws_connection::{
     AwsBucketItemsResult, AwsBucketSummary, AwsConnectionTestInput, AwsConnectionTestResult,
     AwsDeleteResult,
 };
-use crate::domain::connection_secrets::{AwsConnectionSecretsInput, AwsConnectionSecretsOutput};
+use crate::domain::connection_secrets::{
+    AwsConnectionSecretsInput, AwsConnectionSecretsOutput, AzureConnectionSecretsInput,
+    AzureConnectionSecretsOutput,
+};
 use serde::Serialize;
 use tauri::{Emitter, Window};
 
@@ -127,6 +136,29 @@ pub async fn delete_aws_connection_secrets(connection_id: String) -> Result<(), 
 }
 
 #[tauri::command]
+pub async fn save_azure_connection_secrets(
+    connection_id: String,
+    account_key: String,
+) -> Result<(), String> {
+    AzureConnectionSecretService::save(AzureConnectionSecretsInput {
+        connection_id,
+        account_key,
+    })
+}
+
+#[tauri::command]
+pub async fn load_azure_connection_secrets(
+    connection_id: String,
+) -> Result<AzureConnectionSecretsOutput, String> {
+    AzureConnectionSecretService::load(&connection_id)
+}
+
+#[tauri::command]
+pub async fn delete_azure_connection_secrets(connection_id: String) -> Result<(), String> {
+    AzureConnectionSecretService::delete(&connection_id)
+}
+
+#[tauri::command]
 pub async fn validate_local_mapping_directory(path: String) -> Result<bool, String> {
     let trimmed_path = path.trim();
 
@@ -161,6 +193,50 @@ pub async fn test_aws_connection(
     }
 
     result
+}
+
+#[tauri::command]
+pub async fn test_azure_connection(
+    storage_account_name: String,
+    account_key: String,
+) -> Result<AzureConnectionTestResult, String> {
+    AzureConnectionService::test_connection(AzureConnectionTestInput {
+        storage_account_name,
+        account_key,
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn list_azure_containers(
+    storage_account_name: String,
+    account_key: String,
+) -> Result<Vec<AzureContainerSummary>, String> {
+    AzureConnectionService::list_containers(AzureConnectionTestInput {
+        storage_account_name,
+        account_key,
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn list_azure_container_items(
+    storage_account_name: String,
+    account_key: String,
+    container_name: String,
+    prefix: Option<String>,
+    continuation_token: Option<String>,
+) -> Result<AzureContainerItemsResult, String> {
+    AzureConnectionService::list_container_items(
+        AzureConnectionTestInput {
+            storage_account_name,
+            account_key,
+        },
+        container_name,
+        prefix,
+        continuation_token,
+    )
+    .await
 }
 
 #[tauri::command]
