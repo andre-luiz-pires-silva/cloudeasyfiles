@@ -32,6 +32,7 @@ import logoPrimary from "../../assets/logo-primary.svg";
 import { AwsConnectionFields } from "../connections/components/AwsConnectionFields";
 import { AwsUploadStorageClassField } from "../connections/components/AwsUploadStorageClassField";
 import { AzureConnectionFields } from "../connections/components/AzureConnectionFields";
+import { AzureUploadTierField } from "../connections/components/AzureUploadTierField";
 import {
   DEFAULT_AWS_UPLOAD_STORAGE_CLASS,
   normalizeAwsUploadStorageClass,
@@ -80,7 +81,14 @@ import {
   startAwsCacheDownload,
   testAwsConnection
 } from "../../lib/tauri/awsConnections";
-import { testAzureConnection } from "../../lib/tauri/azureConnections";
+import {
+  azureBlobExists,
+  cancelAzureUpload,
+  startAzureUpload,
+  startAzureUploadFromBytes,
+  testAzureConnection,
+  type AzureUploadProgressEvent
+} from "../../lib/tauri/azureConnections";
 import type { Locale } from "../../lib/i18n/I18nProvider";
 import { useI18n } from "../../lib/i18n/useI18n";
 import { validateLocalMappingDirectory } from "../../lib/tauri/commands";
@@ -1068,6 +1076,7 @@ type ActiveTransfer = {
   fileIdentity: string;
   fileName: string;
   bucketName: string;
+  provider: ConnectionProvider;
   transferKind: TransferKind;
   progressPercent: number;
   bytesTransferred: number;
@@ -1092,7 +1101,9 @@ type SimpleUploadBatchInput = {
   fileName: string;
   localFilePath?: string;
   startUpload: (
-    draft: AwsConnectionDraft,
+    draft:
+      | AwsConnectionDraft
+      | Awaited<ReturnType<typeof connectionService.getAzureConnectionDraft>>,
     operationId: string,
     objectKey: string
   ) => Promise<void>;
@@ -1251,6 +1262,8 @@ export function ConnectionNavigator({
   const [isUploadSettingsModalOpen, setIsUploadSettingsModalOpen] = useState(false);
   const [uploadSettingsStorageClass, setUploadSettingsStorageClass] =
     useState<AwsUploadStorageClass>(DEFAULT_AWS_UPLOAD_STORAGE_CLASS);
+  const [uploadSettingsAzureTier, setUploadSettingsAzureTier] =
+    useState<AzureUploadTier>(DEFAULT_AZURE_UPLOAD_TIER);
   const [uploadSettingsSubmitError, setUploadSettingsSubmitError] = useState<string | null>(null);
   const [isSavingUploadSettings, setIsSavingUploadSettings] = useState(false);
   const [contentRefreshNonce, setContentRefreshNonce] = useState(0);
@@ -1738,7 +1751,13 @@ function validateNewFolderNameInput(
     if (transferKind === "upload") {
       void (async () => {
         try {
-          await cancelAwsUpload(operationId);
+          const activeTransfer = activeTransfers[operationId];
+
+          if (activeTransfer?.provider === "azure") {
+            await cancelAzureUpload(operationId);
+          } else {
+            await cancelAwsUpload(operationId);
+          }
         } catch (error) {
           if (isCancelledTransferError(error)) {
             return;
@@ -1768,14 +1787,12 @@ function validateNewFolderNameInput(
   }
 
   async function startPreparedSimpleAwsUpload(
-    draft: AwsConnectionDraft,
+    draft:
+      | AwsConnectionDraft
+      | Awaited<ReturnType<typeof connectionService.getAzureConnectionDraft>>,
     input: PreparedSimpleUploadBatchItem
   ) {
-    if (
-      !selectedBucketConnectionId ||
-      !selectedBucketName ||
-      selectedBucketProvider !== "aws"
-    ) {
+    if (!selectedBucketConnectionId || !selectedBucketName || !selectedBucketProvider) {
       return;
     }
 
@@ -1796,6 +1813,7 @@ function validateNewFolderNameInput(
           fileIdentity: input.fileIdentity,
           fileName: input.fileName,
           bucketName: selectedBucketName,
+          provider: selectedBucketProvider ?? "aws",
           transferKind: "upload",
           progressPercent: 0,
           bytesTransferred: 0,
@@ -1855,16 +1873,20 @@ function validateNewFolderNameInput(
     uploadConflictResolverRef.current?.(decision);
   }
 
-  async function prepareSimpleAwsUploadBatch(inputs: SimpleUploadBatchInput[]) {
-    if (
-      !selectedBucketConnectionId ||
-      !selectedBucketName ||
-      selectedBucketProvider !== "aws"
-    ) {
+  async function prepareSimpleUploadBatch(
+    inputs: SimpleUploadBatchInput[]
+  ): Promise<{
+    draft: Awaited<ReturnType<typeof connectionService.getAwsConnectionDraft>> | Awaited<ReturnType<typeof connectionService.getAzureConnectionDraft>>;
+    preparedItems: PreparedSimpleUploadBatchItem[];
+  } | null> {
+    if (!selectedBucketConnectionId || !selectedBucketName || !selectedBucketProvider) {
       return null;
     }
 
-    const draft = await connectionService.getAwsConnectionDraft(selectedBucketConnectionId);
+    const draft =
+      selectedBucketProvider === "aws"
+        ? await connectionService.getAwsConnectionDraft(selectedBucketConnectionId)
+        : await connectionService.getAzureConnectionDraft(selectedBucketConnectionId);
     const preparedItems: PreparedSimpleUploadBatchItem[] = [];
     const seenObjectKeys = new Set<string>();
 
@@ -1901,16 +1923,25 @@ function validateNewFolderNameInput(
       let objectAlreadyExists = false;
 
       try {
-        objectAlreadyExists = await awsObjectExists(
-          draft.accessKeyId.trim(),
-          draft.secretAccessKey.trim(),
-          selectedBucketName,
-          objectKey,
-          selectedBucketRegion && selectedBucketRegion !== BUCKET_REGION_PLACEHOLDER
-            ? selectedBucketRegion
-            : undefined,
-          draft.restrictedBucketName
-        );
+        if (selectedBucketProvider === "aws" && "accessKeyId" in draft) {
+          objectAlreadyExists = await awsObjectExists(
+            draft.accessKeyId.trim(),
+            draft.secretAccessKey.trim(),
+            selectedBucketName,
+            objectKey,
+            selectedBucketRegion && selectedBucketRegion !== BUCKET_REGION_PLACEHOLDER
+              ? selectedBucketRegion
+              : undefined,
+            draft.restrictedBucketName
+          );
+        } else if ("storageAccountName" in draft) {
+          objectAlreadyExists = await azureBlobExists(
+            draft.storageAccountName,
+            draft.accountKey.trim(),
+            selectedBucketName,
+            objectKey
+          );
+        }
       } catch (error) {
         if (!isUploadExistsPreflightPermissionError(error)) {
           throw error;
@@ -1932,8 +1963,8 @@ function validateNewFolderNameInput(
     };
   }
 
-  async function processSimpleAwsUploadBatch(inputs: SimpleUploadBatchInput[]) {
-    const preparedBatch = await prepareSimpleAwsUploadBatch(inputs);
+  async function processSimpleUploadBatch(inputs: SimpleUploadBatchInput[]) {
+    const preparedBatch = await prepareSimpleUploadBatch(inputs);
 
     if (!preparedBatch || preparedBatch.preparedItems.length === 0) {
       return;
@@ -1975,6 +2006,22 @@ function validateNewFolderNameInput(
         continue;
       }
 
+      if (selectedBucketProvider === "azure") {
+        const existingItem = contentItems.find(
+          (contentItem) => contentItem.kind === "file" && contentItem.path === item.objectKey
+        );
+
+        if (existingItem?.availabilityStatus === "archived") {
+          showTransferErrorToast(
+            t("content.transfer.azure_overwrite_archived_blob").replace(
+              "{name}",
+              item.fileName
+            )
+          );
+          continue;
+        }
+      }
+
       void startPreparedSimpleAwsUpload(preparedBatch.draft, item);
     }
   }
@@ -1986,25 +2033,41 @@ function validateNewFolderNameInput(
       return;
     }
 
-    await processSimpleAwsUploadBatch([
+    await processSimpleUploadBatch([
       {
         fileName: getFileNameFromPath(normalizedFilePath),
         localFilePath: normalizedFilePath,
         startUpload: async (draft, operationId, objectKey) => {
-          await startAwsUpload(
-            operationId,
-            draft.accessKeyId.trim(),
-            draft.secretAccessKey.trim(),
-            selectedBucketConnectionId!,
-            selectedBucketName!,
-            objectKey,
-            normalizedFilePath,
-            draft.defaultUploadStorageClass,
-            selectedBucketRegion && selectedBucketRegion !== BUCKET_REGION_PLACEHOLDER
-              ? selectedBucketRegion
-              : undefined,
-            draft.restrictedBucketName
-          );
+          if (selectedBucketProvider === "aws" && "accessKeyId" in draft) {
+            await startAwsUpload(
+              operationId,
+              draft.accessKeyId.trim(),
+              draft.secretAccessKey.trim(),
+              selectedBucketConnectionId!,
+              selectedBucketName!,
+              objectKey,
+              normalizedFilePath,
+              draft.defaultUploadStorageClass,
+              selectedBucketRegion && selectedBucketRegion !== BUCKET_REGION_PLACEHOLDER
+                ? selectedBucketRegion
+                : undefined,
+              draft.restrictedBucketName
+            );
+            return;
+          }
+
+          if ("storageAccountName" in draft) {
+            await startAzureUpload(
+              operationId,
+              draft.storageAccountName,
+              draft.accountKey.trim(),
+              selectedBucketConnectionId!,
+              selectedBucketName!,
+              objectKey,
+              normalizedFilePath,
+              draft.defaultUploadTier
+            );
+          }
         }
       }
     ]);
@@ -2015,32 +2078,48 @@ function validateNewFolderNameInput(
       .map((localFilePath) => localFilePath.trim())
       .filter((localFilePath) => localFilePath.length > 0);
 
-    void processSimpleAwsUploadBatch(
+    void processSimpleUploadBatch(
       normalizedPaths.map((localFilePath) => ({
         fileName: getFileNameFromPath(localFilePath),
         localFilePath,
         startUpload: async (draft, operationId, objectKey) => {
-          await startAwsUpload(
-            operationId,
-            draft.accessKeyId.trim(),
-            draft.secretAccessKey.trim(),
-            selectedBucketConnectionId!,
-            selectedBucketName!,
-            objectKey,
-            localFilePath,
-            draft.defaultUploadStorageClass,
-            selectedBucketRegion && selectedBucketRegion !== BUCKET_REGION_PLACEHOLDER
-              ? selectedBucketRegion
-              : undefined,
-            draft.restrictedBucketName
-          );
+          if (selectedBucketProvider === "aws" && "accessKeyId" in draft) {
+            await startAwsUpload(
+              operationId,
+              draft.accessKeyId.trim(),
+              draft.secretAccessKey.trim(),
+              selectedBucketConnectionId!,
+              selectedBucketName!,
+              objectKey,
+              localFilePath,
+              draft.defaultUploadStorageClass,
+              selectedBucketRegion && selectedBucketRegion !== BUCKET_REGION_PLACEHOLDER
+                ? selectedBucketRegion
+                : undefined,
+              draft.restrictedBucketName
+            );
+            return;
+          }
+
+          if ("storageAccountName" in draft) {
+            await startAzureUpload(
+              operationId,
+              draft.storageAccountName,
+              draft.accountKey.trim(),
+              selectedBucketConnectionId!,
+              selectedBucketName!,
+              objectKey,
+              localFilePath,
+              draft.defaultUploadTier
+            );
+          }
         }
       }))
     );
   }
 
   function runSimpleDroppedFileUploads(files: File[]) {
-    void processSimpleAwsUploadBatch(
+    void processSimpleUploadBatch(
       files.map((file) => ({
         fileName: file.name,
         localFilePath: file.name,
@@ -2053,41 +2132,71 @@ function validateNewFolderNameInput(
             candidateFile.path?.trim() || candidateFile.webkitRelativePath?.trim();
 
           if (candidatePath) {
-            await startAwsUpload(
-              operationId,
-              draft.accessKeyId.trim(),
-              draft.secretAccessKey.trim(),
-              selectedBucketConnectionId!,
-              selectedBucketName!,
-              objectKey,
-              candidatePath,
-              draft.defaultUploadStorageClass,
-              selectedBucketRegion && selectedBucketRegion !== BUCKET_REGION_PLACEHOLDER
-                ? selectedBucketRegion
-                : undefined,
-              draft.restrictedBucketName
-            );
+            if (selectedBucketProvider === "aws" && "accessKeyId" in draft) {
+              await startAwsUpload(
+                operationId,
+                draft.accessKeyId.trim(),
+                draft.secretAccessKey.trim(),
+                selectedBucketConnectionId!,
+                selectedBucketName!,
+                objectKey,
+                candidatePath,
+                draft.defaultUploadStorageClass,
+                selectedBucketRegion && selectedBucketRegion !== BUCKET_REGION_PLACEHOLDER
+                  ? selectedBucketRegion
+                  : undefined,
+                draft.restrictedBucketName
+              );
+            } else if ("storageAccountName" in draft) {
+              await startAzureUpload(
+                operationId,
+                draft.storageAccountName,
+                draft.accountKey.trim(),
+                selectedBucketConnectionId!,
+                selectedBucketName!,
+                objectKey,
+                candidatePath,
+                draft.defaultUploadTier
+              );
+            }
 
             return;
           }
 
           const fileBytes = new Uint8Array(await file.arrayBuffer());
 
-          await startAwsUploadFromBytes(
-            operationId,
-            draft.accessKeyId.trim(),
-            draft.secretAccessKey.trim(),
-            selectedBucketConnectionId!,
-            selectedBucketName!,
-            objectKey,
-            file.name,
-            fileBytes,
-            draft.defaultUploadStorageClass,
-            selectedBucketRegion && selectedBucketRegion !== BUCKET_REGION_PLACEHOLDER
-              ? selectedBucketRegion
-              : undefined,
-            draft.restrictedBucketName
-          );
+          if (selectedBucketProvider === "aws" && "accessKeyId" in draft) {
+            await startAwsUploadFromBytes(
+              operationId,
+              draft.accessKeyId.trim(),
+              draft.secretAccessKey.trim(),
+              selectedBucketConnectionId!,
+              selectedBucketName!,
+              objectKey,
+              file.name,
+              fileBytes,
+              draft.defaultUploadStorageClass,
+              selectedBucketRegion && selectedBucketRegion !== BUCKET_REGION_PLACEHOLDER
+                ? selectedBucketRegion
+                : undefined,
+              draft.restrictedBucketName
+            );
+            return;
+          }
+
+          if ("storageAccountName" in draft) {
+            await startAzureUploadFromBytes(
+              operationId,
+              draft.storageAccountName,
+              draft.accountKey.trim(),
+              selectedBucketConnectionId!,
+              selectedBucketName!,
+              objectKey,
+              file.name,
+              fileBytes,
+              draft.defaultUploadTier
+            );
+          }
         }
       }))
     );
@@ -2098,7 +2207,7 @@ function validateNewFolderNameInput(
       !isTauri() ||
       !selectedBucketConnectionId ||
       !selectedBucketName ||
-      selectedBucketProvider !== "aws"
+      !selectedBucketProvider
     ) {
       return;
     }
@@ -2456,6 +2565,7 @@ function validateNewFolderNameInput(
         ),
         fileName: item.name,
         bucketName: selectedBucketName,
+        provider: selectedBucketProvider ?? "aws",
         transferKind: "cache",
         progressPercent: 0,
         bytesTransferred: 0,
@@ -2734,6 +2844,7 @@ function validateNewFolderNameInput(
             ),
             fileName: item.name,
             bucketName: selectedBucketName,
+            provider: selectedBucketProvider ?? "aws",
             transferKind: "direct",
             progressPercent: 0,
             bytesTransferred: 0,
@@ -2996,6 +3107,92 @@ function validateNewFolderNameInput(
 
     void (async () => {
       try {
+        const unlisten = await listen<AzureUploadProgressEvent>(
+          "azure-upload-progress",
+          (event) => {
+            if (!isActive) {
+              return;
+            }
+
+            const payload = event.payload;
+
+            setActiveTransfers((currentTransfers) => {
+              const existingTransfer = currentTransfers[payload.operationId];
+
+              if (!existingTransfer) {
+                return currentTransfers;
+              }
+
+              return {
+                ...currentTransfers,
+                [payload.operationId]: {
+                  ...existingTransfer,
+                  progressPercent: payload.progressPercent,
+                  bytesTransferred: payload.bytesTransferred,
+                  totalBytes: payload.totalBytes,
+                  state: payload.state,
+                  error: payload.error,
+                  objectKey: payload.objectKey,
+                  localFilePath: payload.localFilePath
+                }
+              };
+            });
+
+            if (payload.state === "completed") {
+              setCompletionToast({
+                id: payload.operationId,
+                title: t("content.transfer.upload_completed"),
+                description: payload.objectKey,
+                tone: "success"
+              });
+
+              if (
+                payload.connectionId === selectedBucketConnectionId &&
+                payload.bucketName === selectedBucketName
+              ) {
+                const uploadedParentPath = payload.objectKey.includes("/")
+                  ? payload.objectKey.slice(0, payload.objectKey.lastIndexOf("/"))
+                  : "";
+
+                if (uploadedParentPath === selectedBucketPath) {
+                  setContentRefreshNonce((currentValue) => currentValue + 1);
+                }
+              }
+            } else if (payload.state === "failed" && payload.error) {
+              showTransferErrorToast(payload.error);
+            }
+          }
+        );
+
+        if (!isActive) {
+          void unlisten();
+          return;
+        }
+
+        cleanup = () => {
+          void unlisten();
+        };
+      } catch (error) {
+        console.warn("[ui] failed to register azure upload listener", error);
+      }
+    })();
+
+    return () => {
+      isActive = false;
+      cleanup?.();
+    };
+  }, [selectedBucketConnectionId, selectedBucketName, selectedBucketPath, t]);
+
+  useEffect(() => {
+    let isActive = true;
+    let cleanup: (() => void) | null = null;
+
+    if (!isTauri()) {
+      return undefined;
+    }
+
+    void (async () => {
+      try {
         const unlisten = await getCurrentWindow().onDragDropEvent((event) => {
           if (!isActive) {
             return;
@@ -3004,7 +3201,7 @@ function validateNewFolderNameInput(
           if (
             !selectedBucketConnectionId ||
             !selectedBucketName ||
-            selectedBucketProvider !== "aws"
+            !selectedBucketProvider
           ) {
             if (event.payload.type === "leave" || event.payload.type === "drop") {
               setIsUploadDropTargetActive(false);
@@ -4073,13 +4270,17 @@ function validateNewFolderNameInput(
   }
 
   function openUploadSettingsModal() {
-    if (!selectedConnection || selectedConnection.provider !== "aws") {
+    if (!selectedConnection) {
       return;
     }
 
-    setUploadSettingsStorageClass(
-      normalizeAwsUploadStorageClass(selectedConnection.defaultUploadStorageClass)
-    );
+    if (selectedConnection.provider === "aws") {
+      setUploadSettingsStorageClass(
+        normalizeAwsUploadStorageClass(selectedConnection.defaultUploadStorageClass)
+      );
+    } else {
+      setUploadSettingsAzureTier(normalizeAzureUploadTier(selectedConnection.defaultUploadTier));
+    }
     setUploadSettingsSubmitError(null);
     setIsUploadSettingsModalOpen(true);
   }
@@ -4318,7 +4519,7 @@ function validateNewFolderNameInput(
   }
 
   async function handleSaveUploadSettings() {
-    if (!selectedConnection || selectedConnection.provider !== "aws") {
+    if (!selectedConnection) {
       return;
     }
 
@@ -4326,10 +4527,17 @@ function validateNewFolderNameInput(
     setUploadSettingsSubmitError(null);
 
     try {
-      await connectionService.updateAwsUploadStorageClass(
-        selectedConnection.id,
-        uploadSettingsStorageClass
-      );
+      if (selectedConnection.provider === "aws") {
+        await connectionService.updateAwsUploadStorageClass(
+          selectedConnection.id,
+          uploadSettingsStorageClass
+        );
+      } else {
+        await connectionService.updateAzureUploadTier(
+          selectedConnection.id,
+          uploadSettingsAzureTier
+        );
+      }
       const savedConnections = await connectionService.listConnections();
       setConnections(savedConnections);
       closeUploadSettingsModal();
@@ -4576,7 +4784,7 @@ function validateNewFolderNameInput(
               selectedNode?.kind !== "bucket" ||
               !selectedBucketConnectionId ||
               !selectedBucketName ||
-              selectedBucketProvider !== "aws"
+              !selectedBucketProvider
             ) {
               return;
             }
@@ -5108,7 +5316,7 @@ function validateNewFolderNameInput(
                           <Upload size={15} strokeWidth={2} />
                         </button>
                       ) : null}
-                      {selectedBucketProvider === "aws" && selectedNode.kind === "bucket" ? (
+                      {selectedBucketProvider && selectedNode.kind === "bucket" ? (
                         <button
                           type="button"
                           className="content-load-more-button content-load-more-button-icon"
@@ -5937,7 +6145,7 @@ function validateNewFolderNameInput(
         </div>
       ) : null}
 
-      {isUploadSettingsModalOpen && selectedConnection?.provider === "aws" ? (
+      {isUploadSettingsModalOpen && selectedConnection ? (
         <div className="modal-backdrop" role="presentation">
           <div
             className="modal-card modal-card-wide"
@@ -5966,11 +6174,18 @@ function validateNewFolderNameInput(
             >
               <div className="modal-scroll-panel">
                 <div className="modal-scroll-viewport">
-                  <AwsUploadStorageClassField
-                    locale={locale}
-                    value={uploadSettingsStorageClass}
-                    onChange={setUploadSettingsStorageClass}
-                  />
+                  {selectedConnection.provider === "aws" ? (
+                    <AwsUploadStorageClassField
+                      locale={locale}
+                      value={uploadSettingsStorageClass}
+                      onChange={setUploadSettingsStorageClass}
+                    />
+                  ) : (
+                    <AzureUploadTierField
+                      value={uploadSettingsAzureTier}
+                      onChange={setUploadSettingsAzureTier}
+                    />
+                  )}
 
                   {uploadSettingsSubmitError ? (
                     <p className="status-message-error">{uploadSettingsSubmitError}</p>

@@ -7,7 +7,7 @@ import type {
 import { ConnectionMetadataStore } from "../persistence/connectionMetadataStore";
 import { ConnectionSecretsVault } from "../persistence/connectionSecretsVault";
 import { normalizeAwsUploadStorageClass } from "../awsUploadStorageClasses";
-import { normalizeAzureUploadTier } from "../azureUploadTiers";
+import { normalizeAzureUploadTier, type AzureUploadTier } from "../azureUploadTiers";
 
 export const MAX_CONNECTION_NAME_LENGTH = 20;
 const SIMPLE_CONNECTION_NAME_PATTERN = /^[\p{L}\p{N}][\p{L}\p{N} _-]*$/u;
@@ -285,6 +285,33 @@ export class ConnectionService {
       this.metadataStore.save(previousConnections);
       throw error;
     }
+
+    return nextConnection;
+  }
+
+  async updateAzureUploadTier(
+    connectionId: string,
+    uploadTier: AzureUploadTier | undefined
+  ): Promise<SavedConnectionSummary> {
+    const previousConnections = this.metadataStore.load();
+    const existingConnection = previousConnections.find((connection) => connection.id === connectionId);
+
+    if (!existingConnection || existingConnection.provider !== "azure") {
+      throw new Error("Azure connection not found");
+    }
+
+    const nextConnection: SavedConnectionSummary = {
+      ...existingConnection,
+      defaultUploadTier: normalizeAzureUploadTier(uploadTier)
+    };
+
+    const nextConnections = sortConnections(
+      previousConnections
+        .filter((connection) => connection.id !== connectionId)
+        .concat(nextConnection)
+    );
+
+    this.metadataStore.save(nextConnections);
 
     return nextConnection;
   }

@@ -348,6 +348,7 @@
   "content.transfer.upload_invalid_path": "The selected local file path is invalid.",
   "content.transfer.upload_duplicate_active": "An upload for this destination is already in progress.",
   "content.transfer.upload_duplicate_batch": "This selection contains more than one file targeting \"{name}\". Only the first one will be uploaded.",
+  "content.transfer.azure_overwrite_archived_blob": "\"{name}\" already exists in Azure Archive tier and cannot be overwritten directly. Rehydrate or move it to an online tier first.",
   "content.transfer.upload_single_file_only": "Simple upload accepts only one file at a time.",
   "content.transfer.upload_drop_path_unavailable": "This drag-and-drop payload did not expose a usable local file path.",
   "content.transfer.upload_button": "Upload file",

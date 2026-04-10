@@ -31,6 +31,19 @@ export type AzureContainerItemsResult = {
   hasMore: boolean;
 };
 
+export type AzureUploadProgressEvent = {
+  operationId: string;
+  connectionId: string;
+  bucketName: string;
+  objectKey: string;
+  localFilePath: string;
+  bytesTransferred: number;
+  totalBytes: number;
+  progressPercent: number;
+  state: "progress" | "completed" | "failed" | "cancelled";
+  error?: string | null;
+};
+
 export async function testAzureConnection(
   storageAccountName: string,
   accountKey: string
@@ -64,5 +77,71 @@ export async function listAzureContainerItems(
     containerName,
     prefix,
     continuationToken
+  });
+}
+
+export async function azureBlobExists(
+  storageAccountName: string,
+  accountKey: string,
+  containerName: string,
+  blobName: string
+): Promise<boolean> {
+  return invoke<boolean>("azure_blob_exists", {
+    storageAccountName,
+    accountKey,
+    containerName,
+    blobName
+  });
+}
+
+export async function startAzureUpload(
+  operationId: string,
+  storageAccountName: string,
+  accountKey: string,
+  connectionId: string,
+  containerName: string,
+  blobName: string,
+  localFilePath: string,
+  accessTier?: string
+): Promise<string> {
+  return invoke<string>("start_azure_upload", {
+    operationId,
+    storageAccountName,
+    accountKey,
+    connectionId,
+    containerName,
+    blobName,
+    localFilePath,
+    accessTier
+  });
+}
+
+export async function startAzureUploadFromBytes(
+  operationId: string,
+  storageAccountName: string,
+  accountKey: string,
+  connectionId: string,
+  containerName: string,
+  blobName: string,
+  fileName: string,
+  fileBytes: Uint8Array,
+  accessTier?: string
+): Promise<string> {
+  return invoke<string>("start_azure_upload_bytes", {
+    operationId,
+    storageAccountName,
+    accountKey,
+    connectionId,
+    containerName,
+    blobName,
+    fileName,
+    fileBytes: Array.from(fileBytes),
+    accessTier
+  });
+}
+
+export async function cancelAzureUpload(operationId: string): Promise<void> {
+  await invoke("cancel_azure_upload", {
+    operationId
   });
 }

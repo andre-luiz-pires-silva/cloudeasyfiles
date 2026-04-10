@@ -348,6 +348,7 @@
   "content.transfer.upload_invalid_path": "O caminho local do arquivo selecionado é inválido.",
   "content.transfer.upload_duplicate_active": "Já existe um upload em andamento para este destino.",
   "content.transfer.upload_duplicate_batch": "Esta seleção contém mais de um arquivo com destino \"{name}\". Apenas o primeiro será enviado.",
+  "content.transfer.azure_overwrite_archived_blob": "\"{name}\" já existe no tier Azure Archive e não pode ser sobrescrito diretamente. Faça a rehydration ou mova o blob para um tier online antes.",
   "content.transfer.upload_single_file_only": "O upload simples aceita apenas um arquivo por vez.",
   "content.transfer.upload_drop_path_unavailable": "Este payload de drag-and-drop não expôs um caminho local de arquivo utilizável.",
   "content.transfer.upload_button": "Enviar arquivo",
