@@ -357,6 +357,48 @@ pub async fn delete_azure_prefix(
 }
 
 #[tauri::command]
+pub async fn change_azure_blob_access_tier(
+    storage_account_name: String,
+    account_key: String,
+    container_name: String,
+    blob_name: String,
+    target_tier: String,
+) -> Result<(), String> {
+    AzureConnectionService::change_blob_access_tier(
+        AzureConnectionTestInput {
+            storage_account_name,
+            account_key,
+        },
+        container_name,
+        blob_name,
+        target_tier,
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn rehydrate_azure_blob(
+    storage_account_name: String,
+    account_key: String,
+    container_name: String,
+    blob_name: String,
+    target_tier: String,
+    priority: String,
+) -> Result<(), String> {
+    AzureConnectionService::rehydrate_blob(
+        AzureConnectionTestInput {
+            storage_account_name,
+            account_key,
+        },
+        container_name,
+        blob_name,
+        target_tier,
+        priority,
+    )
+    .await
+}
+
+#[tauri::command]
 pub async fn list_aws_buckets(
     access_key_id: String,
     secret_access_key: String,

@@ -728,6 +728,60 @@ impl AzureConnectionService {
         Ok(destination_path)
     }
 
+    pub async fn change_blob_access_tier(
+        input: AzureConnectionTestInput,
+        container_name: String,
+        blob_name: String,
+        target_tier: String,
+    ) -> Result<(), String> {
+        let storage_account_name = normalize_storage_account_name(&input.storage_account_name)?;
+        let normalized_container_name = container_name.trim().to_string();
+        let normalized_blob_name = blob_name.trim().to_string();
+        let normalized_target_tier =
+            parse_access_tier(Some(target_tier.as_str()))?.ok_or_else(|| {
+                "A target Azure access tier is required.".to_string()
+            })?;
+        let client = Client::new();
+
+        set_blob_access_tier(
+            &client,
+            &storage_account_name,
+            &input.account_key,
+            &normalized_container_name,
+            &normalized_blob_name,
+            &normalized_target_tier,
+            None,
+        )
+        .await
+    }
+
+    pub async fn rehydrate_blob(
+        input: AzureConnectionTestInput,
+        container_name: String,
+        blob_name: String,
+        target_tier: String,
+        priority: String,
+    ) -> Result<(), String> {
+        let storage_account_name = normalize_storage_account_name(&input.storage_account_name)?;
+        let normalized_container_name = container_name.trim().to_string();
+        let normalized_blob_name = blob_name.trim().to_string();
+        let normalized_target_tier =
+            parse_rehydration_target_tier(target_tier.as_str())?;
+        let normalized_priority = parse_rehydration_priority(priority.as_str())?;
+        let client = Client::new();
+
+        set_blob_access_tier(
+            &client,
+            &storage_account_name,
+            &input.account_key,
+            &normalized_container_name,
+            &normalized_blob_name,
+            &normalized_target_tier,
+            Some(normalized_priority.as_str()),
+        )
+        .await
+    }
+
     pub async fn find_cached_objects(
         connection_id: String,
         connection_name: String,
@@ -1614,6 +1668,8 @@ async fn execute_signed_request(
     extra_headers: Vec<(String, String)>,
 ) -> Result<Response, String> {
     let canonicalized_resource_path = url.path().to_string();
+    let requires_zero_content_length =
+        body.is_none() && (method == Method::PUT || method == Method::POST);
     let request_date = Utc::now().format("%a, %d %b %Y %H:%M:%S GMT").to_string();
     let content_length = body.as_ref().map(|value| value.len() as u64);
     let content_length_header = content_length
@@ -1655,6 +1711,8 @@ async fn execute_signed_request(
 
     if let Some(content_length_value) = content_length {
         request = request.header("Content-Length", content_length_value);
+    } else if requires_zero_content_length {
+        request = request.header("Content-Length", 0);
     }
 
     if let Some(body_bytes) = body {
@@ -1754,6 +1812,20 @@ fn parse_access_tier(value: Option<&str>) -> Result<Option<String>, String> {
     match value {
         "Hot" | "Cool" | "Cold" | "Archive" => Ok(Some(value.to_string())),
         _ => Err("Unsupported Azure upload access tier.".to_string()),
+    }
+}
+
+fn parse_rehydration_target_tier(value: &str) -> Result<String, String> {
+    match value.trim() {
+        "Hot" | "Cool" | "Cold" => Ok(value.trim().to_string()),
+        _ => Err("Unsupported Azure rehydration target tier.".to_string()),
+    }
+}
+
+fn parse_rehydration_priority(value: &str) -> Result<String, String> {
+    match value.trim() {
+        "Standard" | "High" => Ok(value.trim().to_string()),
+        _ => Err("Unsupported Azure rehydration priority.".to_string()),
     }
 }
 
@@ -1939,6 +2011,41 @@ async fn download_blob_response(
 
     let body = response.text().await.map_err(|error| error.to_string())?;
     Err(format!("Azure Blob Storage request failed ({status}): {body}"))
+}
+
+async fn set_blob_access_tier(
+    client: &Client,
+    storage_account_name: &str,
+    account_key: &str,
+    container_name: &str,
+    blob_name: &str,
+    target_tier: &str,
+    rehydration_priority: Option<&str>,
+) -> Result<(), String> {
+    let query = vec![("comp".to_string(), "tier".to_string())];
+    let url = build_blob_url(storage_account_name, container_name, blob_name, &query)?;
+    let mut extra_headers = vec![("x-ms-access-tier".to_string(), target_tier.to_string())];
+
+    if let Some(rehydration_priority) = rehydration_priority {
+        extra_headers.push((
+            "x-ms-rehydrate-priority".to_string(),
+            rehydration_priority.to_string(),
+        ));
+    }
+
+    let response = execute_signed_request(
+        client,
+        Method::PUT,
+        storage_account_name,
+        account_key,
+        url,
+        format!("/{container_name}/{blob_name}"),
+        None,
+        extra_headers,
+    )
+    .await?;
+
+    ensure_success_response(response).await
 }
 
 async fn list_blob_names_with_prefix(

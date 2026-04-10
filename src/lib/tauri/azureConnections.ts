@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import type { AzureUploadTier } from "../../features/connections/azureUploadTiers";
 
 export type AzureConnectionTestResult = {
   storageAccountName: string;
@@ -62,6 +63,8 @@ export type AzureDownloadProgressEvent = {
   state: "progress" | "completed" | "failed" | "cancelled";
   error?: string | null;
 };
+
+export type AzureRehydrationPriority = "Standard" | "High";
 
 export async function testAzureConnection(
   storageAccountName: string,
@@ -204,6 +207,40 @@ export async function downloadAzureBlobToPath(
 export async function cancelAzureDownload(operationId: string): Promise<void> {
   await invoke("cancel_azure_download", {
     operationId
+  });
+}
+
+export async function changeAzureBlobAccessTier(
+  storageAccountName: string,
+  accountKey: string,
+  containerName: string,
+  blobName: string,
+  targetTier: AzureUploadTier
+): Promise<void> {
+  await invoke("change_azure_blob_access_tier", {
+    storageAccountName,
+    accountKey,
+    containerName,
+    blobName,
+    targetTier
+  });
+}
+
+export async function rehydrateAzureBlob(
+  storageAccountName: string,
+  accountKey: string,
+  containerName: string,
+  blobName: string,
+  targetTier: Exclude<AzureUploadTier, "Archive">,
+  priority: AzureRehydrationPriority
+): Promise<void> {
+  await invoke("rehydrate_azure_blob", {
+    storageAccountName,
+    accountKey,
+    containerName,
+    blobName,
+    targetTier,
+    priority
   });
 }
 

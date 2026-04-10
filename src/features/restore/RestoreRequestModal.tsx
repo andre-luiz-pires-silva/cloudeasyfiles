@@ -1,7 +1,10 @@
+import { AzureRehydrationRequestPanel } from "../azure-restore/AzureRehydrationRequestPanel";
 import { AwsRestoreRequestPanel } from "../aws-restore/AwsRestoreRequestPanel";
 import type { ConnectionProvider } from "../connections/models";
 import type { Locale } from "../../lib/i18n/I18nProvider";
 import type { AwsRestoreTier } from "../../lib/tauri/awsConnections";
+import type { AzureRehydrationPriority } from "../../lib/tauri/azureConnections";
+import type { AzureUploadTier } from "../connections/azureUploadTiers";
 
 export type RestoreRequestTarget = {
   provider: ConnectionProvider;
@@ -25,6 +28,10 @@ type RestoreRequestModalProps = {
   submitError: string | null;
   onCancel: () => void;
   onSubmitAwsRequest: (input: { tier: AwsRestoreTier; days: number }) => void;
+  onSubmitAzureRequest: (input: {
+    targetTier: Exclude<AzureUploadTier, "Archive">;
+    priority: AzureRehydrationPriority;
+  }) => void;
   t: (key: string) => string;
 };
 
@@ -35,6 +42,7 @@ export function RestoreRequestModal({
   submitError,
   onCancel,
   onSubmitAwsRequest,
+  onSubmitAzureRequest,
   t
 }: RestoreRequestModalProps) {
   const isBatchRequest = "fileCount" in request;
@@ -43,6 +51,10 @@ export function RestoreRequestModal({
       ? isBatchRequest
         ? t("restore.modal.aws.title_batch").replace("{count}", String(request.fileCount))
         : `${t("restore.modal.aws.title")}: ${request.fileName}`
+      : request.provider === "azure"
+      ? isBatchRequest
+        ? t("restore.modal.azure.title_batch").replace("{count}", String(request.fileCount))
+        : `${t("restore.modal.azure.title")}: ${request.fileName}`
       : isBatchRequest
       ? t("restore.modal.generic.title_batch").replace("{count}", String(request.fileCount))
       : `${t("restore.modal.generic.title")}: ${request.fileName}`;
@@ -60,6 +72,8 @@ export function RestoreRequestModal({
             <p className="modal-eyebrow">
               {request.provider === "aws"
                 ? t("restore.modal.aws.eyebrow")
+                : request.provider === "azure"
+                ? t("restore.modal.azure.eyebrow")
                 : t("restore.modal.generic.eyebrow")}
             </p>
             <h2 id="restore-request-modal-title" className="modal-title">
@@ -94,6 +108,16 @@ export function RestoreRequestModal({
             submitError={submitError}
             onCancel={onCancel}
             onSubmit={onSubmitAwsRequest}
+            t={t}
+          />
+        ) : request.provider === "azure" ? (
+          <AzureRehydrationRequestPanel
+            locale={locale}
+            fileCount={isBatchRequest ? request.fileCount : 1}
+            isSubmitting={isSubmitting}
+            submitError={submitError}
+            onCancel={onCancel}
+            onSubmit={onSubmitAzureRequest}
             t={t}
           />
         ) : (

@@ -47,6 +47,8 @@ pub fn run() {
             commands::delete_aws_prefix,
             commands::delete_azure_prefix,
             commands::change_aws_object_storage_class,
+            commands::change_azure_blob_access_tier,
+            commands::rehydrate_azure_blob,
             commands::open_external_url,
             commands::start_aws_cache_download,
             commands::start_azure_cache_download,

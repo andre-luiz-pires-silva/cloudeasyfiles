@@ -192,23 +192,27 @@ export function AwsRestoreRequestPanel({
           </div>
 
           {submitError ? <p className="status-message-error">{submitError}</p> : null}
-        </div>
-      </div>
 
-      <div className="modal-actions">
-        <button type="button" className="secondary-button" onClick={onCancel}>
-          {t("common.cancel")}
-        </button>
-        <button type="submit" className="primary-button" disabled={isSubmitting || !isRetentionDaysValid}>
-          {isSubmitting ? (
-            <>
-              <LoaderCircle size={16} strokeWidth={2} className="restore-submit-spinner" />
-              <span>{t("restore.modal.submitting")}</span>
-            </>
-          ) : (
-            t("navigation.menu.restore")
-          )}
-        </button>
+          <div className="modal-actions">
+            <button type="button" className="secondary-button" onClick={onCancel}>
+              {t("common.cancel")}
+            </button>
+            <button
+              type="submit"
+              className="primary-button"
+              disabled={isSubmitting || !isRetentionDaysValid}
+            >
+              {isSubmitting ? (
+                <>
+                  <LoaderCircle size={16} strokeWidth={2} className="restore-submit-spinner" />
+                  <span>{t("restore.modal.submitting")}</span>
+                </>
+              ) : (
+                t("navigation.menu.restore")
+              )}
+            </button>
+          </div>
+        </div>
       </div>
     </form>
   );

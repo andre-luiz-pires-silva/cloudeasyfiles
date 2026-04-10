@@ -90,6 +90,7 @@ import {
 import {
   azureBlobExists,
   cancelAzureDownload,
+  changeAzureBlobAccessTier,
   createAzureFolder,
   downloadAzureBlobToPath,
   deleteAzureObjects,
@@ -98,10 +99,12 @@ import {
   openAzureCachedObject,
   openAzureCachedObjectParent,
   cancelAzureUpload,
+  rehydrateAzureBlob,
   startAzureCacheDownload,
   startAzureUpload,
   startAzureUploadFromBytes,
   testAzureConnection,
+  type AzureRehydrationPriority,
   type AzureDownloadProgressEvent,
   type AzureUploadProgressEvent
 } from "../../lib/tauri/azureConnections";
@@ -928,14 +931,14 @@ function canRestoreItem(
   item: ContentExplorerItem,
   provider: ConnectionProvider | null | undefined
 ): boolean {
-  return item.kind === "file" && provider === "aws" && item.availabilityStatus === "archived";
+  return item.kind === "file" && !!provider && item.availabilityStatus === "archived";
 }
 
 function canChangeTierItem(
   item: ContentExplorerItem,
   provider: ConnectionProvider | null | undefined
 ): boolean {
-  return item.kind === "file" && provider === "aws" && item.availabilityStatus === "available";
+  return item.kind === "file" && !!provider && item.availabilityStatus === "available";
 }
 
 function canDownloadItem(item: ContentExplorerItem, context: FileActionAvailabilityContext): boolean {
@@ -1179,6 +1182,7 @@ type RestoreRequestState = {
 };
 
 type ChangeStorageClassRequestState = {
+  provider: ConnectionProvider;
   request: ChangeStorageClassRequestSummary;
   connectionId: string;
   bucketName: string;
@@ -2456,7 +2460,7 @@ function validateNewFolderNameInput(
   function buildRestoreRequestState(items: ContentExplorerItem[]): RestoreRequestState | null {
     if (
       items.length === 0 ||
-      selectedBucketProvider !== "aws" ||
+      !selectedBucketProvider ||
       !selectedBucketConnectionId ||
       !selectedBucketName
     ) {
@@ -2526,7 +2530,7 @@ function validateNewFolderNameInput(
   ): ChangeStorageClassRequestState | null {
     if (
       items.length === 0 ||
-      selectedBucketProvider !== "aws" ||
+      !selectedBucketProvider ||
       !selectedBucketConnectionId ||
       !selectedBucketName
     ) {
@@ -2547,6 +2551,7 @@ function validateNewFolderNameInput(
       storageClasses.length === 1 ? (storageClasses[0] ?? null) : null;
 
     return {
+      provider: selectedBucketProvider,
       request: {
         fileCount: fileItems.length,
         totalSizeLabel: formatBytes(totalSize, locale),
@@ -2596,14 +2601,22 @@ function validateNewFolderNameInput(
         (item) => item.kind === "file" && item.availabilityStatus === "archived"
       )
     ) {
-      return t("content.storage_class_change.tooltip_archived_requires_restore");
+      return t(
+        selectedBucketProvider === "azure"
+          ? "content.azure_storage_class_change.tooltip_archived_requires_rehydration"
+          : "content.storage_class_change.tooltip_archived_requires_restore"
+      );
     }
 
     if (
       isContentSelectionActive &&
       !batchSelectionActions.canBatchChangeTier
     ) {
-      return t("content.storage_class_change.tooltip_selection_incompatible");
+      return t(
+        selectedBucketProvider === "azure"
+          ? "content.azure_storage_class_change.tooltip_selection_incompatible"
+          : "content.storage_class_change.tooltip_selection_incompatible"
+      );
     }
 
     return t("navigation.menu.change_tier");
@@ -2767,30 +2780,29 @@ function validateNewFolderNameInput(
     })();
   }
 
-  function handleSubmitChangeStorageClass(storageClass: AwsUploadStorageClass) {
-    if (!changeStorageClassRequest || !selectedBucketConnectionId || selectedBucketProvider !== "aws") {
+  function handleSubmitAzureRehydrationRequest(input: {
+    targetTier: Exclude<AzureUploadTier, "Archive">;
+    priority: AzureRehydrationPriority;
+  }) {
+    if (!restoreRequest || restoreRequest.provider !== "azure") {
       return;
     }
 
     void (async () => {
-      setChangeStorageClassSubmitError(null);
-      setIsSubmittingStorageClassChange(true);
+      setRestoreSubmitError(null);
+      setIsSubmittingRestoreRequest(true);
 
       try {
-        const draft = await connectionService.getAwsConnectionDraft(changeStorageClassRequest.connectionId);
+        const draft = await connectionService.getAzureConnectionDraft(restoreRequest.connectionId);
 
-        for (const target of changeStorageClassRequest.targets) {
-          await changeAwsObjectStorageClass(
-            draft.accessKeyId.trim(),
-            draft.secretAccessKey.trim(),
-            changeStorageClassRequest.bucketName,
+        for (const target of restoreRequest.targets) {
+          await rehydrateAzureBlob(
+            draft.storageAccountName,
+            draft.accountKey.trim(),
+            restoreRequest.bucketName,
             target.objectKey,
-            storageClass,
-            changeStorageClassRequest.bucketRegion &&
-              changeStorageClassRequest.bucketRegion !== BUCKET_REGION_PLACEHOLDER
-              ? changeStorageClassRequest.bucketRegion
-              : undefined,
-            draft.restrictedBucketName
+            input.targetTier,
+            input.priority
           );
         }
 
@@ -2799,8 +2811,88 @@ function validateNewFolderNameInput(
             typeof globalThis.crypto !== "undefined" && "randomUUID" in globalThis.crypto
               ? globalThis.crypto.randomUUID()
               : `toast-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
-          title: t("content.storage_class_change.success_title"),
-          description: t("content.storage_class_change.success_description")
+          title: t("restore.modal.azure.success_title"),
+          description: t("restore.modal.azure.success_description")
+            .replace("{count}", String(restoreRequest.targets.length))
+            .replace("{tier}", input.targetTier),
+          tone: "success"
+        });
+
+        setRestoreRequest(null);
+        setRestoreSubmitError(null);
+        await handleRefreshCurrentView();
+      } catch (error) {
+        setRestoreSubmitError(
+          extractErrorMessage(error) ?? t("restore.modal.azure.submit_failed")
+        );
+      } finally {
+        setIsSubmittingRestoreRequest(false);
+      }
+    })();
+  }
+
+  function handleSubmitChangeStorageClass(
+    storageClass: AwsUploadStorageClass | AzureUploadTier
+  ) {
+    if (!changeStorageClassRequest || !selectedBucketConnectionId || !selectedBucketProvider) {
+      return;
+    }
+
+    void (async () => {
+      setChangeStorageClassSubmitError(null);
+      setIsSubmittingStorageClassChange(true);
+
+      try {
+        if (changeStorageClassRequest.provider === "aws") {
+          const draft = await connectionService.getAwsConnectionDraft(
+            changeStorageClassRequest.connectionId
+          );
+
+          for (const target of changeStorageClassRequest.targets) {
+            await changeAwsObjectStorageClass(
+              draft.accessKeyId.trim(),
+              draft.secretAccessKey.trim(),
+              changeStorageClassRequest.bucketName,
+              target.objectKey,
+              storageClass as AwsUploadStorageClass,
+              changeStorageClassRequest.bucketRegion &&
+                changeStorageClassRequest.bucketRegion !== BUCKET_REGION_PLACEHOLDER
+                ? changeStorageClassRequest.bucketRegion
+                : undefined,
+              draft.restrictedBucketName
+            );
+          }
+        } else {
+          const draft = await connectionService.getAzureConnectionDraft(
+            changeStorageClassRequest.connectionId
+          );
+
+          for (const target of changeStorageClassRequest.targets) {
+            await changeAzureBlobAccessTier(
+              draft.storageAccountName,
+              draft.accountKey.trim(),
+              changeStorageClassRequest.bucketName,
+              target.objectKey,
+              storageClass as AzureUploadTier
+            );
+          }
+        }
+
+        setCompletionToast({
+          id:
+            typeof globalThis.crypto !== "undefined" && "randomUUID" in globalThis.crypto
+              ? globalThis.crypto.randomUUID()
+              : `toast-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+          title: t(
+            changeStorageClassRequest.provider === "azure"
+              ? "content.azure_storage_class_change.success_title"
+              : "content.storage_class_change.success_title"
+          ),
+          description: t(
+            changeStorageClassRequest.provider === "azure"
+              ? "content.azure_storage_class_change.success_description"
+              : "content.storage_class_change.success_description"
+          )
             .replace("{count}", String(changeStorageClassRequest.targets.length))
             .replace("{storageClass}", storageClass),
           tone: "success"
@@ -2811,7 +2903,12 @@ function validateNewFolderNameInput(
         await handleRefreshCurrentView();
       } catch (error) {
         setChangeStorageClassSubmitError(
-          extractErrorMessage(error) ?? t("content.storage_class_change.submit_failed")
+          extractErrorMessage(error) ??
+            t(
+              changeStorageClassRequest.provider === "azure"
+                ? "content.azure_storage_class_change.submit_failed"
+                : "content.storage_class_change.submit_failed"
+            )
         );
       } finally {
         setIsSubmittingStorageClassChange(false);
@@ -6089,12 +6186,14 @@ function validateNewFolderNameInput(
           submitError={restoreSubmitError}
           onCancel={closeRestoreRequestModal}
           onSubmitAwsRequest={handleSubmitAwsRestoreRequest}
+          onSubmitAzureRequest={handleSubmitAzureRehydrationRequest}
           t={t}
         />
       ) : null}
 
       {changeStorageClassRequest ? (
         <ChangeStorageClassModal
+          provider={changeStorageClassRequest.provider}
           locale={locale}
           request={changeStorageClassRequest.request}
           initialStorageClass={changeStorageClassRequest.currentStorageClass}
