@@ -89,6 +89,9 @@ import {
 } from "../../lib/tauri/awsConnections";
 import {
   azureBlobExists,
+  createAzureFolder,
+  deleteAzureObjects,
+  deleteAzurePrefix,
   cancelAzureUpload,
   startAzureUpload,
   startAzureUploadFromBytes,
@@ -486,6 +489,14 @@ function dedupeDirectoryPrefixes(prefixes: string[]): string[] {
     (prefix, index) =>
       !uniquePrefixes.slice(0, index).some((candidatePrefix) => prefix.startsWith(candidatePrefix))
   );
+}
+
+function getUploadParentPath(objectKey: string): string {
+  const parentPath = objectKey.includes("/")
+    ? objectKey.slice(0, objectKey.lastIndexOf("/"))
+    : "";
+
+  return normalizeDirectoryPrefix(parentPath);
 }
 
 function buildContentDeletePlan(items: ContentExplorerItem[]): ContentDeletePlan {
@@ -1376,8 +1387,7 @@ export function ConnectionNavigator({
   const selectedBucketName =
     selectedNode?.kind === "bucket" ? (selectedNode.bucketName ?? selectedNode.name) : null;
   const selectedBucketProvider = selectedNode?.kind === "bucket" ? selectedNode.provider : null;
-  const canCreateFolderInCurrentContext =
-    selectedNode?.kind === "bucket" && selectedBucketProvider === "aws";
+  const canCreateFolderInCurrentContext = selectedNode?.kind === "bucket" && !!selectedBucketProvider;
   const selectedBucketRegion =
     selectedNode?.kind === "bucket" ? selectedNode.region ?? null : null;
   const displayedContentTitle =
@@ -1540,8 +1550,7 @@ export function ConnectionNavigator({
     const changeTierableItems = selectedContentItems.filter((item) =>
       canChangeTierItem(item, selectedBucketProvider)
     );
-    const deletableItems =
-      selectedBucketProvider === "aws" ? selectedContentItems : [];
+    const deletableItems = selectedBucketProvider ? selectedContentItems : [];
 
     return {
       downloadableItems,
@@ -2314,7 +2323,7 @@ function validateNewFolderNameInput(
     if (
       !pendingContentDelete ||
       selectedNode?.kind !== "bucket" ||
-      selectedBucketProvider !== "aws" ||
+      !selectedBucketProvider ||
       !selectedBucketConnectionId ||
       !selectedBucketName
     ) {
@@ -2330,32 +2339,54 @@ function validateNewFolderNameInput(
     setDeleteContentError(null);
 
     try {
-      const draft = await connectionService.getAwsConnectionDraft(selectedBucketConnectionId);
-      const bucketRegion =
-        selectedBucketRegion && selectedBucketRegion !== BUCKET_REGION_PLACEHOLDER
-          ? selectedBucketRegion
-          : undefined;
+      if (selectedBucketProvider === "aws") {
+        const draft = await connectionService.getAwsConnectionDraft(selectedBucketConnectionId);
+        const bucketRegion =
+          selectedBucketRegion && selectedBucketRegion !== BUCKET_REGION_PLACEHOLDER
+            ? selectedBucketRegion
+            : undefined;
 
-      if (pendingContentDelete.plan.fileKeys.length > 0) {
-        await deleteAwsObjects(
-          draft.accessKeyId.trim(),
-          draft.secretAccessKey.trim(),
-          selectedBucketName,
-          pendingContentDelete.plan.fileKeys,
-          bucketRegion,
-          draft.restrictedBucketName
-        );
-      }
+        if (pendingContentDelete.plan.fileKeys.length > 0) {
+          await deleteAwsObjects(
+            draft.accessKeyId.trim(),
+            draft.secretAccessKey.trim(),
+            selectedBucketName,
+            pendingContentDelete.plan.fileKeys,
+            bucketRegion,
+            draft.restrictedBucketName
+          );
+        }
 
-      for (const directoryPrefix of pendingContentDelete.plan.directoryPrefixes) {
-        await deleteAwsPrefix(
-          draft.accessKeyId.trim(),
-          draft.secretAccessKey.trim(),
-          selectedBucketName,
-          directoryPrefix,
-          bucketRegion,
-          draft.restrictedBucketName
-        );
+        for (const directoryPrefix of pendingContentDelete.plan.directoryPrefixes) {
+          await deleteAwsPrefix(
+            draft.accessKeyId.trim(),
+            draft.secretAccessKey.trim(),
+            selectedBucketName,
+            directoryPrefix,
+            bucketRegion,
+            draft.restrictedBucketName
+          );
+        }
+      } else {
+        const draft = await connectionService.getAzureConnectionDraft(selectedBucketConnectionId);
+
+        if (pendingContentDelete.plan.fileKeys.length > 0) {
+          await deleteAzureObjects(
+            draft.storageAccountName,
+            draft.accountKey.trim(),
+            selectedBucketName,
+            pendingContentDelete.plan.fileKeys
+          );
+        }
+
+        for (const directoryPrefix of pendingContentDelete.plan.directoryPrefixes) {
+          await deleteAzurePrefix(
+            draft.storageAccountName,
+            draft.accountKey.trim(),
+            selectedBucketName,
+            directoryPrefix
+          );
+        }
       }
 
       setCompletionToast({
@@ -3083,9 +3114,7 @@ function validateNewFolderNameInput(
                 payload.connectionId === selectedBucketConnectionId &&
                 payload.bucketName === selectedBucketName
               ) {
-                const uploadedParentPath = payload.objectKey.includes("/")
-                  ? payload.objectKey.slice(0, payload.objectKey.lastIndexOf("/"))
-                  : "";
+                const uploadedParentPath = getUploadParentPath(payload.objectKey);
 
                 if (uploadedParentPath === selectedBucketPath) {
                   setContentRefreshNonce((currentValue) => currentValue + 1);
@@ -3169,9 +3198,7 @@ function validateNewFolderNameInput(
                 payload.connectionId === selectedBucketConnectionId &&
                 payload.bucketName === selectedBucketName
               ) {
-                const uploadedParentPath = payload.objectKey.includes("/")
-                  ? payload.objectKey.slice(0, payload.objectKey.lastIndexOf("/"))
-                  : "";
+                const uploadedParentPath = getUploadParentPath(payload.objectKey);
 
                 if (uploadedParentPath === selectedBucketPath) {
                   setContentRefreshNonce((currentValue) => currentValue + 1);
@@ -4317,7 +4344,7 @@ function validateNewFolderNameInput(
   }
 
   function openCreateFolderModal() {
-    if (selectedNode?.kind !== "bucket" || selectedBucketProvider !== "aws") {
+    if (selectedNode?.kind !== "bucket" || !selectedBucketProvider) {
       return;
     }
 
@@ -4341,7 +4368,7 @@ function validateNewFolderNameInput(
   async function handleCreateFolder() {
     if (
       selectedNode?.kind !== "bucket" ||
-      selectedBucketProvider !== "aws" ||
+      !selectedBucketProvider ||
       !selectedBucketConnectionId ||
       !selectedBucketName
     ) {
@@ -4358,19 +4385,31 @@ function validateNewFolderNameInput(
     setIsCreatingFolder(true);
 
     try {
-      const draft = await connectionService.getAwsConnectionDraft(selectedBucketConnectionId);
+      if (selectedBucketProvider === "aws") {
+        const draft = await connectionService.getAwsConnectionDraft(selectedBucketConnectionId);
 
-      await createAwsFolder(
-        draft.accessKeyId.trim(),
-        draft.secretAccessKey.trim(),
-        selectedBucketName,
-        selectedBucketPath || undefined,
-        newFolderName.trim(),
-        selectedBucketRegion && selectedBucketRegion !== BUCKET_REGION_PLACEHOLDER
-          ? selectedBucketRegion
-          : undefined,
-        draft.restrictedBucketName
-      );
+        await createAwsFolder(
+          draft.accessKeyId.trim(),
+          draft.secretAccessKey.trim(),
+          selectedBucketName,
+          selectedBucketPath || undefined,
+          newFolderName.trim(),
+          selectedBucketRegion && selectedBucketRegion !== BUCKET_REGION_PLACEHOLDER
+            ? selectedBucketRegion
+            : undefined,
+          draft.restrictedBucketName
+        );
+      } else {
+        const draft = await connectionService.getAzureConnectionDraft(selectedBucketConnectionId);
+
+        await createAzureFolder(
+          draft.storageAccountName,
+          draft.accountKey.trim(),
+          selectedBucketName,
+          selectedBucketPath || undefined,
+          newFolderName.trim()
+        );
+      }
 
       setIsCreatingFolder(false);
       closeCreateFolderModal(true);
@@ -5530,7 +5569,7 @@ function validateNewFolderNameInput(
                                       canCancelDownload={false}
                                       canOpenFile={false}
                                       canOpenInExplorer={false}
-                                      canDelete={selectedBucketProvider === "aws"}
+                                      canDelete={!!selectedBucketProvider}
                                       isOpen={openContentMenuItemId === item.id}
                                       showTrigger={false}
                                       anchorPosition={
@@ -5730,7 +5769,7 @@ function validateNewFolderNameInput(
                                     hasValidGlobalLocalCacheDirectory &&
                                     item.downloadState === "downloaded"
                                   }
-                                  canDelete={selectedBucketProvider === "aws"}
+                                  canDelete={!!selectedBucketProvider}
                                   isOpen={openContentMenuItemId === item.id}
                                   showTrigger={false}
                                   anchorPosition={

@@ -47,3 +47,10 @@ pub struct AzureContainerItemsResult {
     pub continuation_token: Option<String>,
     pub has_more: bool,
 }
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AzureDeleteResult {
+    pub deleted_object_count: i64,
+    pub deleted_directory_count: i64,
+}

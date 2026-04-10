@@ -31,6 +31,11 @@ export type AzureContainerItemsResult = {
   hasMore: boolean;
 };
 
+export type AzureDeleteResult = {
+  deletedObjectCount: number;
+  deletedDirectoryCount: number;
+};
+
 export type AzureUploadProgressEvent = {
   operationId: string;
   connectionId: string;
@@ -93,6 +98,50 @@ export async function azureBlobExists(
     accountKey,
     containerName,
     blobName
+  });
+}
+
+export async function createAzureFolder(
+  storageAccountName: string,
+  accountKey: string,
+  containerName: string,
+  parentPath: string | null | undefined,
+  folderName: string
+): Promise<void> {
+  await invoke("create_azure_folder", {
+    storageAccountName,
+    accountKey,
+    containerName,
+    parentPath,
+    folderName
+  });
+}
+
+export async function deleteAzureObjects(
+  storageAccountName: string,
+  accountKey: string,
+  containerName: string,
+  objectKeys: string[]
+): Promise<AzureDeleteResult> {
+  return invoke<AzureDeleteResult>("delete_azure_objects", {
+    storageAccountName,
+    accountKey,
+    containerName,
+    objectKeys
+  });
+}
+
+export async function deleteAzurePrefix(
+  storageAccountName: string,
+  accountKey: string,
+  containerName: string,
+  prefix: string
+): Promise<AzureDeleteResult> {
+  return invoke<AzureDeleteResult>("delete_azure_prefix", {
+    storageAccountName,
+    accountKey,
+    containerName,
+    prefix
   });
 }
 

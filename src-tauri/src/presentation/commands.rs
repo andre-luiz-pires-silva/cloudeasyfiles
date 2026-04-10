@@ -9,7 +9,7 @@ use crate::application::services::aws_connection_service::{
 use crate::application::services::greeting_service::GreetingService;
 use crate::domain::azure_connection::{
     AzureConnectionTestInput, AzureConnectionTestResult, AzureContainerItemsResult,
-    AzureContainerSummary,
+    AzureContainerSummary, AzureDeleteResult,
 };
 use crate::domain::aws_connection::{
     AwsBucketItemsResult, AwsBucketSummary, AwsConnectionTestInput, AwsConnectionTestResult,
@@ -276,6 +276,62 @@ pub async fn azure_blob_exists(
         },
         container_name,
         blob_name,
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn create_azure_folder(
+    storage_account_name: String,
+    account_key: String,
+    container_name: String,
+    parent_path: Option<String>,
+    folder_name: String,
+) -> Result<(), String> {
+    AzureConnectionService::create_folder(
+        AzureConnectionTestInput {
+            storage_account_name,
+            account_key,
+        },
+        container_name,
+        parent_path,
+        folder_name,
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn delete_azure_objects(
+    storage_account_name: String,
+    account_key: String,
+    container_name: String,
+    object_keys: Vec<String>,
+) -> Result<AzureDeleteResult, String> {
+    AzureConnectionService::delete_objects(
+        AzureConnectionTestInput {
+            storage_account_name,
+            account_key,
+        },
+        container_name,
+        object_keys,
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn delete_azure_prefix(
+    storage_account_name: String,
+    account_key: String,
+    container_name: String,
+    prefix: String,
+) -> Result<AzureDeleteResult, String> {
+    AzureConnectionService::delete_prefix(
+        AzureConnectionTestInput {
+            storage_account_name,
+            account_key,
+        },
+        container_name,
+        prefix,
     )
     .await
 }

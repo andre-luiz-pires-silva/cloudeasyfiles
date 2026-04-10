@@ -1,10 +1,11 @@
 use crate::domain::azure_connection::{
     AzureBlobSummary, AzureConnectionTestInput, AzureConnectionTestResult, AzureContainerItemsResult,
-    AzureContainerSummary, AzureVirtualDirectorySummary,
+    AzureContainerSummary, AzureDeleteResult, AzureVirtualDirectorySummary,
 };
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use chrono::Utc;
 use hmac::{Hmac, Mac};
+use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
 use quick_xml::de::from_str;
 use reqwest::{Client, Method, Response, StatusCode, Url};
 use serde::Deserialize;
@@ -21,6 +22,22 @@ const DEFAULT_MAX_RESULTS: usize = 200;
 const MAX_LISTING_PAGE_SIZE: usize = 1000;
 const AZURE_UPLOAD_BLOCK_SIZE: usize = 8 * 1024 * 1024;
 pub const AZURE_UPLOAD_CANCELLED_ERROR: &str = "UPLOAD_CANCELLED";
+const AZURE_FOLDER_PLACEHOLDER_METADATA_KEY: &str = "hdi_isfolder";
+const AZURE_FOLDER_PLACEHOLDER_METADATA_VALUE: &str = "true";
+const AZURE_BLOB_PATH_ENCODE_SET: &AsciiSet = &CONTROLS
+    .add(b' ')
+    .add(b'"')
+    .add(b'#')
+    .add(b'%')
+    .add(b'?')
+    .add(b'[')
+    .add(b'\\')
+    .add(b']')
+    .add(b'^')
+    .add(b'`')
+    .add(b'{')
+    .add(b'|')
+    .add(b'}');
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -69,10 +86,16 @@ struct ListBlobsEnvelope {
 
 #[derive(Debug, Deserialize)]
 struct ListBlobsNode {
-    #[serde(rename = "BlobPrefix", default)]
-    prefixes: Vec<ListBlobPrefixNode>,
-    #[serde(rename = "Blob", default)]
-    blobs: Vec<ListBlobNode>,
+    #[serde(rename = "$value", default)]
+    entries: Vec<ListBlobsEntry>,
+}
+
+#[derive(Debug, Deserialize)]
+enum ListBlobsEntry {
+    #[serde(rename = "BlobPrefix")]
+    Prefix(ListBlobPrefixNode),
+    #[serde(rename = "Blob")]
+    Blob(ListBlobNode),
 }
 
 #[derive(Debug, Deserialize)]
@@ -87,6 +110,8 @@ struct ListBlobNode {
     name: String,
     #[serde(rename = "Properties")]
     properties: Option<ListBlobPropertiesNode>,
+    #[serde(rename = "Metadata")]
+    metadata: Option<ListBlobMetadataNode>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -101,6 +126,12 @@ struct ListBlobPropertiesNode {
     access_tier: Option<String>,
     #[serde(rename = "ArchiveStatus")]
     archive_status: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ListBlobMetadataNode {
+    #[serde(rename = "hdi_isfolder")]
+    hdi_isfolder: Option<String>,
 }
 
 pub struct AzureConnectionService;
@@ -164,10 +195,13 @@ impl AzureConnectionService {
             ("restype".to_string(), "container".to_string()),
             ("comp".to_string(), "list".to_string()),
             ("delimiter".to_string(), "/".to_string()),
+            ("include".to_string(), "metadata".to_string()),
             ("maxresults".to_string(), page_size.to_string()),
         ];
 
-        if let Some(prefix_value) = normalize_prefix(prefix) {
+        let normalized_prefix = normalize_prefix(prefix);
+
+        if let Some(prefix_value) = normalized_prefix.clone() {
             query.push(("prefix".to_string(), prefix_value));
         }
 
@@ -186,23 +220,55 @@ impl AzureConnectionService {
         .await?;
         let parsed: ListBlobsEnvelope = from_str(&response_text)
             .map_err(|error| format!("Failed to parse Azure blob listing XML: {error}"))?;
-        let blobs_node = parsed.blobs.unwrap_or(ListBlobsNode {
-            prefixes: Vec::new(),
-            blobs: Vec::new(),
-        });
-
-        let directories = blobs_node
-            .prefixes
-            .into_iter()
-            .map(|prefix| AzureVirtualDirectorySummary {
-                name: get_leaf_name(&prefix.name),
-                path: prefix.name,
-            })
-            .collect();
-        let files = blobs_node
+        let blobs_node = parsed
             .blobs
+            .unwrap_or(ListBlobsNode { entries: Vec::new() });
+        let mut blob_entries = Vec::new();
+        let mut directories = Vec::new();
+
+        for entry in blobs_node.entries {
+            match entry {
+                ListBlobsEntry::Prefix(prefix) => {
+                    directories.push(AzureVirtualDirectorySummary {
+                        name: get_leaf_name(&prefix.name),
+                        path: prefix.name,
+                    });
+                }
+                ListBlobsEntry::Blob(blob) => {
+                    blob_entries.push(blob);
+                }
+            }
+        }
+
+        let mut seen_directory_paths = directories
+            .iter()
+            .map(|directory| (directory.path.clone(), ()))
+            .collect::<BTreeMap<_, _>>();
+        let files = blob_entries
             .into_iter()
-            .map(|blob| {
+            .filter_map(|blob| {
+                let is_folder_placeholder = blob
+                    .metadata
+                    .as_ref()
+                    .and_then(|metadata| metadata.hdi_isfolder.as_deref())
+                    .map(|value| value.eq_ignore_ascii_case(AZURE_FOLDER_PLACEHOLDER_METADATA_VALUE))
+                    .unwrap_or(false);
+
+                if is_folder_placeholder {
+                    if normalized_prefix.as_deref() == Some(blob.name.as_str()) {
+                        return None;
+                    }
+
+                    if seen_directory_paths.insert(blob.name.clone(), ()).is_none() {
+                        directories.push(AzureVirtualDirectorySummary {
+                            name: get_leaf_name(&blob.name),
+                            path: blob.name,
+                        });
+                    }
+
+                    return None;
+                }
+
                 let properties = blob.properties.unwrap_or(ListBlobPropertiesNode {
                     content_length: None,
                     last_modified: None,
@@ -211,7 +277,7 @@ impl AzureConnectionService {
                     archive_status: None,
                 });
 
-                AzureBlobSummary {
+                Some(AzureBlobSummary {
                     name: blob.name.clone(),
                     size: properties.content_length.unwrap_or(0),
                     e_tag: properties.e_tag,
@@ -223,9 +289,9 @@ impl AzureConnectionService {
                             .contains("rehydrate-pending")
                     }),
                     restore_expiry_date: None,
-                }
+                })
             })
-            .collect();
+            .collect::<Vec<_>>();
 
         Ok(AzureContainerItemsResult {
             directories,
@@ -282,6 +348,156 @@ impl AzureConnectionService {
         }
 
         Ok(true)
+    }
+
+    pub async fn create_folder(
+        input: AzureConnectionTestInput,
+        container_name: String,
+        parent_path: Option<String>,
+        folder_name: String,
+    ) -> Result<(), String> {
+        let storage_account_name = normalize_storage_account_name(&input.storage_account_name)?;
+        let normalized_container_name = container_name.trim().to_string();
+        let normalized_folder_name = folder_name.trim().to_string();
+        let normalized_parent_path = parent_path
+            .unwrap_or_default()
+            .trim()
+            .trim_matches('/')
+            .to_string();
+
+        if normalized_container_name.is_empty() {
+            return Err("The Azure container name is required.".to_string());
+        }
+
+        if normalized_folder_name.is_empty() {
+            return Err("Folder name is required.".to_string());
+        }
+
+        if normalized_folder_name.contains('/') || normalized_folder_name.contains('\\') {
+            return Err("Folder name cannot contain path separators.".to_string());
+        }
+
+        let folder_blob_name = if normalized_parent_path.is_empty() {
+            format!("{normalized_folder_name}/")
+        } else {
+            format!("{normalized_parent_path}/{normalized_folder_name}/")
+        };
+
+        let client = Client::new();
+        upload_blob_single_request(
+            &client,
+            &storage_account_name,
+            &input.account_key,
+            &normalized_container_name,
+            &folder_blob_name,
+            Vec::new(),
+            None,
+            Some(vec![(
+                format!("x-ms-meta-{AZURE_FOLDER_PLACEHOLDER_METADATA_KEY}"),
+                AZURE_FOLDER_PLACEHOLDER_METADATA_VALUE.to_string(),
+            )]),
+        )
+        .await
+    }
+
+    pub async fn delete_objects(
+        input: AzureConnectionTestInput,
+        container_name: String,
+        object_keys: Vec<String>,
+    ) -> Result<AzureDeleteResult, String> {
+        let storage_account_name = normalize_storage_account_name(&input.storage_account_name)?;
+        let normalized_container_name = container_name.trim().to_string();
+        let normalized_object_keys = normalize_delete_object_keys(object_keys);
+
+        if normalized_container_name.is_empty() {
+            return Err("The Azure container name is required for delete requests.".to_string());
+        }
+
+        if normalized_object_keys.is_empty() {
+            return Err("At least one blob name is required for delete requests.".to_string());
+        }
+
+        let client = Client::new();
+        delete_blob_names(
+            &client,
+            &storage_account_name,
+            &input.account_key,
+            &normalized_container_name,
+            &normalized_object_keys,
+        )
+        .await?;
+
+        Ok(AzureDeleteResult {
+            deleted_object_count: normalized_object_keys.len() as i64,
+            deleted_directory_count: 0,
+        })
+    }
+
+    pub async fn delete_prefix(
+        input: AzureConnectionTestInput,
+        container_name: String,
+        prefix: String,
+    ) -> Result<AzureDeleteResult, String> {
+        let storage_account_name = normalize_storage_account_name(&input.storage_account_name)?;
+        let normalized_container_name = container_name.trim().to_string();
+        let normalized_prefix = prefix
+            .trim()
+            .trim_start_matches('/')
+            .trim_end_matches('/')
+            .to_string();
+
+        if normalized_container_name.is_empty() {
+            return Err("The Azure container name is required for delete requests.".to_string());
+        }
+
+        if normalized_prefix.is_empty() {
+            return Err("Directory prefix is required for recursive delete requests.".to_string());
+        }
+
+        let client = Client::new();
+        let recursive_prefix = format!("{normalized_prefix}/");
+        let mut marker = None;
+        let mut object_keys = Vec::new();
+
+        loop {
+            let (mut batch, next_marker) = list_blob_names_with_prefix(
+                &client,
+                &storage_account_name,
+                &input.account_key,
+                &normalized_container_name,
+                &recursive_prefix,
+                marker.clone(),
+            )
+            .await?;
+            object_keys.append(&mut batch);
+
+            if next_marker
+                .as_ref()
+                .map(|value| value.trim().is_empty())
+                .unwrap_or(true)
+            {
+                break;
+            }
+
+            marker = next_marker;
+        }
+
+        object_keys.push(recursive_prefix);
+
+        let normalized_object_keys = normalize_delete_object_keys(object_keys);
+        delete_blob_names(
+            &client,
+            &storage_account_name,
+            &input.account_key,
+            &normalized_container_name,
+            &normalized_object_keys,
+        )
+        .await?;
+
+        Ok(AzureDeleteResult {
+            deleted_object_count: normalized_object_keys.len() as i64,
+            deleted_directory_count: 1,
+        })
     }
 
     pub async fn upload_blob_from_path<F>(
@@ -350,6 +566,7 @@ impl AzureConnectionService {
                 &normalized_blob_name,
                 file_bytes,
                 normalized_access_tier.as_deref(),
+                None,
             )
             .await?;
             on_progress(total_bytes, total_bytes)?;
@@ -460,6 +677,7 @@ impl AzureConnectionService {
                 &normalized_blob_name,
                 file_bytes,
                 normalized_access_tier.as_deref(),
+                None,
             )
             .await?;
             on_progress(total_bytes, total_bytes)?;
@@ -601,6 +819,25 @@ fn normalize_prefix(prefix: Option<String>) -> Option<String> {
         .map(|value| if value.ends_with('/') { value } else { format!("{value}/") })
 }
 
+fn normalize_delete_object_keys(object_keys: Vec<String>) -> Vec<String> {
+    let mut normalized_object_keys = Vec::new();
+    let mut seen_object_keys = BTreeMap::<String, ()>::new();
+
+    for object_key in object_keys {
+        let normalized_object_key = object_key.trim().trim_start_matches('/').to_string();
+
+        if normalized_object_key.is_empty() {
+            continue;
+        }
+
+        if seen_object_keys.insert(normalized_object_key.clone(), ()).is_none() {
+            normalized_object_keys.push(normalized_object_key);
+        }
+    }
+
+    normalized_object_keys
+}
+
 fn build_account_url(storage_account_name: &str) -> String {
     format!("https://{storage_account_name}.blob.core.windows.net")
 }
@@ -644,18 +881,22 @@ fn build_blob_url(
 ) -> Result<Url, String> {
     let mut url =
         Url::parse(&build_account_url(storage_account_name)).map_err(|error| error.to_string())?;
-    {
-        let mut segments = url
-            .path_segments_mut()
-            .map_err(|_| "Unable to build Azure blob URL.".to_string())?;
-        segments.push(container_name);
+    let mut path = format!(
+        "/{}/{}",
+        utf8_percent_encode(container_name, AZURE_BLOB_PATH_ENCODE_SET),
+        blob_name
+            .split('/')
+            .filter(|segment| !segment.is_empty())
+            .map(|segment| utf8_percent_encode(segment, AZURE_BLOB_PATH_ENCODE_SET).to_string())
+            .collect::<Vec<_>>()
+            .join("/")
+    );
 
-        for segment in blob_name.split('/') {
-            if !segment.is_empty() {
-                segments.push(segment);
-            }
-        }
+    if blob_name.ends_with('/') && !path.ends_with('/') {
+        path.push('/');
     }
+
+    url.set_path(&path);
 
     {
         let mut pairs = url.query_pairs_mut();
@@ -864,11 +1105,16 @@ async fn upload_blob_single_request(
     blob_name: &str,
     file_bytes: Vec<u8>,
     access_tier: Option<&str>,
+    additional_headers: Option<Vec<(String, String)>>,
 ) -> Result<(), String> {
     let mut extra_headers = vec![("x-ms-blob-type".to_string(), "BlockBlob".to_string())];
 
     if let Some(access_tier) = access_tier {
         extra_headers.push(("x-ms-access-tier".to_string(), access_tier.to_string()));
+    }
+
+    if let Some(mut additional_headers) = additional_headers {
+        extra_headers.append(&mut additional_headers);
     }
 
     let url = build_blob_url(storage_account_name, container_name, blob_name, &[])?;
@@ -962,4 +1208,85 @@ async fn ensure_success_response(response: Response) -> Result<(), String> {
 
     let body = response.text().await.map_err(|error| error.to_string())?;
     Err(format!("Azure Blob Storage request failed ({status}): {body}"))
+}
+
+async fn delete_blob_names(
+    client: &Client,
+    storage_account_name: &str,
+    account_key: &str,
+    container_name: &str,
+    blob_names: &[String],
+) -> Result<(), String> {
+    for blob_name in blob_names {
+        let url = build_blob_url(storage_account_name, container_name, blob_name, &[])?;
+        let response = execute_signed_request(
+            client,
+            Method::DELETE,
+            storage_account_name,
+            account_key,
+            url,
+            format!("/{container_name}/{blob_name}"),
+            None,
+            vec![(
+                "x-ms-delete-snapshots".to_string(),
+                "include".to_string(),
+            )],
+        )
+        .await?;
+
+        if response.status() == StatusCode::NOT_FOUND {
+            continue;
+        }
+
+        ensure_success_response(response).await?;
+    }
+
+    Ok(())
+}
+
+async fn list_blob_names_with_prefix(
+    client: &Client,
+    storage_account_name: &str,
+    account_key: &str,
+    container_name: &str,
+    prefix: &str,
+    marker: Option<String>,
+) -> Result<(Vec<String>, Option<String>), String> {
+    let mut query = vec![
+        ("restype".to_string(), "container".to_string()),
+        ("comp".to_string(), "list".to_string()),
+        ("prefix".to_string(), prefix.to_string()),
+        ("include".to_string(), "metadata".to_string()),
+        ("maxresults".to_string(), DEFAULT_MAX_RESULTS.to_string()),
+    ];
+
+    if let Some(marker_value) = marker.filter(|value| !value.trim().is_empty()) {
+        query.push(("marker".to_string(), marker_value));
+    }
+
+    let url = build_container_url(storage_account_name, container_name, &query)?;
+    let response_text = execute_signed_get(
+        client,
+        storage_account_name,
+        account_key,
+        url,
+        format!("/{container_name}"),
+    )
+    .await?;
+    let parsed: ListBlobsEnvelope = from_str(&response_text)
+        .map_err(|error| format!("Failed to parse Azure blob listing XML: {error}"))?;
+    let blob_names = parsed
+        .blobs
+        .map(|node| {
+            node.entries
+                .into_iter()
+                .filter_map(|entry| match entry {
+                    ListBlobsEntry::Blob(blob) => Some(blob.name),
+                    ListBlobsEntry::Prefix(_) => None,
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
+    Ok((blob_names, parsed.next_marker.filter(|value| !value.is_empty())))
 }
