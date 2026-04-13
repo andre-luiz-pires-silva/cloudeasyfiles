@@ -4,12 +4,13 @@ use std::sync::{
     Arc,
 };
 use std::time::Duration;
-use tauri::{AppHandle, Listener, Manager, Runtime};
+use tauri::{image::Image, AppHandle, Listener, Manager, Runtime};
 
 const FRONTEND_READY_EVENT: &str = "frontend://ready";
 const FRONTEND_BOOT_FAILED_EVENT: &str = "frontend://boot-failed";
 const FRONTEND_READY_TIMEOUT: Duration = Duration::from_secs(6);
 const FRONTEND_RELOAD_SCRIPT: &str = "window.location.reload();";
+const MAIN_WINDOW_ICON_PNG: &[u8] = include_bytes!("../../icons/128x128@2x.png");
 
 pub fn run() {
     tauri::Builder::default()
@@ -81,6 +82,8 @@ fn prepare_main_window<R: Runtime>(app: &AppHandle<R>) {
         return;
     };
 
+    apply_main_window_icon(&window);
+
     let frontend_boot_resolved = Arc::new(AtomicBool::new(false));
     let ready_flag = frontend_boot_resolved.clone();
     window.once(FRONTEND_READY_EVENT, move |_| {
@@ -115,4 +118,18 @@ fn prepare_main_window<R: Runtime>(app: &AppHandle<R>) {
             return;
         }
     });
+}
+
+fn apply_main_window_icon<R: Runtime>(window: &tauri::WebviewWindow<R>) {
+    let icon = match Image::from_bytes(MAIN_WINDOW_ICON_PNG) {
+        Ok(icon) => icon,
+        Err(error) => {
+            eprintln!("[bootstrap] failed to load main window icon error={error}");
+            return;
+        }
+    };
+
+    if let Err(error) = window.set_icon(icon) {
+        eprintln!("[bootstrap] failed to apply main window icon error={error}");
+    }
 }

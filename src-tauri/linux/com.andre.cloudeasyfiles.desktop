@@ -1,0 +1,11 @@
+[Desktop Entry]
+Categories=Development;
+Comment=Unified desktop file explorer for cloud storage.
+Exec=cloudeasyfiles
+Icon=cloudeasyfiles
+Name=CloudEasyFiles
+NoDisplay=true
+StartupWMClass=com.andre.cloudeasyfiles
+X-GNOME-WMClass=com.andre.cloudeasyfiles
+Terminal=false
+Type=Application

@@ -11,6 +11,7 @@
   },
   "app": {
     "withGlobalTauri": true,
+    "enableGTKAppId": true,
     "security": {
       "csp": null
     },
@@ -36,7 +37,21 @@
       "icons/128x128@2x.png",
       "icons/icon.ico"
     ],
-    "shortDescription": "Unified desktop file explorer for AWS S3 and Azure Blob Storage.",
-    "category": "DeveloperTool"
+    "shortDescription": "Unified desktop file explorer for cloud storage.",
+    "category": "DeveloperTool",
+    "linux": {
+      "deb": {
+        "desktopTemplate": "linux/desktop-template.hbs",
+        "files": {
+          "/usr/share/applications/com.andre.cloudeasyfiles.desktop": "linux/com.andre.cloudeasyfiles.desktop"
+        }
+      },
+      "rpm": {
+        "desktopTemplate": "linux/desktop-template.hbs",
+        "files": {
+          "/usr/share/applications/com.andre.cloudeasyfiles.desktop": "linux/com.andre.cloudeasyfiles.desktop"
+        }
+      }
+    }
   }
 }
