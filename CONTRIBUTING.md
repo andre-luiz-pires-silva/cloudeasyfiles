@@ -38,6 +38,20 @@ This currently validates:
 - Call out user-visible behavior changes in the PR description.
 - Highlight known tradeoffs or follow-ups instead of hiding them.
 
+## Release Flow
+
+The repository uses two different GitHub Actions flows:
+
+- CI on push and pull request for validation
+- tag-based release publishing for installers
+
+To publish a new release:
+
+1. Update the project version and changelog.
+2. Merge the release-ready state to `main`.
+3. Create and push a tag in the form `vX.Y.Z`.
+4. Let the release workflow build Linux and Windows installers and publish them to GitHub Releases.
+
 ## Repository Structure
 
 - `src/`: frontend application code

@@ -99,6 +99,11 @@ The repository also includes GitHub Actions workflows for:
 
 - continuous integration on pushes and pull requests
 - manual Linux release builds that publish `.deb`, `.rpm`, and `AppImage` artifacts
+- tag-based GitHub Releases that publish Linux and Windows installers as release assets
+
+Latest published installers:
+
+- [GitHub Releases](https://github.com/andre-luiz-pires-silva/cloudeasyfiles/releases/latest)
 
 ## Documentation Map
 
