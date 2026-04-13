@@ -1294,6 +1294,154 @@ body {
   line-height: 1.65;
 }
 
+@media (max-height: 860px) and (min-width: 1080px) {
+  .home-stage {
+    grid-template-columns: minmax(360px, 430px) minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .home-support-grid {
+    grid-column: 1;
+    grid-row: 1;
+    grid-template-columns: 1fr;
+    gap: 14px;
+  }
+
+  .home-hero {
+    grid-column: 2;
+    grid-row: 1;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+    padding: 22px;
+  }
+
+  .home-hero-copy {
+    gap: 14px;
+  }
+
+  .home-kicker {
+    margin-top: 2px;
+  }
+
+  .home-display {
+    max-width: 16ch;
+    font-size: clamp(1.9rem, 3vw, 3.2rem);
+  }
+
+  .home-lead {
+    max-width: 60ch;
+    font-size: 0.95rem;
+    line-height: 1.55;
+  }
+
+  .home-hero-visual {
+    min-height: 180px;
+  }
+
+  .home-visual-orbit-primary {
+    inset: 18% 12% auto auto;
+    width: 170px;
+    height: 170px;
+  }
+
+  .home-visual-orbit-secondary {
+    inset: auto auto 12% 14%;
+    width: 120px;
+    height: 120px;
+  }
+
+  .home-visual-core {
+    top: auto;
+    right: 18px;
+    bottom: 18px;
+    width: min(210px, calc(100% - 36px));
+    transform: none;
+  }
+
+  .home-visual-provider-card {
+    gap: 4px;
+    padding: 12px 14px;
+  }
+
+  .home-visual-provider-card strong {
+    font-size: 1.08rem;
+  }
+
+  .home-visual-badge-top {
+    top: 16px;
+    left: 16px;
+  }
+
+  .home-notice-panel,
+  .home-settings-panel {
+    padding: 18px 18px 16px;
+  }
+}
+
+@media (max-height: 720px) and (min-width: 1080px) {
+  .home-stage {
+    grid-template-columns: minmax(360px, 420px) minmax(0, 1fr);
+    gap: 14px;
+  }
+
+  .home-hero {
+    padding: 18px;
+  }
+
+  .home-brand {
+    gap: 14px;
+  }
+
+  .home-logo {
+    width: 52px;
+    height: 52px;
+  }
+
+  .home-title {
+    font-size: clamp(1.6rem, 2.6vw, 2.3rem);
+  }
+
+  .home-display {
+    font-size: clamp(1.6rem, 2.5vw, 2.6rem);
+    max-width: none;
+  }
+
+  .home-lead {
+    font-size: 0.92rem;
+    line-height: 1.45;
+  }
+
+  .home-hero-visual {
+    min-height: 132px;
+  }
+
+  .home-visual-grid {
+    background-size: 26px 26px;
+  }
+
+  .home-visual-orbit-primary {
+    width: 124px;
+    height: 124px;
+  }
+
+  .home-visual-orbit-secondary {
+    width: 92px;
+    height: 92px;
+  }
+
+  .home-visual-provider-card span {
+    font-size: 0.64rem;
+  }
+
+  .home-visual-provider-card strong {
+    font-size: 0.96rem;
+  }
+
+  .home-notice-panel {
+    font-size: 0.94rem;
+  }
+}
+
 .home-panel-copy,
 .home-panel-note {
   color: var(--text-muted);
