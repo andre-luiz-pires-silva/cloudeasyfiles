@@ -105,14 +105,17 @@ jobs:
       - build-windows
 
     steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
       - name: Download Linux bundles
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v8
         with:
           name: release-bundles-linux
           path: release-assets
 
       - name: Download Windows bundles
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v8
         with:
           name: release-bundles-windows
           path: release-assets
