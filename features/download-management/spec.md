@@ -6,13 +6,13 @@ Define the current tracked-download behavior and the current direct-download dir
 
 ## Context
 
-CloudEasyFiles distinguishes between cloud browsing and file acquisition. The current implementation provides an AWS tracked download workflow for cached files, a separate AWS direct export flow for `Download As`, and a lightweight transfer-monitoring experience that does not introduce permanent background polling.
+CloudEasyFiles distinguishes between cloud browsing and file acquisition. The current implementation provides tracked cache downloads, direct `Download As`, and a lightweight transfer-monitoring experience across AWS and Azure without introducing permanent background polling.
 
 ## Functional Requirements
 
 - Files must expose a user-facing tracked download state.
 - The supported tracked download states are `NotDownloaded`, `Restoring`, `AvailableToDownload`, and `Downloaded`.
-- In the current AWS implementation, `Download` must place the file in the configured global local cache.
+- `Download` must place the file in the configured global local cache.
 - `Download` must be progress-monitored by the application.
 - `Download As` must remain a separate direct-export action from tracked `Download`.
 - Active `Download As` operations must also participate in transfer monitoring while in progress.
@@ -23,7 +23,7 @@ CloudEasyFiles distinguishes between cloud browsing and file acquisition. The cu
 - V1 must not offer pause or resume controls for downloads.
 - The product must support restore-dependent downloads for archived content.
 - The main explorer must continue to show file-level restore and download state while browsing.
-- The current tracked-download implementation is AWS-only.
+- The current tracked-download implementation supports AWS and Azure.
 
 ## Non-Functional Requirements
 

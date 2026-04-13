@@ -1,5 +1,26 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Full Azure support across connection management, browsing, upload, download, folder creation, delete, tier changes, and archive rehydration
+- Linux packaging improvements for app identity and icon integration
+- Configurable explorer page size
+- GitHub repository automation for CI and release artifact generation
+- Contribution, security, and collaboration templates for the repository
+
+### Changed
+
+- Public project documentation now reflects the real multi-provider implementation state
+- Repository metadata and packaging description now use provider-neutral cloud-storage language
+- Linux application identifier updated to `com.alps.cloudeasyfiles`
+
+### Known Limitations
+
+- Repository quality gates are currently based on build validation and `cargo check`, not a broad automated test suite
+- Linux release automation is the primary packaged-release path right now
+
 ## 0.1.0 - First AWS-Compatible Release
 
 ### Added
@@ -20,7 +41,6 @@
 
 ### Known Limitations
 
-- Azure is not implemented in `0.1.0`
-- Upload, restore, and storage-class change workflows are AWS-only
-- The current upload workflow has no local queue or explicit concurrency cap
-- Packaging and release publication remain manual
+- Azure was not implemented in `0.1.0`
+- The current upload workflow had no local queue or explicit concurrency cap
+- Packaging and release publication were still manual

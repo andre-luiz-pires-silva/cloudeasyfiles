@@ -2,13 +2,18 @@
   "name": "cloudeasyfiles",
   "private": true,
   "version": "0.1.0",
-  "description": "CloudEasyFiles desktop application built with Tauri, Rust, React, and TypeScript.",
+  "description": "Desktop file explorer for cloud storage.",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "check:frontend": "npm run build",
+    "check:rust": "cargo check --manifest-path src-tauri/Cargo.toml",
+    "check": "npm run check:frontend && npm run check:rust",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build"
   },
   "dependencies": {
     "@tauri-apps/api": "2.0.1",

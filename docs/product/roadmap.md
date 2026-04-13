@@ -2,23 +2,20 @@
 
 ## Current Phase
 
-The current phase closes with the first functional AWS-compatible release in `0.1.0`.
+The current phase is focused on consolidating the now-functional multi-provider baseline after the initial `0.1.0` AWS milestone.
 
 Current emphasis:
 
-- stabilizing the AWS-first toolset
-- validating release packaging and release notes
-- preparing Azure as the next provider milestone
+- stabilizing the AWS and Azure toolset
+- tightening repository quality, documentation, and release hygiene
+- hardening packaging and platform integration
 
 ## Near-Term Priorities
 
-- central listing of immediate folders and files
-- incremental listing continuation with `Carregar mais`
-- simple local filtering in sidebar and main content area
-- simple monitored multi-file upload to the currently open AWS bucket folder
-- advanced search entry point with provider-aware behavior
-- Azure implementation aligned to the current product model
-- Azure-specific archival behavior mapped into the same UX vocabulary where appropriate
+- broader automated verification beyond compile-time checks
+- richer screenshots and public project presentation
+- advanced search evolution with provider-aware behavior
+- additional UX hardening around transfers, packaging, and platform polish
 - continued hardening of the AWS/Azure provider abstraction boundary
 
 ## Follow-Up Opportunities

@@ -2,42 +2,29 @@
 
 ## Summary
 
-CloudEasyFiles is a desktop application for navigating and managing files across multiple cloud storage providers through a unified interface.
+CloudEasyFiles is a desktop application for navigating and operating on cloud storage through a unified interface. The repository is organized as a product-quality codebase with supporting architecture docs, ADRs, feature specs, and implementation plans.
 
-Current initial focus:
+Current provider support in the codebase:
 
 - AWS S3
 - Azure Blob Storage
-- structural navigation by connection and container
-- central object browsing with navigable folders over object storage
-- archival storage awareness and restore workflows
-- optional global local cache for tracked downloads
-- simple monitored upload to the current AWS bucket folder
-- explicit folder creation in the current AWS bucket path
 
-## Current Status
+## Current Implementation State
 
-The project has reached its first functional AWS-compatible release in version `0.1.0`. AWS is the first wired provider and currently covers connection management, bucket browsing, incremental listing, manual refresh, explicit folder creation in the current bucket path, tracked cache download progress, `Download As`, simple monitored upload to the current AWS bucket folder, transfer tracking in the footer and modal, transfer cancelation, cached-file detection, opening cached files with the OS default application or in the local file explorer, provider-driven restore-state visibility for archived S3 objects, AWS restore request submission, delete workflows, and AWS storage-class changes. Azure remains the next provider target rather than an implemented provider path.
+Current repository state includes:
 
-## Release Focus
+- saved connections for AWS and Azure
+- structural sidebar navigation by connection and container
+- central object browsing with folder-style navigation
+- incremental listing with provider continuation hidden behind the UI
+- uploads, tracked downloads, and direct downloads
+- delete and folder creation workflows
+- tier changes for both providers
+- AWS archived-object restore requests
+- Azure Archive rehydration requests
+- local cache awareness and transfer monitoring
 
-- `0.1.0`: first functional AWS-compatible release
-- next phase: Azure support for the existing toolset and UX model
-
-## Main Features
-
-- saved cloud connections
-- structural sidebar navigation
-- central content listing
-- folder navigation over flat object storage
-- explicit folder creation in the current bucket path
-- simple local filtering
-- provider-aware advanced search direction
-- archival restore-state visibility and AWS restore workflows
-- tracked and direct downloads
-- cached file open actions
-- simple AWS upload
-- optional global local cache
+The repository may be ahead of the last tagged product release. Treat the codebase and the feature-specific docs as the source of truth for current implementation status.
 
 ## Documentation Map
 
@@ -76,6 +63,7 @@ The project has reached its first functional AWS-compatible release in version `
 
 ### Implementation Plans
 
+- [Azure Support](./features/azure-support/implementation-plan.md)
 - [Folder Navigation Plan](./features/folder-navigation/implementation-plan.md)
 - [Central Listing Plan](./features/central-listing/implementation-plan.md)
 - [File Restore Plan](./features/file-restore/implementation-plan.md)
@@ -83,21 +71,30 @@ The project has reached its first functional AWS-compatible release in version `
 - [Advanced Search Plan](./features/advanced-search/implementation-plan.md)
 - [Simple Upload Plan](./features/simple-upload/implementation-plan.md)
 
-## Scope Notes
+### Release Notes
 
-- The sidebar is intentionally structural.
-- Object browsing belongs in the main content area.
-- `Filter` and `Advanced Search` are separate concepts.
-- Provider abstraction must simplify usage without hiding real provider differences.
-- Explorer listing uses incremental loading with `Carregar mais`, not numbered pages.
-- Explorer counters reflect normalized navigable entries, not raw provider payload counts.
-- The current AWS explorer can refine loaded files by normalized content status and shows a local status breakdown next to the loaded-count summary.
-- The current AWS explorer can keep archival context visible for temporarily restored Glacier objects while they remain provider-available for download.
-- The current AWS explorer supports simple multi-file upload to the open bucket folder through button or drag and drop.
-- The current upload flow detects overwrite conflicts across the batch before starting uploads and resolves them in a unified modal with per-item or apply-to-all decisions.
-- The current upload implementation has no local queue, no `pending` state, and no explicit parallelism cap.
-- Restore is provider-specific where provider behavior materially affects UX or implementation.
-- The current restore submission and storage-class change flows are AWS-only.
-- Refresh is manual and interaction-driven by default; restore state is rediscovered from the provider on navigation, refresh, screen open, and reconnection rather than continuous polling.
+- [Release 0.1.0](./docs/releases/0.1.0.md)
+- [Changelog](./CHANGELOG.md)
 
-For strategic detail, architecture rules, decisions, and feature behavior, use the linked documents above instead of expanding this file again.
+## Repository Conventions
+
+- Public project overview lives in [`README.md`](./README.md)
+- Architecture intent belongs in `docs/architecture`
+- Product framing belongs in `docs/product`
+- Decision records belong in `docs/decisions`
+- Feature behavior and implementation planning belong in `features/*`
+- Repository process and collaboration expectations live in:
+  - [`CONTRIBUTING.md`](./CONTRIBUTING.md)
+  - [`SECURITY.md`](./SECURITY.md)
+
+## Quality Baseline
+
+Current repository baseline:
+
+- `npm run build`
+- `cargo check`
+- pull request template with validation checklist
+- GitHub Actions CI for push and PR
+- manual release-build workflow for Linux artifacts
+
+For implementation details, prefer the linked docs over expanding this file into a second README.

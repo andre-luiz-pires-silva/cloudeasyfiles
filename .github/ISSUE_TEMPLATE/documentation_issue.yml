@@ -1,0 +1,23 @@
+name: Documentation issue
+description: Report outdated, missing, or incorrect docs.
+title: "[Docs]: "
+labels:
+  - documentation
+body:
+  - type: textarea
+    id: issue
+    attributes:
+      label: Documentation problem
+      description: What is wrong, outdated, or missing?
+    validations:
+      required: true
+  - type: textarea
+    id: source
+    attributes:
+      label: Affected file or section
+      description: Link the file, heading, or page if known.
+  - type: textarea
+    id: fix
+    attributes:
+      label: Suggested correction
+      description: What should the docs say instead?
