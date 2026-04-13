@@ -2,13 +2,15 @@
 
 ## Unreleased
 
+## 0.2.0 - Azure Support and Release Automation
+
 ### Added
 
 - Full Azure support across connection management, browsing, upload, download, folder creation, delete, tier changes, and archive rehydration
+- Configurable explorer page size for AWS and Azure listings
 - Linux packaging improvements for app identity and icon integration
-- Configurable explorer page size
-- GitHub repository automation for CI and release artifact generation
-- Contribution, security, and collaboration templates for the repository
+- Tag-based GitHub Release automation for Linux and Windows installers
+- Repository templates and ownership metadata for contributions and review
 
 ### Changed
 
@@ -19,7 +21,7 @@
 ### Known Limitations
 
 - Repository quality gates are currently based on build validation and `cargo check`, not a broad automated test suite
-- Linux release automation is the primary packaged-release path right now
+- Release automation is centered on Linux and Windows desktop bundles and does not yet publish macOS installers
 
 ## 0.1.0 - First AWS-Compatible Release
 

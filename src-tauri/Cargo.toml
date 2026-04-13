@@ -1,6 +1,6 @@
 [package]
 name = "cloudeasyfiles"
-version = "0.1.0"
+version = "0.2.0"
 description = "Unified desktop file explorer for cloud storage."
 authors = ["Andre Luiz Pires Silva"]
 license = "MIT"

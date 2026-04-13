@@ -8,7 +8,7 @@ CloudEasyFiles is a Tauri desktop application for browsing and operating on clou
 
 ## Current Status
 
-The repository is ahead of the initial `0.1.0` AWS milestone and already includes working AWS and Azure flows in the current codebase.
+The current public release line includes working AWS and Azure flows, with release automation for packaged desktop installers.
 
 Current implementation highlights:
 

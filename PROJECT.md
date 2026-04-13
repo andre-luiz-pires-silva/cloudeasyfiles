@@ -24,7 +24,7 @@ Current repository state includes:
 - Azure Archive rehydration requests
 - local cache awareness and transfer monitoring
 
-The repository may be ahead of the last tagged product release. Treat the codebase and the feature-specific docs as the source of truth for current implementation status.
+The codebase and the feature-specific docs remain the source of truth for implementation details, but the current release line now includes both AWS and Azure support.
 
 ## Documentation Map
 
@@ -73,6 +73,7 @@ The repository may be ahead of the last tagged product release. Treat the codeba
 
 ### Release Notes
 
+- [Release 0.2.0](./docs/releases/0.2.0.md)
 - [Release 0.1.0](./docs/releases/0.1.0.md)
 - [Changelog](./CHANGELOG.md)
 
@@ -95,6 +96,6 @@ Current repository baseline:
 - `cargo check`
 - pull request template with validation checklist
 - GitHub Actions CI for push and PR
-- manual release-build workflow for Linux artifacts
+- tag-based release publishing for Linux and Windows installers
 
 For implementation details, prefer the linked docs over expanding this file into a second README.

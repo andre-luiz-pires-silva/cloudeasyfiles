@@ -2,7 +2,7 @@
 
 ## Current Phase
 
-The current phase is focused on consolidating the now-functional multi-provider baseline after the initial `0.1.0` AWS milestone.
+The current phase is focused on consolidating the now-functional multi-provider baseline after the `0.2.0` Azure-and-release-automation milestone.
 
 Current emphasis:
 
@@ -23,7 +23,7 @@ Current emphasis:
 - richer file preview capabilities
 - additional providers such as Google Cloud Storage
 - cache ergonomics and performance improvements
-- release automation and CI-based packaging
+- broader automated testing beyond compile-time validation
 
 ## Roadmap Notes
 
