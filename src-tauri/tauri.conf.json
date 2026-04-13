@@ -2,7 +2,7 @@
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "CloudEasyFiles",
   "version": "0.1.0",
-  "identifier": "com.andre.cloudeasyfiles",
+  "identifier": "com.alps.cloudeasyfiles",
   "build": {
     "beforeDevCommand": "npm run dev -- --host 127.0.0.1 --port 1420",
     "beforeBuildCommand": "npm run build",
@@ -43,13 +43,13 @@
       "deb": {
         "desktopTemplate": "linux/desktop-template.hbs",
         "files": {
-          "/usr/share/applications/com.andre.cloudeasyfiles.desktop": "linux/com.andre.cloudeasyfiles.desktop"
+          "/usr/share/applications/com.alps.cloudeasyfiles.desktop": "linux/com.alps.cloudeasyfiles.desktop"
         }
       },
       "rpm": {
         "desktopTemplate": "linux/desktop-template.hbs",
         "files": {
-          "/usr/share/applications/com.andre.cloudeasyfiles.desktop": "linux/com.andre.cloudeasyfiles.desktop"
+          "/usr/share/applications/com.alps.cloudeasyfiles.desktop": "linux/com.alps.cloudeasyfiles.desktop"
         }
       }
     }
