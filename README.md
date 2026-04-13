@@ -4,7 +4,18 @@
 
 CloudEasyFiles is a Tauri desktop application for browsing and operating on cloud storage with a cleaner, more practical workflow than provider consoles usually offer. The current product supports AWS S3 and Azure Blob Storage, with first-class handling for archival workflows such as AWS restore requests and Azure Archive rehydration.
 
-![CloudEasyFiles main window](./docs/page/assets/screenshot-1.png)
+![CloudEasyFiles home screen](./docs/page/assets/home.png)
+
+## Product Screens
+
+<p align="center">
+  <img src="./docs/page/assets/files-explorer.png" alt="CloudEasyFiles explorer view" width="48%" />
+  <img src="./docs/page/assets/aws-s3-storage-tiers.png" alt="CloudEasyFiles AWS S3 storage class modal" width="48%" />
+</p>
+
+<p align="center">
+  <img src="./docs/page/assets/azure-blob-storage-tiers.png" alt="CloudEasyFiles Azure Blob Storage tier modal" width="48%" />
+</p>
 
 ## Current Status
 

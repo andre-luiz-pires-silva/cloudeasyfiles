@@ -142,6 +142,7 @@ main,
   min-height: auto;
   padding-top: 48px;
   padding-bottom: 56px;
+  justify-items: start;
 }
 
 .eyebrow,
@@ -186,15 +187,14 @@ h3 {
   line-height: 1.1;
 }
 
-.hero-copy,
-.story-intro {
-  max-width: 560px;
-}
-
 .hero-copy {
   position: relative;
   z-index: 1;
-  max-width: 760px;
+  width: min(100%, 920px);
+}
+
+.story-intro {
+  max-width: 560px;
 }
 
 .hero-text,
@@ -268,6 +268,16 @@ h3 {
   border: 1px solid var(--line);
   border-radius: 999px;
   background: rgba(8, 16, 29, 0.5);
+}
+
+.product-shot,
+.gallery-panel {
+  margin: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xl);
+  background: linear-gradient(180deg, rgba(12, 24, 41, 0.82), rgba(8, 15, 28, 0.92));
+  box-shadow: var(--shadow);
+  overflow: hidden;
 }
 
 .ai-visual {
@@ -436,16 +446,38 @@ h3 {
 
 .product-shot {
   padding: 18px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-xl);
-  background: linear-gradient(180deg, rgba(12, 24, 41, 0.82), rgba(8, 15, 28, 0.92));
-  box-shadow: var(--shadow);
 }
 
 .project-screenshot {
   display: block;
   width: 100%;
   border-radius: 20px;
+}
+
+.section-gallery {
+  padding-top: 88px;
+}
+
+.gallery-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24px;
+  margin-top: 28px;
+}
+
+.gallery-panel {
+  display: grid;
+  gap: 18px;
+  padding: 20px;
+}
+
+.gallery-panel figcaption {
+  display: grid;
+  gap: 10px;
+}
+
+.gallery-panel h3 {
+  max-width: 18ch;
 }
 
 .story-rail {
@@ -477,6 +509,38 @@ h3 {
 
 .builder-note p:last-child {
   max-width: 60ch;
+}
+
+.builder-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.builder-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 42px;
+  padding: 0 16px;
+  border: 1px solid rgba(121, 242, 223, 0.24);
+  border-radius: 999px;
+  background: rgba(9, 20, 36, 0.42);
+  color: var(--accent);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.84rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  transition:
+    transform 160ms ease,
+    border-color 160ms ease,
+    background-color 160ms ease;
+}
+
+.builder-link:hover {
+  transform: translateY(-2px);
+  border-color: var(--line-strong);
+  background: rgba(14, 28, 48, 0.62);
 }
 
 .story-step {
@@ -564,6 +628,7 @@ h3 {
 @media (max-width: 980px) {
   .hero,
   .product-layout,
+  .gallery-grid,
   .story-rail,
   .footer {
     grid-template-columns: 1fr;
@@ -666,7 +731,8 @@ h3 {
   }
 
   .story-step,
-  .product-shot {
+  .product-shot,
+  .gallery-panel {
     padding: 18px;
   }
 }
