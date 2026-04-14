@@ -85,15 +85,6 @@ It also generates coverage reports and publishes:
 - a summary in the GitHub Actions job page
 - downloadable coverage artifacts for the workflow run
 
-## Coverage Snapshot
-
-Most recent measured baseline from the current suite:
-
-- Frontend: `4.19%` lines, `4.19%` statements, `51.59%` branches, `32.11%` functions
-- Rust: `8.92%` lines, `9.65%` regions, `8.22%` functions
-
-These totals are intentionally low because the repository is large and the first phase focused only on high-risk areas.
-
 ## Recommended Next Phases
 
 ### Phase 2
