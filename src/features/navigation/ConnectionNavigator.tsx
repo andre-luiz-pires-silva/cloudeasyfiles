@@ -147,6 +147,12 @@ import {
   type NavigationChangeStorageClassRequestState as ChangeStorageClassRequestState,
   type NavigationRestoreRequestState as RestoreRequestState
 } from "./navigationWorkflows";
+import {
+  isAzureArchivedOverwriteBlocked,
+  resolveUploadConflictDecisions,
+  type UploadConflictDecision,
+  type UploadConflictPromptState
+} from "./navigationUploads";
 
 function Globe2Icon() {
   return (
@@ -1028,8 +1034,6 @@ type CompletionToast = {
   tone?: "success" | "error";
 };
 
-type UploadConflictDecision = "overwrite" | "skip" | "overwriteAll" | "skipAll";
-
 type SimpleUploadBatchInput = {
   fileName: string;
   localFilePath?: string;
@@ -1046,13 +1050,6 @@ type PreparedSimpleUploadBatchItem = SimpleUploadBatchInput & {
   objectKey: string;
   fileIdentity: string;
   objectAlreadyExists: boolean;
-};
-
-type UploadConflictPromptState = {
-  currentConflictIndex: number;
-  totalConflicts: number;
-  fileName: string;
-  objectKey: string;
 };
 
 type ConnectionNavigatorProps = {
@@ -1863,56 +1860,24 @@ export function ConnectionNavigator({
       return;
     }
 
-    const conflictingItems = preparedBatch.preparedItems.filter((item) => item.objectAlreadyExists);
-    const totalConflicts = conflictingItems.length;
-    let conflictCursor = 0;
-    let applyRemainingDecision: "overwrite" | "skip" | null = null;
+    const uploadDecisions = await resolveUploadConflictDecisions(
+      preparedBatch.preparedItems,
+      promptUploadConflictResolution
+    );
 
-    for (const item of preparedBatch.preparedItems) {
-      let shouldUpload = true;
-
-      if (item.objectAlreadyExists) {
-        conflictCursor += 1;
-
-        if (applyRemainingDecision) {
-          shouldUpload = applyRemainingDecision === "overwrite";
-        } else {
-          const decision = await promptUploadConflictResolution({
-            currentConflictIndex: conflictCursor,
-            totalConflicts,
-            fileName: item.fileName,
-            objectKey: item.objectKey
-          });
-
-          if (decision === "skipAll") {
-            applyRemainingDecision = "skip";
-            shouldUpload = false;
-          } else if (decision === "overwriteAll") {
-            applyRemainingDecision = "overwrite";
-          } else {
-            shouldUpload = decision === "overwrite";
-          }
-        }
-      }
-
+    for (const { item, shouldUpload } of uploadDecisions) {
       if (!shouldUpload) {
         continue;
       }
 
-      if (selectedBucketProvider === "azure") {
-        const existingItem = contentItems.find(
-          (contentItem) => contentItem.kind === "file" && contentItem.path === item.objectKey
+      if (
+        selectedBucketProvider === "azure" &&
+        isAzureArchivedOverwriteBlocked(item, contentItems)
+      ) {
+        showTransferErrorToast(
+          t("content.transfer.azure_overwrite_archived_blob").replace("{name}", item.fileName)
         );
-
-        if (existingItem?.availabilityStatus === "archived") {
-          showTransferErrorToast(
-            t("content.transfer.azure_overwrite_archived_blob").replace(
-              "{name}",
-              item.fileName
-            )
-          );
-          continue;
-        }
+        continue;
       }
 
       void startPreparedSimpleAwsUpload(preparedBatch.draft, item);
