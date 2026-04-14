@@ -114,8 +114,7 @@ main,
 }
 
 .topbar-links a:hover,
-.footer-links a:hover,
-.docs-links a:hover {
+.footer-links a:hover {
   color: var(--accent);
 }
 
@@ -146,8 +145,7 @@ main,
 }
 
 .eyebrow,
-.hero-tags,
-.story-index {
+.hero-tags {
   font-family: "IBM Plex Mono", monospace;
 }
 
@@ -199,7 +197,6 @@ h3 {
 
 .hero-text,
 .section p,
-.story-step p,
 .footer p {
   margin-top: 18px;
   color: var(--text-muted);
@@ -230,8 +227,7 @@ h3 {
     box-shadow 160ms ease;
 }
 
-.button:hover,
-.docs-links a:hover {
+.button:hover {
   transform: translateY(-2px);
 }
 
@@ -385,13 +381,6 @@ h3 {
   max-width: 18ch;
 }
 
-.story-rail {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 18px;
-  margin-top: 32px;
-}
-
 .builder-note {
   max-width: 760px;
   margin-top: 30px;
@@ -448,53 +437,12 @@ h3 {
   background: rgba(14, 28, 48, 0.62);
 }
 
-.story-step {
-  min-height: 220px;
-  padding: 24px;
-  border-top: 1px solid var(--line-strong);
-  background: linear-gradient(180deg, rgba(11, 21, 37, 0.26), rgba(11, 21, 37, 0.02));
-}
-
-.story-step:nth-child(2) {
-  background: linear-gradient(180deg, rgba(15, 28, 48, 0.34), rgba(11, 21, 37, 0.03));
-}
-
-.story-index {
-  display: inline-block;
-  margin-bottom: 20px;
-  color: var(--accent);
-  font-size: 0.8rem;
-  letter-spacing: 0.18em;
-}
-
-.docs-links {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 14px;
-  margin-top: 28px;
-}
-
 .download-panel {
   width: min(100%, 760px);
   margin-top: 28px;
   padding: 24px;
   border-top: 1px solid var(--line-strong);
   background: linear-gradient(180deg, rgba(11, 21, 37, 0.26), rgba(11, 21, 37, 0.02));
-}
-
-.docs-links a {
-  display: inline-flex;
-  align-items: center;
-  min-height: 46px;
-  padding: 0 16px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  background: rgba(9, 20, 36, 0.42);
-  color: var(--text-muted);
-  transition:
-    transform 160ms ease,
-    border-color 160ms ease,
-    color 160ms ease;
 }
 
 .footer {
@@ -542,7 +490,6 @@ h3 {
   .hero,
   .product-layout,
   .gallery-grid,
-  .story-rail,
   .footer {
     grid-template-columns: 1fr;
     display: grid;
@@ -607,7 +554,6 @@ h3 {
     padding-top: 68px;
   }
 
-  .story-step,
   .product-shot,
   .gallery-panel {
     padding: 18px;
