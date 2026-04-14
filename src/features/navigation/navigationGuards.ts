@@ -1,4 +1,4 @@
-import type { ConnectionProvider } from "../connections/models";
+import type { ConnectionProvider, SavedConnectionSummary } from "../connections/models";
 
 export type NavigationAvailabilityStatus = "available" | "archived" | "restoring";
 export type NavigationDownloadState =
@@ -182,4 +182,28 @@ export function isFileIdentityInContext(
       item.kind === "file" &&
       buildFileIdentity(connectionId, bucketName, item.path) === fileIdentity
   );
+}
+
+export function getStartupAutoConnectConnections(
+  connections: SavedConnectionSummary[]
+): SavedConnectionSummary[] {
+  return connections.filter((connection) => connection.connectOnStartup === true);
+}
+
+export function shouldRefreshAfterUploadCompletion(params: {
+  uploadConnectionId: string;
+  uploadBucketName: string;
+  uploadObjectKey: string;
+  selectedBucketConnectionId: string | null;
+  selectedBucketName: string | null;
+  selectedBucketPath: string;
+}): boolean {
+  if (
+    params.uploadConnectionId !== params.selectedBucketConnectionId ||
+    params.uploadBucketName !== params.selectedBucketName
+  ) {
+    return false;
+  }
+
+  return getUploadParentPath(params.uploadObjectKey) === normalizeDirectoryPrefix(params.selectedBucketPath);
 }

@@ -136,10 +136,12 @@ import {
   canDownloadItem,
   canRestoreItem,
   dedupeDirectoryPrefixes,
+  getStartupAutoConnectConnections,
   getUploadParentPath,
   hasActiveTransferForItem,
   isFileIdentityInContext,
   normalizeDirectoryPrefix,
+  shouldRefreshAfterUploadCompletion,
   validateNewFolderNameInput
 } from "./navigationGuards";
 
@@ -3185,11 +3187,9 @@ export function ConnectionNavigator({
 
     hasProcessedStartupAutoConnectRef.current = true;
 
-    connections
-      .filter((connection) => connection.connectOnStartup === true)
-      .forEach((connection) => {
-        void connectConnection(connection.id, connection);
-      });
+    getStartupAutoConnectConnections(connections).forEach((connection) => {
+      void connectConnection(connection.id, connection);
+    });
   }, [connections, isLoadingConnections]);
 
   useEffect(() => {
@@ -3242,14 +3242,16 @@ export function ConnectionNavigator({
               });
 
               if (
-                payload.connectionId === selectedBucketConnectionId &&
-                payload.bucketName === selectedBucketName
+                shouldRefreshAfterUploadCompletion({
+                  uploadConnectionId: payload.connectionId,
+                  uploadBucketName: payload.bucketName,
+                  uploadObjectKey: payload.objectKey,
+                  selectedBucketConnectionId,
+                  selectedBucketName,
+                  selectedBucketPath
+                })
               ) {
-                const uploadedParentPath = getUploadParentPath(payload.objectKey);
-
-                if (uploadedParentPath === selectedBucketPath) {
-                  setContentRefreshNonce((currentValue) => currentValue + 1);
-                }
+                setContentRefreshNonce((currentValue) => currentValue + 1);
               }
             } else if (payload.state === "failed" && payload.error) {
               showTransferErrorToast(payload.error);
@@ -3326,14 +3328,16 @@ export function ConnectionNavigator({
               });
 
               if (
-                payload.connectionId === selectedBucketConnectionId &&
-                payload.bucketName === selectedBucketName
+                shouldRefreshAfterUploadCompletion({
+                  uploadConnectionId: payload.connectionId,
+                  uploadBucketName: payload.bucketName,
+                  uploadObjectKey: payload.objectKey,
+                  selectedBucketConnectionId,
+                  selectedBucketName,
+                  selectedBucketPath
+                })
               ) {
-                const uploadedParentPath = getUploadParentPath(payload.objectKey);
-
-                if (uploadedParentPath === selectedBucketPath) {
-                  setContentRefreshNonce((currentValue) => currentValue + 1);
-                }
+                setContentRefreshNonce((currentValue) => currentValue + 1);
               }
             } else if (payload.state === "failed" && payload.error) {
               showTransferErrorToast(payload.error);

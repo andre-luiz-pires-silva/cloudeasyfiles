@@ -9,13 +9,16 @@ import {
   canDownloadItem,
   canRestoreItem,
   dedupeDirectoryPrefixes,
+  getStartupAutoConnectConnections,
   getUploadParentPath,
   isFileIdentityInContext,
   normalizeDirectoryPrefix,
+  shouldRefreshAfterUploadCompletion,
   validateNewFolderNameInput,
   type NavigationActionContext,
   type NavigationContentItem
 } from "./navigationGuards";
+import type { SavedConnectionSummary } from "../connections/models";
 
 function createContext(
   overrides: Partial<NavigationActionContext> = {}
@@ -132,6 +135,58 @@ describe("navigationGuards", () => {
         "bucket-a",
         items
       )
+    ).toBe(false);
+  });
+
+  it("selects only startup-enabled connections", () => {
+    const connections: SavedConnectionSummary[] = [
+      { id: "aws-1", name: "AWS Main", provider: "aws", connectOnStartup: true },
+      {
+        id: "azure-1",
+        name: "Azure Main",
+        provider: "azure",
+        storageAccountName: "mystorage",
+        authenticationMethod: "shared_key"
+      }
+    ];
+
+    expect(getStartupAutoConnectConnections(connections).map((connection) => connection.id)).toEqual([
+      "aws-1"
+    ]);
+  });
+
+  it("refreshes only when a completed upload affects the currently open context", () => {
+    expect(
+      shouldRefreshAfterUploadCompletion({
+        uploadConnectionId: "conn-1",
+        uploadBucketName: "bucket-a",
+        uploadObjectKey: "docs/report.txt",
+        selectedBucketConnectionId: "conn-1",
+        selectedBucketName: "bucket-a",
+        selectedBucketPath: "docs"
+      })
+    ).toBe(true);
+
+    expect(
+      shouldRefreshAfterUploadCompletion({
+        uploadConnectionId: "conn-2",
+        uploadBucketName: "bucket-a",
+        uploadObjectKey: "docs/report.txt",
+        selectedBucketConnectionId: "conn-1",
+        selectedBucketName: "bucket-a",
+        selectedBucketPath: "docs"
+      })
+    ).toBe(false);
+
+    expect(
+      shouldRefreshAfterUploadCompletion({
+        uploadConnectionId: "conn-1",
+        uploadBucketName: "bucket-a",
+        uploadObjectKey: "other/report.txt",
+        selectedBucketConnectionId: "conn-1",
+        selectedBucketName: "bucket-a",
+        selectedBucketPath: "docs"
+      })
     ).toBe(false);
   });
 });
