@@ -48,7 +48,7 @@ Increase automated test coverage toward the agreed long-term target of `75%` lin
 
 - [-] Expand coverage around `presentation/commands.rs`
 - [x] Test cancellation classification helpers
-- [ ] Test event payload mapping helpers
+- [x] Test event payload mapping helpers
 - [x] Test command-layer input validation helpers
 - [x] Re-measure Rust coverage
 
@@ -117,3 +117,8 @@ Increase automated test coverage toward the agreed long-term target of `75%` lin
   - Rust regions: `11.75%`
   - Rust functions: `11.38%`
   - `presentation/commands.rs` line coverage: `6.39%`
+- After Phase 2 substep 2:
+  - Rust line coverage: `12.50%`
+  - Rust regions: `13.10%`
+  - Rust functions: `12.24%`
+  - `presentation/commands.rs` line coverage: `13.14%`
