@@ -54,8 +54,8 @@ Increase automated test coverage toward the agreed long-term target of `75%` lin
 
 ### Phase 3. Rust provider-service expansion
 
-- [ ] Expand AWS service coverage beyond current helpers
-- [ ] Expand Azure service coverage beyond current helpers
+- [x] Expand AWS service coverage beyond current helpers
+- [x] Expand Azure service coverage beyond current helpers
 - [ ] Cover delete/restore/tier-change sensitive paths
 - [ ] Cover pagination, batching, and chunking rules
 - [ ] Re-measure Rust coverage
@@ -122,3 +122,9 @@ Increase automated test coverage toward the agreed long-term target of `75%` lin
   - Rust regions: `13.10%`
   - Rust functions: `12.24%`
   - `presentation/commands.rs` line coverage: `13.14%`
+- After Phase 3 substep 1:
+  - Rust line coverage: `15.91%`
+  - Rust regions: `17.37%`
+  - Rust functions: `17.12%`
+  - `aws_connection_service.rs` line coverage: `12.89%`
+  - `azure_connection_service.rs` line coverage: `23.46%`

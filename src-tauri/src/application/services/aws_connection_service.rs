@@ -2522,4 +2522,55 @@ mod tests {
             .is_err()
         );
     }
+
+    #[test]
+    fn parses_storage_classes_restore_tiers_and_directory_names() {
+        assert_eq!(build_directory_name("docs/reports/"), "reports");
+        assert_eq!(build_directory_name("/"), "/");
+        assert_eq!(
+            normalize_bucket_region(Some(&BucketLocationConstraint::Eu)),
+            "eu-west-1"
+        );
+        assert_eq!(normalize_bucket_region(None), "us-east-1");
+
+        assert!(matches!(parse_restore_tier(" expedited "), Ok(Tier::Expedited)));
+        assert!(matches!(
+            parse_upload_storage_class(Some(" STANDARD_IA ")),
+            Ok(Some(StorageClass::StandardIa))
+        ));
+        assert!(matches!(
+            parse_required_storage_class("GLACIER"),
+            Ok(StorageClass::Glacier)
+        ));
+        assert!(parse_restore_tier("instant").is_err());
+        assert!(parse_upload_storage_class(Some("invalid-tier")).is_err());
+        assert!(parse_required_storage_class("invalid-tier").is_err());
+        assert_eq!(parse_upload_storage_class(None).unwrap(), None);
+    }
+
+    #[test]
+    fn normalizes_and_enforces_restricted_bucket_names() {
+        assert_eq!(
+            AwsConnectionService::normalize_restricted_bucket_name(Some(" bucket-a ".to_string())),
+            Some("bucket-a".to_string())
+        );
+        assert_eq!(
+            AwsConnectionService::normalize_restricted_bucket_name(Some("   ".to_string())),
+            None
+        );
+        assert!(
+            AwsConnectionService::validate_bucket_matches_restriction(
+                "bucket-a",
+                Some("bucket-a")
+            )
+            .is_ok()
+        );
+        assert!(
+            AwsConnectionService::validate_bucket_matches_restriction(
+                "bucket-b",
+                Some("bucket-a")
+            )
+            .is_err()
+        );
+    }
 }

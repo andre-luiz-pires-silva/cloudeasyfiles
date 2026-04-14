@@ -2260,4 +2260,56 @@ mod tests {
             .is_err()
         );
     }
+
+    #[test]
+    fn normalizes_prefixes_and_parses_tiers() {
+        assert_eq!(normalize_prefix(Some(" /docs/reports ".to_string())), Some("docs/reports/".to_string()));
+        assert_eq!(normalize_prefix(Some("   ".to_string())), None);
+        assert_eq!(get_leaf_name("docs/reports/annual.pdf"), "annual.pdf");
+        assert_eq!(get_leaf_name("docs/"), "docs");
+
+        assert_eq!(parse_access_tier(Some("Cool")).unwrap(), Some("Cool".to_string()));
+        assert_eq!(parse_access_tier(None).unwrap(), None);
+        assert_eq!(parse_rehydration_target_tier("Hot").unwrap(), "Hot");
+        assert_eq!(parse_rehydration_priority("High").unwrap(), "High");
+        assert!(parse_access_tier(Some("Premium")).is_err());
+        assert!(parse_rehydration_target_tier("Archive").is_err());
+        assert!(parse_rehydration_priority("Urgent").is_err());
+    }
+
+    #[test]
+    fn builds_azure_urls_with_expected_normalization() {
+        let service_url = build_service_url(
+            "acct",
+            &[("comp".to_string(), "list".to_string()), ("restype".to_string(), "container".to_string())],
+        )
+        .unwrap();
+        assert_eq!(
+            service_url.as_str(),
+            "https://acct.blob.core.windows.net/?comp=list&restype=container"
+        );
+
+        let container_url = build_container_url(
+            "acct",
+            "reports",
+            &[("restype".to_string(), "container".to_string())],
+        )
+        .unwrap();
+        assert_eq!(
+            container_url.as_str(),
+            "https://acct.blob.core.windows.net/reports?restype=container"
+        );
+
+        let blob_url = build_blob_url(
+            "acct",
+            "reports",
+            "annual files/report #1.csv",
+            &[("timeout".to_string(), "30".to_string())],
+        )
+        .unwrap();
+        assert_eq!(
+            blob_url.as_str(),
+            "https://acct.blob.core.windows.net/reports/annual%20files/report%20%231.csv?timeout=30"
+        );
+    }
 }
