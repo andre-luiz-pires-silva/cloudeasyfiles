@@ -33,6 +33,11 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Install Rust coverage tools
+        run: |
+          rustup component add llvm-tools-preview
+          cargo install cargo-llvm-cov --locked
+
       - name: Cache Rust dependencies
         uses: swatinem/rust-cache@v2
         with:
@@ -43,3 +48,43 @@ jobs:
 
       - name: Run repository checks
         run: npm run check
+
+      - name: Run automated tests
+        run: npm run test
+
+      - name: Generate frontend coverage
+        run: npm run test:frontend:coverage
+
+      - name: Generate Rust coverage
+        run: npm run test:rust:coverage
+
+      - name: Publish coverage summary
+        run: |
+          node <<'EOF'
+          const fs = require("fs");
+
+          const frontend = JSON.parse(fs.readFileSync("coverage/coverage-summary.json", "utf8")).total;
+          const rustJson = JSON.parse(fs.readFileSync("coverage/rust-coverage.json", "utf8"));
+          const rust = (rustJson.data && rustJson.data[0] && rustJson.data[0].totals) || rustJson.totals;
+
+          const lines = [
+            "## Test Coverage",
+            "",
+            "| Suite | Lines/Statements | Branches/Regions | Functions |",
+            "| --- | ---: | ---: | ---: |",
+            `| Frontend (Vitest) | ${frontend.lines.pct.toFixed(2)}% lines / ${frontend.statements.pct.toFixed(2)}% statements | ${frontend.branches.pct.toFixed(2)}% branches | ${frontend.functions.pct.toFixed(2)}% functions |`,
+            `| Rust (cargo-llvm-cov) | ${rust.lines.percent.toFixed(2)}% lines | ${rust.regions.percent.toFixed(2)}% regions | ${rust.functions.percent.toFixed(2)}% functions |`,
+            "",
+            "Coverage artifacts are available in the workflow run."
+          ];
+
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${lines.join("\n")}\n`);
+          EOF
+
+      - name: Upload coverage artifacts
+        uses: actions/upload-artifact@v6
+        with:
+          name: coverage-reports
+          path: |
+            coverage/**
+          if-no-files-found: error

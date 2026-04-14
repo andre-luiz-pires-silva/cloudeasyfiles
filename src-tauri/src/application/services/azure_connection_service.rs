@@ -240,91 +240,7 @@ impl AzureConnectionService {
             format!("/{normalized_container_name}"),
         )
         .await?;
-        let parsed: ListBlobsEnvelope = from_str(&response_text)
-            .map_err(|error| format!("Failed to parse Azure blob listing XML: {error}"))?;
-        let blobs_node = parsed
-            .blobs
-            .unwrap_or(ListBlobsNode { entries: Vec::new() });
-        let mut blob_entries = Vec::new();
-        let mut directories = Vec::new();
-
-        for entry in blobs_node.entries {
-            match entry {
-                ListBlobsEntry::Prefix(prefix) => {
-                    directories.push(AzureVirtualDirectorySummary {
-                        name: get_leaf_name(&prefix.name),
-                        path: prefix.name,
-                    });
-                }
-                ListBlobsEntry::Blob(blob) => {
-                    blob_entries.push(blob);
-                }
-            }
-        }
-
-        let mut seen_directory_paths = directories
-            .iter()
-            .map(|directory| (directory.path.clone(), ()))
-            .collect::<BTreeMap<_, _>>();
-        let files = blob_entries
-            .into_iter()
-            .filter_map(|blob| {
-                let is_folder_placeholder = blob
-                    .metadata
-                    .as_ref()
-                    .and_then(|metadata| metadata.hdi_isfolder.as_deref())
-                    .map(|value| value.eq_ignore_ascii_case(AZURE_FOLDER_PLACEHOLDER_METADATA_VALUE))
-                    .unwrap_or(false);
-
-                if is_folder_placeholder {
-                    if normalized_prefix.as_deref() == Some(blob.name.as_str()) {
-                        return None;
-                    }
-
-                    if seen_directory_paths.insert(blob.name.clone(), ()).is_none() {
-                        directories.push(AzureVirtualDirectorySummary {
-                            name: get_leaf_name(&blob.name),
-                            path: blob.name,
-                        });
-                    }
-
-                    return None;
-                }
-
-                let properties = blob.properties.unwrap_or(ListBlobPropertiesNode {
-                    content_length: None,
-                    last_modified: None,
-                    e_tag: None,
-                    access_tier: None,
-                    archive_status: None,
-                });
-
-                Some(AzureBlobSummary {
-                    name: blob.name.clone(),
-                    size: properties.content_length.unwrap_or(0),
-                    e_tag: properties.e_tag,
-                    last_modified: properties.last_modified,
-                    storage_class: properties.access_tier,
-                    restore_in_progress: properties.archive_status.as_ref().map(|status| {
-                        status
-                            .to_ascii_lowercase()
-                            .contains("rehydrate-pending")
-                    }),
-                    restore_expiry_date: None,
-                })
-            })
-            .collect::<Vec<_>>();
-
-        Ok(AzureContainerItemsResult {
-            directories,
-            files,
-            continuation_token: parsed.next_marker.clone().filter(|value| !value.is_empty()),
-            has_more: parsed
-                .next_marker
-                .as_ref()
-                .map(|value| !value.trim().is_empty())
-                .unwrap_or(false),
-        })
+        parse_blob_listing_response(&response_text, normalized_prefix.as_deref())
     }
 
     pub async fn blob_exists(
@@ -1560,6 +1476,96 @@ fn normalize_delete_object_keys(object_keys: Vec<String>) -> Vec<String> {
     normalized_object_keys
 }
 
+fn parse_blob_listing_response(
+    response_text: &str,
+    normalized_prefix: Option<&str>,
+) -> Result<AzureContainerItemsResult, String> {
+    let parsed: ListBlobsEnvelope = from_str(response_text)
+        .map_err(|error| format!("Failed to parse Azure blob listing XML: {error}"))?;
+    let blobs_node = parsed
+        .blobs
+        .unwrap_or(ListBlobsNode { entries: Vec::new() });
+    let mut blob_entries = Vec::new();
+    let mut directories = Vec::new();
+
+    for entry in blobs_node.entries {
+        match entry {
+            ListBlobsEntry::Prefix(prefix) => {
+                directories.push(AzureVirtualDirectorySummary {
+                    name: get_leaf_name(&prefix.name),
+                    path: prefix.name,
+                });
+            }
+            ListBlobsEntry::Blob(blob) => {
+                blob_entries.push(blob);
+            }
+        }
+    }
+
+    let mut seen_directory_paths = directories
+        .iter()
+        .map(|directory| (directory.path.clone(), ()))
+        .collect::<BTreeMap<_, _>>();
+    let files = blob_entries
+        .into_iter()
+        .filter_map(|blob| {
+            let is_folder_placeholder = blob
+                .metadata
+                .as_ref()
+                .and_then(|metadata| metadata.hdi_isfolder.as_deref())
+                .map(|value| value.eq_ignore_ascii_case(AZURE_FOLDER_PLACEHOLDER_METADATA_VALUE))
+                .unwrap_or(false);
+
+            if is_folder_placeholder {
+                if normalized_prefix == Some(blob.name.as_str()) {
+                    return None;
+                }
+
+                if seen_directory_paths.insert(blob.name.clone(), ()).is_none() {
+                    directories.push(AzureVirtualDirectorySummary {
+                        name: get_leaf_name(&blob.name),
+                        path: blob.name,
+                    });
+                }
+
+                return None;
+            }
+
+            let properties = blob.properties.unwrap_or(ListBlobPropertiesNode {
+                content_length: None,
+                last_modified: None,
+                e_tag: None,
+                access_tier: None,
+                archive_status: None,
+            });
+
+            Some(AzureBlobSummary {
+                name: blob.name.clone(),
+                size: properties.content_length.unwrap_or(0),
+                e_tag: properties.e_tag,
+                last_modified: properties.last_modified,
+                storage_class: properties.access_tier,
+                restore_in_progress: properties
+                    .archive_status
+                    .as_ref()
+                    .map(|status| status.to_ascii_lowercase().contains("rehydrate-pending")),
+                restore_expiry_date: None,
+            })
+        })
+        .collect::<Vec<_>>();
+
+    Ok(AzureContainerItemsResult {
+        directories,
+        files,
+        continuation_token: parsed.next_marker.clone().filter(|value| !value.is_empty()),
+        has_more: parsed
+            .next_marker
+            .as_ref()
+            .map(|value| !value.trim().is_empty())
+            .unwrap_or(false),
+    })
+}
+
 fn build_account_url(storage_account_name: &str) -> String {
     format!("https://{storage_account_name}.blob.core.windows.net")
 }
@@ -2093,4 +2099,165 @@ async fn list_blob_names_with_prefix(
         .unwrap_or_default();
 
     Ok((blob_names, parsed.next_marker.filter(|value| !value.is_empty())))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    #[test]
+    fn normalizes_storage_account_name() {
+        assert_eq!(
+            normalize_storage_account_name("  MyAccount  ").unwrap(),
+            "myaccount"
+        );
+        assert!(normalize_storage_account_name("   ").is_err());
+    }
+
+    #[test]
+    fn normalizes_listing_page_size_with_bounds() {
+        assert_eq!(normalize_listing_page_size(None), DEFAULT_MAX_RESULTS);
+        assert_eq!(normalize_listing_page_size(Some(0)), 1);
+        assert_eq!(normalize_listing_page_size(Some(5000)), MAX_LISTING_PAGE_SIZE);
+        assert_eq!(normalize_listing_page_size(Some(123)), 123);
+    }
+
+    #[test]
+    fn normalizes_delete_object_keys() {
+        let normalized = normalize_delete_object_keys(vec![
+            " photos/a.jpg ".to_string(),
+            "/photos/a.jpg".to_string(),
+            "".to_string(),
+            "   ".to_string(),
+            "photos/b.jpg".to_string(),
+        ]);
+
+        assert_eq!(normalized, vec!["photos/a.jpg", "photos/b.jpg"]);
+    }
+
+    #[test]
+    fn parses_blob_listing_and_deduplicates_explicit_and_implicit_folders() {
+        let xml = r#"<?xml version="1.0" encoding="utf-8"?>
+<EnumerationResults>
+  <Blobs>
+    <BlobPrefix>
+      <Name>docs/</Name>
+    </BlobPrefix>
+    <Blob>
+      <Name>docs/</Name>
+      <Metadata>
+        <hdi_isfolder>true</hdi_isfolder>
+      </Metadata>
+      <Properties>
+        <Content-Length>0</Content-Length>
+      </Properties>
+    </Blob>
+    <Blob>
+      <Name>reports/annual.pdf</Name>
+      <Properties>
+        <Content-Length>42</Content-Length>
+        <AccessTier>Cool</AccessTier>
+        <ArchiveStatus>rehydrate-pending-to-cool</ArchiveStatus>
+      </Properties>
+    </Blob>
+  </Blobs>
+  <NextMarker>cursor-1</NextMarker>
+</EnumerationResults>"#;
+
+        let result = parse_blob_listing_response(xml, None).unwrap();
+
+        assert_eq!(result.directories.len(), 1);
+        assert_eq!(result.directories[0].name, "docs");
+        assert_eq!(result.directories[0].path, "docs/");
+        assert_eq!(result.files.len(), 1);
+        assert_eq!(result.files[0].name, "reports/annual.pdf");
+        assert_eq!(result.files[0].size, 42);
+        assert_eq!(result.files[0].storage_class.as_deref(), Some("Cool"));
+        assert_eq!(result.files[0].restore_in_progress, Some(true));
+        assert_eq!(result.continuation_token.as_deref(), Some("cursor-1"));
+        assert!(result.has_more);
+    }
+
+    #[test]
+    fn ignores_placeholder_blob_for_current_prefix() {
+        let xml = r#"<?xml version="1.0" encoding="utf-8"?>
+<EnumerationResults>
+  <Blobs>
+    <Blob>
+      <Name>docs/</Name>
+      <Metadata>
+        <hdi_isfolder>true</hdi_isfolder>
+      </Metadata>
+    </Blob>
+  </Blobs>
+  <NextMarker></NextMarker>
+</EnumerationResults>"#;
+
+        let result = parse_blob_listing_response(xml, Some("docs/")).unwrap();
+
+        assert!(result.directories.is_empty());
+        assert!(result.files.is_empty());
+        assert_eq!(result.continuation_token, None);
+        assert!(!result.has_more);
+    }
+
+    #[test]
+    fn builds_canonicalized_headers_and_resource_deterministically() {
+        let headers = build_canonicalized_headers(&[
+            ("X-Ms-Version".to_string(), " 2023-11-03 ".to_string()),
+            ("Content-Type".to_string(), "application/json".to_string()),
+            ("x-ms-date".to_string(), "Tue, 14 Apr 2026 00:00:00 GMT".to_string()),
+        ]);
+
+        assert_eq!(
+            headers,
+            "x-ms-date:Tue, 14 Apr 2026 00:00:00 GMT\nx-ms-version:2023-11-03\n"
+        );
+
+        let resource = build_canonicalized_resource(
+            "acct",
+            "/container/blob.txt",
+            Some("comp=list&prefix=docs/&prefix=logs/&restype=container"),
+        )
+        .unwrap();
+
+        assert_eq!(
+            resource,
+            "/acct/container/blob.txt\ncomp:list\nprefix:docs/,logs/\nrestype:container"
+        );
+    }
+
+    #[test]
+    fn normalizes_cache_paths_and_rejects_empty_blob_names() {
+        let reserved = AzureConnectionService::normalize_cache_path_segment("..");
+        assert!(reserved.starts_with(AzureConnectionService::CACHE_ESCAPED_SEGMENT_PREFIX));
+
+        let path = AzureConnectionService::build_primary_cache_object_path(
+            "/tmp/cache",
+            " Primary Connection ",
+            "container-a",
+            "docs/report.txt",
+        )
+        .unwrap();
+
+        assert_eq!(
+            path,
+            PathBuf::from("/tmp/cache")
+                .join("Primary Connection")
+                .join("container-a")
+                .join("docs")
+                .join("report.txt")
+        );
+
+        assert!(
+            AzureConnectionService::build_primary_cache_object_path(
+                "/tmp/cache",
+                "Primary Connection",
+                "container-a",
+                "",
+            )
+            .is_err()
+        );
+    }
 }

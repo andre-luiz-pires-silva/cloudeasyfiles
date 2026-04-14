@@ -127,6 +127,21 @@ import {
   listContainersForSavedConnection,
   testConnectionForSavedConnection
 } from "./providerReadAdapters";
+import {
+  buildContentDeletePlan,
+  buildFileIdentity,
+  buildUploadObjectKey,
+  canChangeTierItem,
+  canDownloadAsItem,
+  canDownloadItem,
+  canRestoreItem,
+  dedupeDirectoryPrefixes,
+  getUploadParentPath,
+  hasActiveTransferForItem,
+  isFileIdentityInContext,
+  normalizeDirectoryPrefix,
+  validateNewFolderNameInput
+} from "./navigationGuards";
 
 function Globe2Icon() {
   return (
@@ -482,52 +497,6 @@ function mergeContentItems(
 
 function normalizeFilterText(value: string): string {
   return value.trim().toLocaleLowerCase();
-}
-
-function normalizeDirectoryPrefix(path: string): string {
-  const normalizedPath = path.trim().replace(/^\/+|\/+$/g, "");
-
-  return normalizedPath ? `${normalizedPath}/` : "";
-}
-
-function dedupeDirectoryPrefixes(prefixes: string[]): string[] {
-  const uniquePrefixes = [...new Set(prefixes.filter((prefix) => prefix.length > 0))].sort(
-    (left, right) => left.length - right.length || left.localeCompare(right)
-  );
-
-  return uniquePrefixes.filter(
-    (prefix, index) =>
-      !uniquePrefixes.slice(0, index).some((candidatePrefix) => prefix.startsWith(candidatePrefix))
-  );
-}
-
-function getUploadParentPath(objectKey: string): string {
-  const parentPath = objectKey.includes("/")
-    ? objectKey.slice(0, objectKey.lastIndexOf("/"))
-    : "";
-
-  return normalizeDirectoryPrefix(parentPath);
-}
-
-function buildContentDeletePlan(items: ContentExplorerItem[]): ContentDeletePlan {
-  const directoryPrefixes = dedupeDirectoryPrefixes(
-    items
-      .filter((item) => item.kind === "directory")
-      .map((item) => normalizeDirectoryPrefix(item.path))
-  );
-  const fileKeys = [...new Set(
-    items
-      .filter((item): item is ContentExplorerItem & { kind: "file" } => item.kind === "file")
-      .map((item) => item.path.trim())
-      .filter(
-        (objectKey) => objectKey.length > 0 && !directoryPrefixes.some((prefix) => objectKey.startsWith(prefix))
-      )
-  )];
-
-  return {
-    fileKeys,
-    directoryPrefixes
-  };
 }
 
 function matchesFilter(parts: Array<string | null | undefined>, normalizedFilter: string): boolean {
@@ -908,85 +877,6 @@ function applyDownloadedFileState(
   });
 
   return hasChanges ? nextItems : items;
-}
-
-function buildFileIdentity(connectionId: string, bucketName: string, objectKey: string): string {
-  return `${connectionId}:${bucketName}:${objectKey}`;
-}
-
-function hasActiveTransferForItem(
-  item: ContentExplorerItem,
-  connectionId: string | null,
-  bucketName: string | null,
-  activeTransferIdentityMap: Map<string, ActiveTransfer>
-): boolean {
-  if (item.kind !== "file" || !connectionId || !bucketName) {
-    return false;
-  }
-
-  return activeTransferIdentityMap.has(buildFileIdentity(connectionId, bucketName, item.path));
-}
-
-function canRestoreItem(
-  item: ContentExplorerItem,
-  provider: ConnectionProvider | null | undefined
-): boolean {
-  return item.kind === "file" && !!provider && item.availabilityStatus === "archived";
-}
-
-function canChangeTierItem(
-  item: ContentExplorerItem,
-  provider: ConnectionProvider | null | undefined
-): boolean {
-  return item.kind === "file" && !!provider && item.availabilityStatus === "available";
-}
-
-function canDownloadItem(item: ContentExplorerItem, context: FileActionAvailabilityContext): boolean {
-  return (
-    item.kind === "file" &&
-    !!context.provider &&
-    context.hasValidLocalCacheDirectory &&
-    item.availabilityStatus === "available" &&
-    item.downloadState !== "downloaded" &&
-    !hasActiveTransferForItem(
-      item,
-      context.connectionId,
-      context.bucketName,
-      context.activeTransferIdentityMap
-    )
-  );
-}
-
-function canDownloadAsItem(
-  item: ContentExplorerItem,
-  context: FileActionAvailabilityContext,
-  activeDirectDownloadItemIds: string[]
-): boolean {
-  return (
-    item.kind === "file" &&
-    !!context.provider &&
-    item.availabilityStatus === "available" &&
-    !hasActiveTransferForItem(
-      item,
-      context.connectionId,
-      context.bucketName,
-      context.activeTransferIdentityMap
-    ) &&
-    !activeDirectDownloadItemIds.includes(item.id)
-  );
-}
-
-function isFileIdentityInContext(
-  fileIdentity: string,
-  connectionId: string,
-  bucketName: string,
-  items: ContentExplorerItem[]
-): boolean {
-  return items.some(
-    (item) =>
-      item.kind === "file" &&
-      buildFileIdentity(connectionId, bucketName, item.path) === fileIdentity
-  );
 }
 
 async function resolveCachedFileIdentities(
@@ -1717,29 +1607,6 @@ export function ConnectionNavigator({
       </span>
     );
   }
-
-function buildUploadObjectKey(currentPath: string, fileName: string) {
-  const normalizedPath = currentPath.trim().replace(/^\/+|\/+$/g, "");
-
-  return normalizedPath ? `${normalizedPath}/${fileName}` : fileName;
-}
-
-function validateNewFolderNameInput(
-  folderName: string,
-  t: (key: string) => string
-): string | null {
-  const normalizedFolderName = folderName.trim();
-
-  if (!normalizedFolderName) {
-    return t("content.folder.name_required");
-  }
-
-  if (normalizedFolderName.includes("/") || normalizedFolderName.includes("\\")) {
-    return t("content.folder.name_invalid");
-  }
-
-  return null;
-}
 
   function extractDroppedFiles(event: React.DragEvent<HTMLElement>) {
     const droppedFilesFromItems = Array.from(event.dataTransfer?.items ?? [])
