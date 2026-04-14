@@ -2,49 +2,51 @@
 
 ## Overview
 
-CloudEasyFiles is a desktop application for browsing and managing files across multiple cloud storage providers through a unified interface.
+CloudEasyFiles is a desktop application for backup, archive access, and file management across cloud storage providers.
 
 The initial scope focuses on:
 
 - AWS S3
 - Azure Blob Storage
 
-The product aims to simplify cloud storage workflows that are usually fragmented, operationally complex, and highly provider-specific.
+The product aims to simplify the use of cloud storage services that are reliable and low cost, but often difficult for normal users to access through provider consoles.
 
 ## Problem
 
-Cloud storage providers expose different models, terminology, and operational constraints. This becomes more difficult when users need to:
+People need backups, but the usual alternatives are not ideal. External drives have upfront cost, can fail, and are easy to lose or damage. Cloud providers offer better durability and very low-cost archive storage, but their tooling is often hard to understand.
 
-- work across multiple providers
+This becomes more difficult when users need to:
+
+- set up storage accounts correctly
 - browse large object-storage namespaces
-- understand archival availability states
-- restore archived content before downloading it
+- understand whether a file is ready to download
+- restore or rehydrate archived content before downloading it
 
-Provider consoles often expose these workflows in a way that is technically complete but operationally awkward for day-to-day use.
+Provider consoles often expose these workflows in a way that is technically complete but difficult for day-to-day use.
 
 ## Vision
 
-CloudEasyFiles should make cloud file management feel familiar, predictable, and efficient without pretending that all providers behave the same way.
+CloudEasyFiles should make cloud backup and archive storage feel easier to use without hiding important provider differences.
 
 The product should:
 
-- present a coherent navigation model
-- reduce provider-specific cognitive load
-- normalize shared concepts where that helps usability
-- preserve real provider differences where they matter
+- make backup-oriented cloud storage easier to understand
+- reduce the effort required to browse, restore, and download files
+- use simple language where provider consoles are too technical
+- preserve provider differences where they matter to cost, timing, or availability
 - support archival workflows in a way that is understandable to non-specialist users
-- make restore cost and timing tradeoffs explicit before a user starts an archival retrieval
+- make restore cost and timing tradeoffs clear before a user starts an archival retrieval
 
 ## Product Positioning
 
-CloudEasyFiles takes inspiration from VSCode first, with pgAdmin and DBeaver as secondary references, but applies that interaction style to cloud object storage rather than code or databases.
+CloudEasyFiles is positioned as a practical desktop tool for people who want to use cloud storage for backup and recovery without learning every detail of each provider console.
 
-The product is intentionally desktop-first and should feel:
+The product should feel:
 
-- lightweight
 - direct
-- operationally practical
-- visually simple
+- easy to understand
+- practical for real backup and restore work
+- simple enough for non-specialist users
 
 ## Current Scope
 
@@ -62,11 +64,11 @@ The current product scope includes:
 
 ## Long-Term Direction
 
-CloudEasyFiles should evolve toward a maintainable provider-aware platform for cloud file operations, not a thin wrapper around raw provider consoles.
+CloudEasyFiles should evolve toward a maintainable platform for cloud backup and file operations, not a thin wrapper around raw provider consoles.
 
 The long-term direction includes:
 
-- strong provider abstraction
+- support for more providers over time
 - provider-specific workflows where abstraction would be misleading
 - sustainable feature growth through specs
 - explicit architectural decisions

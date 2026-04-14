@@ -2,7 +2,7 @@
 
 ## Summary
 
-CloudEasyFiles is a desktop application for navigating and operating on cloud storage through a unified interface. The repository is organized as a product-quality codebase with supporting architecture docs, ADRs, feature specs, and implementation plans.
+CloudEasyFiles is a desktop application for backup-oriented cloud file management. It is designed to make cloud storage and archive services easier to use, especially for people who need reliable and low-cost storage but do not want to depend on provider consoles for every operation. The repository is organized as a product-quality codebase with supporting architecture docs, ADRs, feature specs, and implementation plans.
 
 Current provider support in the codebase:
 
@@ -24,7 +24,7 @@ Current repository state includes:
 - Azure Archive rehydration requests
 - local cache awareness and transfer monitoring
 
-The codebase and the feature-specific docs remain the source of truth for implementation details, but the current release line now includes both AWS and Azure support.
+The codebase and the feature-specific docs remain the source of truth for implementation details, and the current release line includes both AWS and Azure support.
 
 ## Documentation Map
 

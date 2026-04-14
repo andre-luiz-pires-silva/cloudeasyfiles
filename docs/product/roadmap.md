@@ -2,7 +2,7 @@
 
 ## Current Phase
 
-The current phase is focused on consolidating the now-functional multi-provider baseline after the `0.2.0` Azure-and-release-automation milestone.
+The current phase is focused on consolidating the current AWS and Azure product after the `0.2.0` milestone, with stronger emphasis on backup, archive access, and simpler public messaging.
 
 Current emphasis:
 
@@ -13,7 +13,7 @@ Current emphasis:
 ## Near-Term Priorities
 
 - broader automated verification beyond compile-time checks
-- richer screenshots and public project presentation
+- clearer public product language and better presentation of the backup/archive value
 - advanced search evolution with provider-aware behavior
 - additional UX hardening around transfers, packaging, and platform polish
 - continued hardening of the AWS/Azure provider abstraction boundary

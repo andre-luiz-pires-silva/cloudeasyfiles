@@ -1,8 +1,8 @@
 # CloudEasyFiles
 
-> Desktop file explorer for cloud storage.
+> Desktop app for cloud backup, archive access, and file management.
 
-CloudEasyFiles is a Tauri desktop application for browsing and operating on cloud storage with a cleaner, more practical workflow than provider consoles usually offer. The current product supports AWS S3 and Azure Blob Storage, with first-class handling for archival workflows such as AWS restore requests and Azure Archive rehydration.
+CloudEasyFiles is a Tauri desktop application that makes cloud storage easier to use for backup, archive access, and everyday file management. The product supports AWS S3 and Azure Blob Storage today, with room to support other providers over time.
 
 ![CloudEasyFiles home screen](./docs/page/assets/home.png)
 
@@ -19,7 +19,7 @@ CloudEasyFiles is a Tauri desktop application for browsing and operating on clou
 
 ## Current Status
 
-The current public release line includes working AWS and Azure flows, with release automation for packaged desktop installers.
+The current public release line includes working AWS and Azure support, with release automation for packaged desktop installers.
 
 Current implementation highlights:
 
@@ -49,14 +49,16 @@ Current implementation highlights:
 
 ## Why This Project Exists
 
-CloudEasyFiles is focused on a problem that provider consoles handle poorly: operational work on low-cost object storage and archival data.
+Everyone needs backups, but the common options are not ideal. External drives are expensive, easy to lose, and easy to damage. Cloud providers offer low-cost and reliable storage, especially in archive tiers, but their consoles are often difficult for normal users to understand.
 
-The product direction is intentionally pragmatic:
+CloudEasyFiles exists to make these services easier to use.
 
-- keep provider-specific behavior honest instead of forcing fake parity
-- normalize browsing and transfer workflows where that helps usability
-- make archive state, download readiness, and transfer progress easier to understand
-- preserve a maintainable architecture suitable for real production work and portfolio review
+The product direction is simple:
+
+- make cloud backup and archive services easier to understand
+- keep restore and rehydration flows clear
+- support real provider features without making the UI harder than it needs to be
+- stay practical enough for real use and clear enough for public review
 
 ## Tech Stack
 

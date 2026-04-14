@@ -6,7 +6,7 @@
     <title>CloudEasyFiles</title>
     <meta
       name="description"
-      content="CloudEasyFiles is a cloud file explorer and a real engineering case study built with specs, architecture decisions, and AI-assisted development."
+      content="CloudEasyFiles makes it easier to use cloud storage and archive services for backup, restore, and file access."
     />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -38,12 +38,12 @@
     <main>
       <section class="hero hero-simple">
         <div class="hero-copy reveal">
-          <p class="eyebrow">Cloud File Explorer</p>
-          <h1>Browse cloud storage without fighting provider consoles.</h1>
+          <p class="eyebrow">Cloud Backup and Archive Access</p>
+          <h1>An easy way to manage cloud storage and archive services.</h1>
           <p class="hero-text">
-            CloudEasyFiles is a desktop explorer for cloud storage, built to make
-            browsing, restore status, and file delivery clearer for real users. Today
-            it supports AWS S3 and Azure Blob Storage, with room to grow into other providers over time.
+            CloudEasyFiles helps people use cloud storage for backup and file access
+            without depending on complex provider consoles. Today it supports AWS S3
+            and Azure Blob Storage, with room to support other providers in the future.
           </p>
 
           <div class="hero-actions">
@@ -62,34 +62,68 @@
           </div>
 
           <ul class="hero-tags" aria-label="Project highlights">
-            <li>Provider-aware model</li>
-            <li>Archive retrieval clarity</li>
-            <li>Definition-first execution</li>
+            <li>Low-cost backup</li>
+            <li>Simple archive restore</li>
+            <li>AWS and Azure today</li>
           </ul>
         </div>
       </section>
 
       <section class="section section-product reveal">
         <div class="section-heading">
-          <p class="eyebrow">Core Workflow</p>
-          <h2>One working surface for connections, folders, transfers, and archive state.</h2>
+          <p class="eyebrow">Why This Matters</p>
+          <h2>Backups are essential, but the common options are often expensive, fragile, or hard to use.</h2>
         </div>
 
         <div class="product-layout">
           <div class="product-copy">
             <p>
-              The app keeps operational work visible instead of hiding provider constraints
-              behind fake parity. The explorer stays central while AWS and Azure behavior
-              remains explicit where it matters.
+              Many people still depend on external drives for backup. That usually means
+              higher upfront cost, limited redundancy, and the constant risk of loss,
+              damage, or hardware failure.
+            </p>
+            <p>
+              Cloud providers offer a better option. Their archive and low-cost storage
+              tiers are reliable and inexpensive, but the setup, restore flow, and day-to-day
+              file access are still hard for many users to understand.
+            </p>
+            <div class="product-aside">
+              <span class="aside-label">Goal</span>
+              <p>Make low-cost cloud backup and archive services easier for normal users to understand and use.</p>
+            </div>
+          </div>
+
+          <figure class="product-shot">
+            <img
+              src="./assets/home.png"
+              alt="CloudEasyFiles home screen with provider support and connection settings"
+              class="project-screenshot"
+            />
+          </figure>
+        </div>
+      </section>
+
+      <section class="section section-product reveal">
+        <div class="section-heading">
+          <p class="eyebrow">Core Workflow</p>
+          <h2>Connect your storage account, browse files, restore archived items, and download what you need.</h2>
+        </div>
+
+        <div class="product-layout">
+          <div class="product-copy">
+            <p>
+              The app gives you one place to work with your storage accounts. You can
+              connect AWS or Azure, open containers and folders, check file status,
+              upload and download files, and handle archive restore flows with simpler language.
             </p>
             <ul class="feature-list">
-              <li>Saved connections and secure credentials for AWS S3 and Azure Blob Storage</li>
-              <li>Folder-style navigation with incremental loading, filtering, upload, and download</li>
-              <li>Normalized archive states like Available, Archived, and Restoring</li>
+              <li>Save connections securely for AWS S3 and Azure Blob Storage</li>
+              <li>Browse folders and files with filtering, upload, and download</li>
+              <li>See clear file states such as Available, Archived, and Restoring</li>
             </ul>
             <div class="product-aside">
               <span class="aside-label">Focus</span>
-              <p>Clarity for cloud file access and archive retrieval, not abstraction for its own sake.</p>
+              <p>Reduce the steps and confusion involved in using archive storage for real backup and recovery needs.</p>
             </div>
           </div>
 
@@ -106,14 +140,14 @@
       <section class="section section-gallery">
         <div class="section-heading reveal">
           <p class="eyebrow">Provider Detail</p>
-          <h2>Storage-class and tier workflows stay explicit instead of being hidden behind generic labels.</h2>
+          <h2>Provide an easy way to manage the storage tiers available in each provider.</h2>
         </div>
 
         <div class="gallery-grid">
           <figure class="gallery-panel reveal">
             <figcaption>
               <span class="aside-label">AWS S3</span>
-              <h3>Storage-class changes keep lifecycle tradeoffs visible.</h3>
+              <h3>Change storage classes and restore archived files with clear options.</h3>
             </figcaption>
             <img
               src="./assets/aws-s3-storage-tiers.png"
@@ -125,7 +159,7 @@
           <figure class="gallery-panel reveal">
             <figcaption>
               <span class="aside-label">Azure Blob Storage</span>
-              <h3>Azure tier and rehydration flows use provider-specific language and controls.</h3>
+              <h3>Manage Azure tiers and rehydration with language that is easier to follow.</h3>
             </figcaption>
             <img
               src="./assets/azure-blob-storage-tiers.png"
@@ -138,11 +172,13 @@
 
       <section class="section section-story">
         <div class="story-intro reveal">
-          <p class="eyebrow">How It Is Built</p>
-          <h2>The product comes first. AI supports the development workflow behind it.</h2>
+          <p class="eyebrow">About The Project</p>
+          <h2>Created from a real personal need, and developed as a serious software project.</h2>
           <p>
-            CloudEasyFiles is also a documented engineering case: specs, ADRs, and
-            implementation plans stay primary while AI tools help accelerate delivery.
+            CloudEasyFiles started as a personal project to make low-cost cloud backup
+            and archive services easier to use in everyday life. It also became a way to
+            build and refine a practical development process with clear planning, strong
+            documentation, and modern AI tools used with discipline.
           </p>
         </div>
 
@@ -171,51 +207,49 @@
         <div class="story-rail">
           <article class="story-step reveal">
             <span class="story-index">01</span>
-            <h3>Define the product</h3>
-            <p>Problem framing, product direction, constraints, and edge cases are written before code moves.</p>
+            <h3>Start from a real need</h3>
+            <p>The project began as a practical need for simpler backup, archive storage, and file recovery outside the usual provider consoles.</p>
           </article>
 
           <article class="story-step reveal">
             <span class="story-index">02</span>
-            <h3>Use AI in delivery</h3>
-            <p>ChatGPT and Codex support implementation inside a documented engineering process.</p>
+            <h3>Build with a clear process</h3>
+            <p>Ideas are turned into plans, notes, and implementation steps before changes move into the product.</p>
           </article>
 
           <article class="story-step reveal">
             <span class="story-index">03</span>
-            <h3>Keep it traceable</h3>
-            <p>Architecture decisions, specs, and product notes remain visible and reviewable in the repo.</p>
+            <h3>Use modern tools well</h3>
+            <p>The project is also a professional exercise in using AI to speed up delivery without losing clarity, quality, or control.</p>
           </article>
         </div>
+      </section>
 
-        <div class="ai-visual reveal" aria-hidden="true">
-          <div class="ai-visual-grid">
-            <span></span>
-            <span></span>
-            <span></span>
-            <span></span>
+      <section class="section section-links reveal">
+        <div class="section-heading">
+          <p class="eyebrow">Download</p>
+          <h2>Download the latest version.</h2>
+        </div>
+
+        <div class="download-panel">
+          <p>
+            Download the latest published desktop build for the project.
+          </p>
+          <div class="hero-actions">
+            <a
+              class="button button-primary"
+              href="https://github.com/andre-luiz-pires-silva/cloudeasyfiles/releases/latest"
+            >
+              Download latest version
+            </a>
           </div>
-          <div class="ai-visual-panel ai-panel-left">
-            <strong>Definition Layer</strong>
-            <p>Specs, ADRs, and implementation plans describe intent before execution.</p>
-          </div>
-          <div class="ai-visual-panel ai-panel-center">
-            <strong>AI-Assisted Delivery</strong>
-            <p>AI tools accelerate implementation, but inside a documented engineering loop.</p>
-          </div>
-          <div class="ai-visual-panel ai-panel-right">
-            <strong>Traceable Output</strong>
-            <p>Product decisions and code changes remain connected and reviewable in the repo.</p>
-          </div>
-          <div class="ai-flow-line flow-line-a"></div>
-          <div class="ai-flow-line flow-line-b"></div>
         </div>
       </section>
 
       <section class="section section-links reveal">
         <div class="section-heading">
           <p class="eyebrow">Documentation</p>
-          <h2>Open the source graph behind the product.</h2>
+          <h2>Read the project documentation and implementation notes.</h2>
         </div>
 
         <div class="docs-links">
@@ -230,7 +264,7 @@
 
     <footer class="footer reveal">
       <div class="footer-copy">
-        <p>CloudEasyFiles is a cloud file explorer and an AI-assisted spec-driven development case study.</p>
+        <p>CloudEasyFiles makes cloud backup and archive storage easier to use for everyday file management and recovery.</p>
         <div class="contact-links">
           <a href="mailto:andre.luiz.pires.silva@gmail.com">andre.luiz.pires.silva@gmail.com</a>
           <a href="https://www.linkedin.com/in/andre-pires-68a0b722/">LinkedIn</a>
