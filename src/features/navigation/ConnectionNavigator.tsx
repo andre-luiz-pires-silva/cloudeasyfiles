@@ -136,6 +136,9 @@ import {
   canDownloadItem,
   canRestoreItem,
   dedupeDirectoryPrefixes,
+  getFileActionKind,
+  getRefreshPlan,
+  type NavigationFileActionId as FileActionId,
   getStartupAutoConnectConnections,
   getUploadParentPath,
   hasActiveTransferForItem,
@@ -220,15 +223,6 @@ type LocalMappingDirectoryStatus = "checking" | "valid" | "invalid" | "missing";
 type FileAvailabilityStatus = "available" | "archived" | "restoring";
 type FileDownloadState = "not_downloaded" | "restoring" | "available_to_download" | "downloaded";
 type ContentStatusFilter = (typeof ALL_CONTENT_STATUS_FILTERS)[number];
-type FileActionId =
-  | "download"
-  | "downloadAs"
-  | "openFile"
-  | "openInExplorer"
-  | "cancelDownload"
-  | "restore"
-  | "changeTier"
-  | "delete";
 type DownloadTransferState = "progress" | "completed" | "failed" | "cancelled";
 type TransferKind = "cache" | "direct" | "upload";
 type ContentMenuAnchor = {
@@ -2789,8 +2783,9 @@ export function ConnectionNavigator({
     setOpenContentMenuItemId(null);
     setContentMenuAnchor(null);
     setContentActionError(null);
+    const actionKind = getFileActionKind(actionId);
 
-    if (actionId === "delete") {
+    if (actionKind === "provider-mutation" && actionId === "delete") {
       openDeleteContentModal([item]);
       return;
     }
@@ -2813,6 +2808,7 @@ export function ConnectionNavigator({
     }
 
     if (
+      actionKind === "provider-mutation" &&
       actionId === "restore" &&
       canRestoreItem(item, selectedBucketProvider)
     ) {
@@ -2820,7 +2816,11 @@ export function ConnectionNavigator({
       return;
     }
 
-    if (actionId === "changeTier" && canChangeTierItem(item, selectedBucketProvider)) {
+    if (
+      actionKind === "provider-mutation" &&
+      actionId === "changeTier" &&
+      canChangeTierItem(item, selectedBucketProvider)
+    ) {
       openChangeStorageClassModal([item]);
       return;
     }
@@ -4120,25 +4120,23 @@ export function ConnectionNavigator({
   }
 
   async function handleRefreshCurrentView() {
-    if (!selectedNode) {
-      return;
-    }
-
     clearContentSelection();
+    const refreshPlan = getRefreshPlan({
+      hasSelectedNode: !!selectedNode,
+      selectedNodeKind: selectedNode?.kind,
+      connectionStatus: selectedConnectionIndicator.status,
+      isLoadingContent,
+      isLoadingMoreContent
+    });
 
-    if (selectedNode.kind === "connection") {
-      if (selectedConnectionIndicator.status === "connected") {
-        await connectConnection(selectedNode.id);
-      }
-
+    if (refreshPlan === "reconnect-connection" && selectedNode) {
+      await connectConnection(selectedNode.id);
       return;
     }
 
-    if (isLoadingContent || isLoadingMoreContent) {
-      return;
+    if (refreshPlan === "reload-bucket") {
+      setContentRefreshNonce((currentValue) => currentValue + 1);
     }
-
-    setContentRefreshNonce((currentValue) => currentValue + 1);
   }
 
   function updateBucketNode(

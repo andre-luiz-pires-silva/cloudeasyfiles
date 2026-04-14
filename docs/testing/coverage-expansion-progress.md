@@ -41,7 +41,7 @@ Increase automated test coverage toward the agreed long-term target of `75%` lin
 - [-] Expand coverage around `ConnectionNavigator`
 - [x] Test startup and connect-on-startup behavior
 - [x] Test refresh and navigation guardrails
-- [ ] Test mutate-vs-read separation in UI orchestration
+- [x] Test mutate-vs-read separation in UI orchestration
 - [x] Re-measure frontend coverage
 
 ### Phase 2. Rust command-layer coverage
@@ -97,3 +97,8 @@ Increase automated test coverage toward the agreed long-term target of `75%` lin
   - Frontend statements: `4.33%`
   - Frontend branches: `53.04%`
   - Frontend functions: `33.03%`
+- After Phase 1 substep 2:
+  - Frontend line coverage: `4.59%`
+  - Frontend statements: `4.59%`
+  - Frontend branches: `57.45%`
+  - Frontend functions: `34.21%`

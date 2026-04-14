@@ -7,6 +7,21 @@ export type NavigationDownloadState =
   | "available_to_download"
   | "downloaded";
 export type NavigationTransferKind = "cache" | "direct" | "upload";
+export type NavigationRefreshPlan = "noop" | "reconnect-connection" | "reload-bucket";
+export type NavigationFileActionId =
+  | "download"
+  | "downloadAs"
+  | "openFile"
+  | "openInExplorer"
+  | "cancelDownload"
+  | "restore"
+  | "changeTier"
+  | "delete";
+export type NavigationFileActionKind =
+  | "provider-read"
+  | "provider-mutation"
+  | "local-read"
+  | "transfer-control";
 
 export type NavigationContentItem = {
   id: string;
@@ -206,4 +221,43 @@ export function shouldRefreshAfterUploadCompletion(params: {
   }
 
   return getUploadParentPath(params.uploadObjectKey) === normalizeDirectoryPrefix(params.selectedBucketPath);
+}
+
+export function getRefreshPlan(params: {
+  hasSelectedNode: boolean;
+  selectedNodeKind?: "connection" | "bucket";
+  connectionStatus?: "disconnected" | "connecting" | "connected" | "error";
+  isLoadingContent: boolean;
+  isLoadingMoreContent: boolean;
+}): NavigationRefreshPlan {
+  if (!params.hasSelectedNode) {
+    return "noop";
+  }
+
+  if (params.selectedNodeKind === "connection") {
+    return params.connectionStatus === "connected" ? "reconnect-connection" : "noop";
+  }
+
+  if (params.isLoadingContent || params.isLoadingMoreContent) {
+    return "noop";
+  }
+
+  return "reload-bucket";
+}
+
+export function getFileActionKind(actionId: NavigationFileActionId): NavigationFileActionKind {
+  switch (actionId) {
+    case "restore":
+    case "changeTier":
+    case "delete":
+      return "provider-mutation";
+    case "download":
+    case "downloadAs":
+      return "provider-read";
+    case "openFile":
+    case "openInExplorer":
+      return "local-read";
+    case "cancelDownload":
+      return "transfer-control";
+  }
 }

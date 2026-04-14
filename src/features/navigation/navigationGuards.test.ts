@@ -11,6 +11,8 @@ import {
   dedupeDirectoryPrefixes,
   getStartupAutoConnectConnections,
   getUploadParentPath,
+  getFileActionKind,
+  getRefreshPlan,
   isFileIdentityInContext,
   normalizeDirectoryPrefix,
   shouldRefreshAfterUploadCompletion,
@@ -188,5 +190,64 @@ describe("navigationGuards", () => {
         selectedBucketPath: "docs"
       })
     ).toBe(false);
+  });
+
+  it("builds refresh plans without turning refresh into a mutating action", () => {
+    expect(
+      getRefreshPlan({
+        hasSelectedNode: false,
+        isLoadingContent: false,
+        isLoadingMoreContent: false
+      })
+    ).toBe("noop");
+
+    expect(
+      getRefreshPlan({
+        hasSelectedNode: true,
+        selectedNodeKind: "connection",
+        connectionStatus: "connected",
+        isLoadingContent: false,
+        isLoadingMoreContent: false
+      })
+    ).toBe("reconnect-connection");
+
+    expect(
+      getRefreshPlan({
+        hasSelectedNode: true,
+        selectedNodeKind: "connection",
+        connectionStatus: "error",
+        isLoadingContent: false,
+        isLoadingMoreContent: false
+      })
+    ).toBe("noop");
+
+    expect(
+      getRefreshPlan({
+        hasSelectedNode: true,
+        selectedNodeKind: "bucket",
+        isLoadingContent: true,
+        isLoadingMoreContent: false
+      })
+    ).toBe("noop");
+
+    expect(
+      getRefreshPlan({
+        hasSelectedNode: true,
+        selectedNodeKind: "bucket",
+        isLoadingContent: false,
+        isLoadingMoreContent: false
+      })
+    ).toBe("reload-bucket");
+  });
+
+  it("classifies file actions by operational kind", () => {
+    expect(getFileActionKind("download")).toBe("provider-read");
+    expect(getFileActionKind("downloadAs")).toBe("provider-read");
+    expect(getFileActionKind("restore")).toBe("provider-mutation");
+    expect(getFileActionKind("changeTier")).toBe("provider-mutation");
+    expect(getFileActionKind("delete")).toBe("provider-mutation");
+    expect(getFileActionKind("openFile")).toBe("local-read");
+    expect(getFileActionKind("openInExplorer")).toBe("local-read");
+    expect(getFileActionKind("cancelDownload")).toBe("transfer-control");
   });
 });
