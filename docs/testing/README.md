@@ -12,6 +12,11 @@ Current priorities:
 
 This guide is the permanent reference for how testing works in the repository and how future coverage should evolve.
 
+Detailed planning and progress tracking for the current coverage-expansion initiative live in:
+
+- [`coverage-expansion-plan.md`](./coverage-expansion-plan.md)
+- [`coverage-expansion-progress.md`](./coverage-expansion-progress.md)
+
 ## Current Stack
 
 ### Frontend
@@ -87,20 +92,7 @@ It also generates coverage reports and publishes:
 
 ## Recommended Next Phases
 
-### Phase 2
-
-- add coverage around higher-level frontend orchestration in `ConnectionNavigator`
-- protect startup, refresh, and explicit mutate-vs-read behavior
-
-### Phase 3
-
-- add focused command-layer Rust coverage in `presentation/commands.rs`
-- verify event/state mapping and cancellation/error classification
-
-### Phase 4
-
-- add manual smoke coverage against controlled AWS/Azure environments in a separate workflow
-- keep that workflow outside the default PR gate
+See the dedicated coverage-expansion plan for the current phase-by-phase roadmap.
 
 ## Test Design Rules
 
