@@ -1698,3 +1698,96 @@ pub async fn cancel_azure_upload(operation_id: String) -> Result<(), String> {
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        get_greeting, is_cancelled_azure_download_error, is_cancelled_azure_upload_error,
+        is_cancelled_download_error, is_cancelled_upload_error, validate_local_mapping_directory,
+        AZURE_DOWNLOAD_CANCELLED_ERROR, AZURE_UPLOAD_CANCELLED_ERROR, DOWNLOAD_CANCELLED_ERROR,
+        UPLOAD_CANCELLED_ERROR,
+    };
+    use std::fs::{self, File};
+    use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn unique_temp_path(suffix: &str) -> PathBuf {
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock should be after unix epoch")
+            .as_nanos();
+
+        std::env::temp_dir().join(format!("cloudeasyfiles-commands-tests-{timestamp}-{suffix}"))
+    }
+
+    #[test]
+    fn classifies_aws_cancellation_errors_exactly() {
+        assert!(is_cancelled_download_error(DOWNLOAD_CANCELLED_ERROR));
+        assert!(!is_cancelled_download_error("download_cancelled"));
+        assert!(!is_cancelled_download_error("network error"));
+
+        assert!(is_cancelled_upload_error(UPLOAD_CANCELLED_ERROR));
+        assert!(!is_cancelled_upload_error("upload_cancelled"));
+        assert!(!is_cancelled_upload_error("timeout"));
+    }
+
+    #[test]
+    fn classifies_azure_cancellation_errors_exactly() {
+        assert!(is_cancelled_azure_download_error(AZURE_DOWNLOAD_CANCELLED_ERROR));
+        assert!(!is_cancelled_azure_download_error("azure_download_cancelled"));
+        assert!(!is_cancelled_azure_download_error("network error"));
+
+        assert!(is_cancelled_azure_upload_error(AZURE_UPLOAD_CANCELLED_ERROR));
+        assert!(!is_cancelled_azure_upload_error("azure_upload_cancelled"));
+        assert!(!is_cancelled_azure_upload_error("timeout"));
+    }
+
+    #[tokio::test]
+    async fn validates_local_mapping_directory_inputs() {
+        let temp_dir = unique_temp_path("dir");
+        fs::create_dir_all(&temp_dir).expect("temp dir should be created");
+
+        let temp_file = unique_temp_path("file");
+        File::create(&temp_file).expect("temp file should be created");
+
+        assert!(
+            validate_local_mapping_directory(temp_dir.to_string_lossy().into_owned())
+                .await
+                .expect("directory validation should succeed")
+        );
+        assert!(
+            !validate_local_mapping_directory("   ".to_string())
+                .await
+                .expect("empty path should return false")
+        );
+        assert!(
+            !validate_local_mapping_directory(temp_file.to_string_lossy().into_owned())
+                .await
+                .expect("file path should return false")
+        );
+
+        let missing_path = unique_temp_path("missing");
+        let error = validate_local_mapping_directory(missing_path.to_string_lossy().into_owned())
+            .await
+            .expect_err("missing path should fail");
+        assert!(
+            !error.trim().is_empty(),
+            "missing path errors should surface an error message"
+        );
+
+        fs::remove_dir_all(&temp_dir).expect("temp dir should be removed");
+        fs::remove_file(&temp_file).expect("temp file should be removed");
+    }
+
+    #[tokio::test]
+    async fn uses_default_locale_for_greeting_when_missing() {
+        let default_greeting = get_greeting(None).await;
+        let explicit_greeting = get_greeting(Some("en-US".to_string())).await;
+
+        assert_eq!(default_greeting, explicit_greeting);
+        assert!(
+            !default_greeting.trim().is_empty(),
+            "startup greeting should not be empty"
+        );
+    }
+}

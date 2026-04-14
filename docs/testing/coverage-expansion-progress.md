@@ -46,11 +46,11 @@ Increase automated test coverage toward the agreed long-term target of `75%` lin
 
 ### Phase 2. Rust command-layer coverage
 
-- [ ] Expand coverage around `presentation/commands.rs`
-- [ ] Test cancellation classification helpers
+- [-] Expand coverage around `presentation/commands.rs`
+- [x] Test cancellation classification helpers
 - [ ] Test event payload mapping helpers
-- [ ] Test command-layer input validation helpers
-- [ ] Re-measure Rust coverage
+- [x] Test command-layer input validation helpers
+- [x] Re-measure Rust coverage
 
 ### Phase 3. Rust provider-service expansion
 
@@ -112,3 +112,8 @@ Increase automated test coverage toward the agreed long-term target of `75%` lin
   - Frontend statements: `6.00%`
   - Frontend branches: `63.44%`
   - Frontend functions: `38.01%`
+- After Phase 2 substep 1:
+  - Rust line coverage: `10.72%`
+  - Rust regions: `11.75%`
+  - Rust functions: `11.38%`
+  - `presentation/commands.rs` line coverage: `6.39%`
