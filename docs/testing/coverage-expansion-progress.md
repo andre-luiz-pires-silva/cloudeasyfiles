@@ -62,10 +62,10 @@ Increase automated test coverage toward the agreed long-term target of `75%` lin
 
 ### Phase 4. Frontend workflow refinement
 
-- [ ] Add coverage for restore-related workflow logic
-- [ ] Add coverage for storage-class/tier workflow logic
+- [x] Add coverage for restore-related workflow logic
+- [x] Add coverage for storage-class/tier workflow logic
 - [ ] Add coverage for upload conflict decision logic
-- [ ] Re-measure frontend coverage
+- [x] Re-measure frontend coverage
 
 ### Phase 5. Policy review
 
@@ -102,3 +102,8 @@ Increase automated test coverage toward the agreed long-term target of `75%` lin
   - Frontend statements: `4.59%`
   - Frontend branches: `57.45%`
   - Frontend functions: `34.21%`
+- After Phase 4 substep 1:
+  - Frontend line coverage: `5.56%`
+  - Frontend statements: `5.56%`
+  - Frontend branches: `61.16%`
+  - Frontend functions: `36.97%`

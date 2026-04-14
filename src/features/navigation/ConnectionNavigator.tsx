@@ -111,15 +111,8 @@ import {
 import type { Locale } from "../../lib/i18n/I18nProvider";
 import { useI18n } from "../../lib/i18n/useI18n";
 import { validateLocalMappingDirectory } from "../../lib/tauri/commands";
-import {
-  type RestoreRequestSummary,
-  type RestoreRequestTarget,
-  RestoreRequestModal
-} from "../restore/RestoreRequestModal";
-import {
-  ChangeStorageClassModal,
-  type ChangeStorageClassRequestSummary
-} from "../storage-class/ChangeStorageClassModal";
+import { RestoreRequestModal } from "../restore/RestoreRequestModal";
+import { ChangeStorageClassModal } from "../storage-class/ChangeStorageClassModal";
 import {
   type CloudContainerItemsResult,
   type CloudContainerSummary,
@@ -147,6 +140,13 @@ import {
   shouldRefreshAfterUploadCompletion,
   validateNewFolderNameInput
 } from "./navigationGuards";
+import {
+  buildChangeStorageClassRequestState,
+  buildRestoreRequestState,
+  getBatchChangeTierTooltip,
+  type NavigationChangeStorageClassRequestState as ChangeStorageClassRequestState,
+  type NavigationRestoreRequestState as RestoreRequestState
+} from "./navigationWorkflows";
 
 function Globe2Icon() {
   return (
@@ -1053,31 +1053,6 @@ type UploadConflictPromptState = {
   totalConflicts: number;
   fileName: string;
   objectKey: string;
-};
-
-type RestoreRequestState = {
-  provider: ConnectionProvider;
-  request: RestoreRequestTarget | RestoreRequestSummary;
-  connectionId: string;
-  bucketName: string;
-  bucketRegion?: string | null;
-  targets: Array<{
-    objectKey: string;
-    storageClass?: string | null;
-  }>;
-};
-
-type ChangeStorageClassRequestState = {
-  provider: ConnectionProvider;
-  request: ChangeStorageClassRequestSummary;
-  connectionId: string;
-  bucketName: string;
-  bucketRegion?: string | null;
-  targets: Array<{
-    objectKey: string;
-    currentStorageClass?: string | null;
-  }>;
-  currentStorageClass?: string | null;
 };
 
 type ConnectionNavigatorProps = {
@@ -2320,63 +2295,17 @@ export function ConnectionNavigator({
     setChangeStorageClassSubmitError(null);
   }
 
-  function buildRestoreRequestState(items: ContentExplorerItem[]): RestoreRequestState | null {
-    if (
-      items.length === 0 ||
-      !selectedBucketProvider ||
-      !selectedBucketConnectionId ||
-      !selectedBucketName
-    ) {
-      return null;
-    }
-
-    const fileItems = items.filter(
-      (item): item is ContentExplorerItem & { kind: "file" } => item.kind === "file"
-    );
-
-    if (fileItems.length === 0) {
-      return null;
-    }
-
-    const totalSize = fileItems.reduce((sum, item) => sum + (item.size ?? 0), 0);
-    const storageClasses = [...new Set(fileItems.map((item) => item.storageClass).filter(Boolean))];
-    const request: RestoreRequestTarget | RestoreRequestSummary =
-      fileItems.length === 1
-        ? {
-            provider: selectedBucketProvider,
-            fileName: fileItems[0]?.name ?? "",
-            fileSizeLabel: formatBytes(fileItems[0]?.size, locale),
-            storageClass: fileItems[0]?.storageClass
-          }
-        : {
-            provider: selectedBucketProvider,
-            fileCount: fileItems.length,
-            totalSizeLabel: formatBytes(totalSize, locale),
-            storageClasses: fileItems.map((item) => item.storageClass),
-            storageClassLabel:
-              storageClasses.length === 1
-                ? storageClasses[0] ?? null
-                : t("restore.modal.batch.mixed_storage_classes")
-          };
-
-    return {
+  function openRestoreRequestModal(items: ContentExplorerItem[]) {
+    const nextRequest = buildRestoreRequestState({
+      items,
       provider: selectedBucketProvider,
-      request,
       connectionId: selectedBucketConnectionId,
       bucketName: selectedBucketName,
-      bucketRegion:
-        selectedBucketRegion && selectedBucketRegion !== BUCKET_REGION_PLACEHOLDER
-          ? selectedBucketRegion
-          : null,
-      targets: fileItems.map((item) => ({
-        objectKey: item.path,
-        storageClass: item.storageClass
-      }))
-    };
-  }
-
-  function openRestoreRequestModal(items: ContentExplorerItem[]) {
-    const nextRequest = buildRestoreRequestState(items);
+      bucketRegion: selectedBucketRegion,
+      bucketRegionPlaceholder: BUCKET_REGION_PLACEHOLDER,
+      formatBytes: (size) => formatBytes(size, locale),
+      getMixedStorageClassesLabel: () => t("restore.modal.batch.mixed_storage_classes")
+    });
 
     if (!nextRequest) {
       return;
@@ -2388,57 +2317,18 @@ export function ConnectionNavigator({
     setRestoreRequest(nextRequest);
   }
 
-  function buildChangeStorageClassRequestState(
-    items: ContentExplorerItem[]
-  ): ChangeStorageClassRequestState | null {
-    if (
-      items.length === 0 ||
-      !selectedBucketProvider ||
-      !selectedBucketConnectionId ||
-      !selectedBucketName
-    ) {
-      return null;
-    }
-
-    const fileItems = items.filter(
-      (item): item is ContentExplorerItem & { kind: "file" } => item.kind === "file"
-    );
-
-    if (fileItems.length === 0) {
-      return null;
-    }
-
-    const totalSize = fileItems.reduce((sum, item) => sum + (item.size ?? 0), 0);
-    const storageClasses = [...new Set(fileItems.map((item) => item.storageClass).filter(Boolean))];
-    const currentStorageClass =
-      storageClasses.length === 1 ? (storageClasses[0] ?? null) : null;
-
-    return {
+  function openChangeStorageClassModal(items: ContentExplorerItem[]) {
+    const nextRequest = buildChangeStorageClassRequestState({
+      items,
       provider: selectedBucketProvider,
-      request: {
-        fileCount: fileItems.length,
-        totalSizeLabel: formatBytes(totalSize, locale),
-        currentStorageClassLabel:
-          storageClasses.length === 1
-            ? storageClasses[0] ?? null
-            : t("content.storage_class_change.multiple_current_classes")
-      },
       connectionId: selectedBucketConnectionId,
       bucketName: selectedBucketName,
-      bucketRegion:
-        selectedBucketRegion && selectedBucketRegion !== BUCKET_REGION_PLACEHOLDER
-          ? selectedBucketRegion
-          : null,
-      targets: fileItems.map((item) => ({
-        objectKey: item.path,
-        currentStorageClass: item.storageClass
-      })),
-      currentStorageClass
-    };
-  }
-
-  function openChangeStorageClassModal(items: ContentExplorerItem[]) {
-    const nextRequest = buildChangeStorageClassRequestState(items);
+      bucketRegion: selectedBucketRegion,
+      bucketRegionPlaceholder: BUCKET_REGION_PLACEHOLDER,
+      formatBytes: (size) => formatBytes(size, locale),
+      getMultipleCurrentClassesLabel: () =>
+        t("content.storage_class_change.multiple_current_classes")
+    });
 
     if (!nextRequest) {
       return;
@@ -2456,33 +2346,6 @@ export function ConnectionNavigator({
     }
 
     openChangeStorageClassModal(batchSelectionActions.changeTierableItems);
-  }
-
-  function getBatchChangeTierTooltip(): string {
-    if (
-      selectedContentItems.some(
-        (item) => item.kind === "file" && item.availabilityStatus === "archived"
-      )
-    ) {
-      return t(
-        selectedBucketProvider === "azure"
-          ? "content.azure_storage_class_change.tooltip_archived_requires_rehydration"
-          : "content.storage_class_change.tooltip_archived_requires_restore"
-      );
-    }
-
-    if (
-      isContentSelectionActive &&
-      !batchSelectionActions.canBatchChangeTier
-    ) {
-      return t(
-        selectedBucketProvider === "azure"
-          ? "content.azure_storage_class_change.tooltip_selection_incompatible"
-          : "content.storage_class_change.tooltip_selection_incompatible"
-      );
-    }
-
-    return t("navigation.menu.change_tier");
   }
 
   function startTrackedDownloadForItem(item: ContentExplorerItem) {
@@ -5496,7 +5359,13 @@ export function ConnectionNavigator({
                         className="content-load-more-button content-load-more-button-icon"
                         onClick={handleBatchChangeTierSelection}
                         disabled={!batchSelectionActions.canBatchChangeTier}
-                        title={getBatchChangeTierTooltip()}
+                        title={getBatchChangeTierTooltip({
+                          items: selectedContentItems,
+                          provider: selectedBucketProvider,
+                          isContentSelectionActive,
+                          canBatchChangeTier: batchSelectionActions.canBatchChangeTier,
+                          t
+                        })}
                         aria-label={t("navigation.menu.change_tier")}
                       >
                         <Settings size={15} strokeWidth={2} />
