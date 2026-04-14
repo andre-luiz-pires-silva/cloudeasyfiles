@@ -2415,3 +2415,111 @@ impl AwsConnectionService {
         Ok(true)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    #[test]
+    fn normalizes_listing_page_size_with_bounds() {
+        assert_eq!(normalize_listing_page_size(None), DEFAULT_S3_LISTING_PAGE_SIZE);
+        assert_eq!(normalize_listing_page_size(Some(0)), 1);
+        assert_eq!(normalize_listing_page_size(Some(5000)), MAX_S3_LISTING_PAGE_SIZE);
+        assert_eq!(normalize_listing_page_size(Some(250)), 250);
+    }
+
+    #[test]
+    fn normalizes_delete_object_keys() {
+        let normalized = normalize_delete_object_keys(vec![
+            " docs/file.txt ".to_string(),
+            "/docs/file.txt".to_string(),
+            "".to_string(),
+            "   ".to_string(),
+            "docs/other.txt".to_string(),
+        ]);
+
+        assert_eq!(normalized, vec!["docs/file.txt", "docs/other.txt"]);
+    }
+
+    #[test]
+    fn validates_restore_tier_for_storage_class() {
+        assert!(validate_restore_tier_for_storage_class(Some("GLACIER"), &Tier::Expedited).is_ok());
+        assert!(
+            validate_restore_tier_for_storage_class(Some("DEEP_ARCHIVE"), &Tier::Expedited)
+                .is_err()
+        );
+        assert!(validate_restore_tier_for_storage_class(Some("DEEP_ARCHIVE"), &Tier::Bulk).is_ok());
+    }
+
+    #[test]
+    fn builds_copy_source_with_expected_encoding() {
+        let value = build_copy_source("bucket-a", "folder name/file#1?.txt");
+        assert_eq!(value, "bucket-a/folder%20name/file%231%3F.txt");
+    }
+
+    #[test]
+    fn builds_tagging_header_with_expected_encoding() {
+        let tag_a = aws_sdk_s3::types::Tag::builder()
+            .key("team name")
+            .value("ops & finance")
+            .build()
+            .expect("valid tag");
+        let tag_b = aws_sdk_s3::types::Tag::builder()
+            .key("env")
+            .value("prod=blue")
+            .build()
+            .expect("valid tag");
+
+        let header = build_tagging_header(&[tag_a, tag_b]);
+
+        assert_eq!(header, "team%20name=ops%20%26%20finance&env=prod%3Dblue");
+    }
+
+    #[test]
+    fn calculates_multipart_copy_chunk_size_without_exceeding_limits() {
+        assert_eq!(
+            calculate_multipart_copy_chunk_size(1024),
+            MULTIPART_UPLOAD_CHUNK_SIZE as u64
+        );
+
+        let very_large_object = S3_MULTIPART_MAX_PARTS * MULTIPART_UPLOAD_CHUNK_SIZE as u64 * 2;
+        assert_eq!(
+            calculate_multipart_copy_chunk_size(very_large_object),
+            very_large_object.div_ceil(S3_MULTIPART_MAX_PARTS)
+        );
+    }
+
+    #[test]
+    fn normalizes_cache_paths_and_rejects_empty_object_keys() {
+        let reserved = AwsConnectionService::normalize_cache_path_segment("..");
+        assert!(reserved.starts_with(AwsConnectionService::CACHE_ESCAPED_SEGMENT_PREFIX));
+
+        let path = AwsConnectionService::build_primary_cache_object_path(
+            "/tmp/cache",
+            " Primary Connection ",
+            "bucket-a",
+            "docs/report.txt",
+        )
+        .unwrap();
+
+        assert_eq!(
+            path,
+            PathBuf::from("/tmp/cache")
+                .join("Primary Connection")
+                .join("bucket-a")
+                .join("docs")
+                .join("report.txt")
+        );
+
+        assert!(
+            AwsConnectionService::build_primary_cache_object_path(
+                "/tmp/cache",
+                "Primary Connection",
+                "bucket-a",
+                "",
+            )
+            .is_err()
+        );
+    }
+}

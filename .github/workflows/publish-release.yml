@@ -46,6 +46,9 @@ jobs:
       - name: Run repository checks
         run: npm run check
 
+      - name: Run automated tests
+        run: npm run test
+
       - name: Build Linux bundles
         run: npm run tauri:build
 
@@ -85,6 +88,9 @@ jobs:
 
       - name: Run repository checks
         run: npm run check
+
+      - name: Run automated tests
+        run: npm run test
 
       - name: Build Windows bundles
         run: npm run tauri:build
