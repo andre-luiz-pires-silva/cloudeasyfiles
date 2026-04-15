@@ -190,11 +190,14 @@ import {
   validateConnectionTestFields as validateNavigationConnectionTestFields
 } from "./navigationValidation";
 import {
+  buildBucketNodes,
   buildHomeSelectionState,
   buildNodeSelectionState,
   clearConnectionBucketNodes,
+  findTreeNodeById,
   getTransferCancelLabel,
   setBucketPath,
+  sortTreeNodes,
   toggleCollapsedConnection,
   updateBucketNodeMap
 } from "./navigationTreeState";
@@ -325,73 +328,6 @@ type ExplorerTreeNode = {
   path?: string;
   children?: ExplorerTreeNode[];
 };
-
-function sortTreeNodes(nodes: ExplorerTreeNode[]): ExplorerTreeNode[] {
-  return [...nodes]
-    .map((node) => ({
-      ...node,
-      children: node.children ? sortTreeNodes(node.children) : undefined
-    }))
-    .sort((left, right) => {
-      const kindOrder = (node: ExplorerTreeNode) => (node.kind === "bucket" ? 0 : 1);
-
-      const kindDifference = kindOrder(left) - kindOrder(right);
-
-      if (kindDifference !== 0) {
-        return kindDifference;
-      }
-
-      return left.name.localeCompare(right.name, undefined, {
-        sensitivity: "base",
-        numeric: true
-      });
-    });
-}
-
-function buildBucketNodes(
-  connection: SavedConnectionSummary,
-  buckets: CloudContainerSummary[]
-): ExplorerTreeNode[] {
-  return sortTreeNodes(
-    buckets.map((bucket) => ({
-      id: `${connection.id}:bucket:${bucket.name}`,
-      kind: "bucket",
-      connectionId: connection.id,
-      provider: connection.provider,
-      name: bucket.name,
-      region:
-        connection.provider === "aws"
-          ? bucket.region ?? BUCKET_REGION_PLACEHOLDER
-          : undefined,
-      bucketName: bucket.name,
-      path: "",
-      children: []
-    }))
-  );
-}
-
-function findNodeById(
-  nodes: ExplorerTreeNode[],
-  nodeId: string | null
-): ExplorerTreeNode | null {
-  if (!nodeId) {
-    return null;
-  }
-
-  for (const node of nodes) {
-    if (node.id === nodeId) {
-      return node;
-    }
-
-    const match = findNodeById(node.children ?? [], nodeId);
-
-    if (match) {
-      return match;
-    }
-  }
-
-  return null;
-}
 
 async function resolveCachedFileIdentities(
   provider: ConnectionProvider,
@@ -717,7 +653,7 @@ export function ConnectionNavigator({
   );
 
   const selectedNode = useMemo(
-    () => findNodeById(treeNodes, selectedNodeId),
+    () => findTreeNodeById(treeNodes, selectedNodeId),
     [treeNodes, selectedNodeId]
   );
   const normalizedSidebarFilter = useMemo(
@@ -2872,7 +2808,7 @@ export function ConnectionNavigator({
     }
 
     const selectedStillExists = selectedNodeId
-      ? findNodeById(treeNodes, selectedNodeId) !== null
+      ? findTreeNodeById(treeNodes, selectedNodeId) !== null
       : false;
 
     if (!selectedStillExists) {
@@ -2944,7 +2880,7 @@ export function ConnectionNavigator({
       const nextBucketContentPaths: Record<string, string> = {};
 
       for (const connectionId of Object.keys(previousBucketContentPaths)) {
-        if (findNodeById(treeNodes, connectionId)) {
+        if (findTreeNodeById(treeNodes, connectionId)) {
           nextBucketContentPaths[connectionId] = previousBucketContentPaths[connectionId];
         }
       }
@@ -3504,7 +3440,7 @@ export function ConnectionNavigator({
 
       setConnectionBuckets((previousConnectionBuckets) => ({
         ...previousConnectionBuckets,
-        [connectionId]: buildBucketNodes(connection, buckets)
+        [connectionId]: buildBucketNodes(connection, buckets, BUCKET_REGION_PLACEHOLDER)
       }));
 
       if (connection.provider === "aws") {

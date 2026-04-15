@@ -1,3 +1,6 @@
+import type { SavedConnectionSummary } from "../connections/models";
+import type { CloudContainerSummary } from "./providerReadAdapters";
+
 export type NavigationExplorerTreeNode = {
   id: string;
   kind: "connection" | "bucket";
@@ -83,4 +86,74 @@ export function buildNodeSelectionState(nodeId: string): NavigationSelectedState
     selectedNodeId: nodeId,
     openMenuConnectionId: null
   };
+}
+
+export function sortTreeNodes(
+  nodes: NavigationExplorerTreeNode[]
+): NavigationExplorerTreeNode[] {
+  return [...nodes]
+    .map((node) => ({
+      ...node,
+      children: node.children ? sortTreeNodes(node.children) : undefined
+    }))
+    .sort((left, right) => {
+      const kindOrder = (node: NavigationExplorerTreeNode) =>
+        node.kind === "bucket" ? 0 : 1;
+      const kindDifference = kindOrder(left) - kindOrder(right);
+
+      if (kindDifference !== 0) {
+        return kindDifference;
+      }
+
+      return left.name.localeCompare(right.name, undefined, {
+        sensitivity: "base",
+        numeric: true
+      });
+    });
+}
+
+export function buildBucketNodes(
+  connection: SavedConnectionSummary,
+  buckets: CloudContainerSummary[],
+  bucketRegionPlaceholder: string
+): NavigationExplorerTreeNode[] {
+  return sortTreeNodes(
+    buckets.map((bucket) => ({
+      id: `${connection.id}:bucket:${bucket.name}`,
+      kind: "bucket" as const,
+      connectionId: connection.id,
+      provider: connection.provider,
+      name: bucket.name,
+      region:
+        connection.provider === "aws"
+          ? bucket.region ?? bucketRegionPlaceholder
+          : undefined,
+      bucketName: bucket.name,
+      path: "",
+      children: []
+    }))
+  );
+}
+
+export function findTreeNodeById(
+  nodes: NavigationExplorerTreeNode[],
+  nodeId: string | null
+): NavigationExplorerTreeNode | null {
+  if (!nodeId) {
+    return null;
+  }
+
+  for (const node of nodes) {
+    if (node.id === nodeId) {
+      return node;
+    }
+
+    const match = findTreeNodeById(node.children ?? [], nodeId);
+
+    if (match) {
+      return match;
+    }
+  }
+
+  return null;
 }

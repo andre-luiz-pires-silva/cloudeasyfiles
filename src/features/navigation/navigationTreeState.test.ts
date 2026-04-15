@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  buildBucketNodes,
   buildHomeSelectionState,
   buildNodeSelectionState,
   clearConnectionBucketNodes,
+  findTreeNodeById,
   getTransferCancelLabel,
   setBucketPath,
+  sortTreeNodes,
   toggleCollapsedConnection,
   updateBucketNodeMap,
   type NavigationExplorerTreeNode
@@ -123,5 +126,106 @@ describe("navigationTreeState", () => {
       selectedNodeId: "conn-1",
       openMenuConnectionId: null
     });
+  });
+
+  it("sorts tree nodes, builds bucket nodes and finds nodes by id", () => {
+    const unsortedNodes: NavigationExplorerTreeNode[] = [
+      {
+        id: "conn-1",
+        kind: "connection",
+        connectionId: "conn-1",
+        provider: "aws",
+        name: "Zulu",
+        children: [
+          {
+            id: "conn-1:bucket:b",
+            kind: "bucket",
+            connectionId: "conn-1",
+            provider: "aws",
+            name: "20-logs"
+          },
+          {
+            id: "conn-1:bucket:a",
+            kind: "bucket",
+            connectionId: "conn-1",
+            provider: "aws",
+            name: "3-reports"
+          }
+        ]
+      },
+      {
+        id: "bucket-root",
+        kind: "bucket",
+        connectionId: "conn-2",
+        provider: "azure",
+        name: "alpha"
+      }
+    ];
+
+    const sorted = sortTreeNodes(unsortedNodes);
+    expect(sorted.map((node) => node.id)).toEqual(["bucket-root", "conn-1"]);
+    expect(sorted[1]?.children?.map((node) => node.id)).toEqual([
+      "conn-1:bucket:a",
+      "conn-1:bucket:b"
+    ]);
+
+    expect(
+      buildBucketNodes(
+        { id: "aws-1", name: "AWS Main", provider: "aws" },
+        [{ name: "reports" }, { name: "logs", region: "sa-east-1" }],
+        "..."
+      )
+    ).toEqual([
+      {
+        id: "aws-1:bucket:logs",
+        kind: "bucket",
+        connectionId: "aws-1",
+        provider: "aws",
+        name: "logs",
+        region: "sa-east-1",
+        bucketName: "logs",
+        path: "",
+        children: []
+      },
+      {
+        id: "aws-1:bucket:reports",
+        kind: "bucket",
+        connectionId: "aws-1",
+        provider: "aws",
+        name: "reports",
+        region: "...",
+        bucketName: "reports",
+        path: "",
+        children: []
+      }
+    ]);
+
+    expect(
+      buildBucketNodes(
+        {
+          id: "az-1",
+          name: "Azure Main",
+          provider: "azure",
+          storageAccountName: "storageaccount",
+          authenticationMethod: "shared_key"
+        },
+        [{ name: "archive" }],
+        "..."
+      )[0]
+    ).toEqual({
+      id: "az-1:bucket:archive",
+      kind: "bucket",
+      connectionId: "az-1",
+      provider: "azure",
+      name: "archive",
+      region: undefined,
+      bucketName: "archive",
+      path: "",
+      children: []
+    });
+
+    expect(findTreeNodeById(sorted, "conn-1:bucket:b")?.name).toBe("20-logs");
+    expect(findTreeNodeById(sorted, null)).toBeNull();
+    expect(findTreeNodeById(sorted, "missing")).toBeNull();
   });
 });
