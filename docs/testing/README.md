@@ -40,14 +40,20 @@ The initial backend suite focuses on high-signal helpers and provider guardrails
 
 - AWS listing normalization helpers
 - AWS restore-tier validation
+- AWS mutation input validation for restore, tier change, and recursive delete
 - AWS copy/tagging encoding helpers
-- AWS multipart sizing rules
+- AWS multipart sizing and delete batching rules
+- AWS listing pagination helpers
 - AWS cache path sanitization
 - Azure listing normalization helpers
 - Azure folder placeholder and deduplication behavior
-- Azure continuation and `hasMore` semantics
+- Azure continuation, marker, and `hasMore` semantics
+- Azure mutation input validation for delete, access-tier change, and rehydration
+- Azure access-tier request header helpers
+- Azure list query builders
 - Azure canonicalized headers/resource helpers
 - Azure cache path sanitization
+- Tauri command-layer cancellation classification and download event mapping
 
 ### Frontend
 
@@ -57,6 +63,8 @@ The initial frontend suite focuses on stable contracts and low-fragility logic:
 - connection persistence rollback on secret-save failure
 - AWS/Azure provider read adapter mapping
 - navigation guard helpers for delete, upload path, folder validation, restore/tier/download eligibility
+- restore and storage-class request builders
+- upload conflict decision flows
 
 ## Commands
 
@@ -90,9 +98,17 @@ It also generates coverage reports and publishes:
 - a summary in the GitHub Actions job page
 - downloadable coverage artifacts for the workflow run
 
+Coverage remains informational in CI for now. The repository is not yet enforcing coverage thresholds because frontend coverage is still below the first milestone and the current focus is expanding high-risk areas rather than blocking on percentage.
+
 ## Recommended Next Phases
 
 See the dedicated coverage-expansion plan for the current phase-by-phase roadmap.
+
+The next highest-value areas are:
+
+- `ConnectionNavigator.tsx` orchestration that still lives outside extracted helpers
+- upload command/event paths in `src-tauri/src/presentation/commands.rs`
+- remaining provider-service flows around multi-step restore, tier change, and delete execution
 
 ## Test Design Rules
 

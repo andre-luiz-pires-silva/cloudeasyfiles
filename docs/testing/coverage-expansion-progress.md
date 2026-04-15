@@ -69,9 +69,9 @@ Increase automated test coverage toward the agreed long-term target of `75%` lin
 
 ### Phase 5. Policy review
 
-- [ ] Review whether CI should remain monitor-only
-- [ ] Update `docs/testing/README.md` with delivered scope changes if needed
-- [ ] Summarize remaining high-risk gaps
+- [x] Review whether CI should remain monitor-only
+- [x] Update `docs/testing/README.md` with delivered scope changes if needed
+- [x] Summarize remaining high-risk gaps
 
 ## Current Priorities
 
@@ -83,7 +83,13 @@ Increase automated test coverage toward the agreed long-term target of `75%` lin
 
 - `ConnectionNavigator.tsx` remains the largest uncovered frontend orchestration surface
 - upload command/event paths in `presentation/commands.rs` are still only partially covered
-- current overall coverage is too low to treat percentage as an enforcement gate
+- current overall coverage is still too low to justify a hard or soft coverage gate
+
+## Policy Decision
+
+- Coverage remains `monitor-only` in CI for now.
+- Reason: Rust coverage has crossed the first backend milestone threshold, but frontend coverage is still well below Milestone A and the remaining work is concentrated in high-risk orchestration code rather than broad low-value files.
+- Revisit coverage gating after the next frontend-heavy iteration.
 
 ## Notes
 
