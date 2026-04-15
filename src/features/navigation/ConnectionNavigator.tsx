@@ -255,6 +255,12 @@ import {
   canOpenCreateFolderModal,
   shouldOpenContentAreaContextMenu
 } from "./navigationModalGuards";
+import {
+  buildClosedUploadSettingsModalState,
+  buildConnectionDeleteErrorMessage,
+  buildOpenedUploadSettingsModalState,
+  buildPendingRemoveConnectionState
+} from "./navigationSecondaryModalState";
 
 function Globe2Icon() {
   return (
@@ -3635,25 +3641,27 @@ export function ConnectionNavigator({
   }
 
   function openUploadSettingsModal() {
-    if (!selectedConnection) {
+    const nextState = buildOpenedUploadSettingsModalState(selectedConnection, {
+      uploadSettingsStorageClass,
+      uploadSettingsAzureTier
+    });
+
+    if (!nextState) {
       return;
     }
 
-    if (selectedConnection.provider === "aws") {
-      setUploadSettingsStorageClass(
-        normalizeAwsUploadStorageClass(selectedConnection.defaultUploadStorageClass)
-      );
-    } else {
-      setUploadSettingsAzureTier(normalizeAzureUploadTier(selectedConnection.defaultUploadTier));
-    }
-    setUploadSettingsSubmitError(null);
-    setIsUploadSettingsModalOpen(true);
+    setUploadSettingsStorageClass(nextState.uploadSettingsStorageClass);
+    setUploadSettingsAzureTier(nextState.uploadSettingsAzureTier);
+    setUploadSettingsSubmitError(nextState.uploadSettingsSubmitError);
+    setIsUploadSettingsModalOpen(nextState.isUploadSettingsModalOpen);
+    setIsSavingUploadSettings(nextState.isSavingUploadSettings);
   }
 
   function closeUploadSettingsModal() {
-    setIsUploadSettingsModalOpen(false);
-    setUploadSettingsSubmitError(null);
-    setIsSavingUploadSettings(false);
+    const nextState = buildClosedUploadSettingsModalState();
+    setIsUploadSettingsModalOpen(nextState.isUploadSettingsModalOpen);
+    setUploadSettingsSubmitError(nextState.uploadSettingsSubmitError);
+    setIsSavingUploadSettings(nextState.isSavingUploadSettings);
   }
 
   function openCreateFolderModal() {
@@ -3896,8 +3904,9 @@ export function ConnectionNavigator({
   }
 
   async function handleRemoveConnection(connectionId: string) {
-    setPendingDeleteConnectionId(connectionId);
-    setOpenMenuConnectionId(null);
+    const nextState = buildPendingRemoveConnectionState(connectionId);
+    setPendingDeleteConnectionId(nextState.pendingDeleteConnectionId);
+    setOpenMenuConnectionId(nextState.openMenuConnectionId);
   }
 
   async function confirmRemoveConnection() {
@@ -3913,7 +3922,7 @@ export function ConnectionNavigator({
       const savedConnections = await connectionService.listConnections();
       setConnections(savedConnections);
     } catch (error) {
-      setSubmitError(error instanceof Error ? error.message : t("navigation.connections.delete_error"));
+      setSubmitError(buildConnectionDeleteErrorMessage(error, t));
     }
   }
 
