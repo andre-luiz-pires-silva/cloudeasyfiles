@@ -226,6 +226,13 @@ import {
   setConnectionProviderAccountId,
   updateConnectionIndicatorMap
 } from "./navigationConnectionState";
+import {
+  parseLegacyGlobalCacheDirectoryCandidate,
+  resolveInitialContentListingPageSize,
+  resolveInitialContentViewMode,
+  resolveInitialGlobalCacheDirectory,
+  resolveInitialSidebarWidth
+} from "./navigationPreferences";
 
 function Globe2Icon() {
   return (
@@ -401,59 +408,21 @@ function loadLegacyGlobalCacheDirectoryCandidate(): string | undefined {
   if (typeof window === "undefined") {
     return undefined;
   }
-
-  const rawValue = window.localStorage.getItem(CONNECTION_METADATA_STORAGE_KEY);
-
-  if (!rawValue) {
-    return undefined;
-  }
-
-  try {
-    const parsedValue = JSON.parse(rawValue);
-
-    if (!Array.isArray(parsedValue)) {
-      return undefined;
-    }
-
-    for (const candidate of parsedValue) {
-      if (
-        candidate &&
-        typeof candidate === "object" &&
-        "localCacheDirectory" in candidate &&
-        typeof candidate.localCacheDirectory === "string"
-      ) {
-        const normalizedPath = candidate.localCacheDirectory.trim();
-
-        if (normalizedPath) {
-          return normalizedPath;
-        }
-      }
-    }
-  } catch {
-    return undefined;
-  }
-
-  return undefined;
+  return parseLegacyGlobalCacheDirectoryCandidate(
+    window.localStorage.getItem(CONNECTION_METADATA_STORAGE_KEY)
+  );
 }
 
 function loadInitialGlobalCacheDirectory(): string {
   const appSettings = appSettingsStore.load();
-
-  if (appSettings.globalLocalCacheDirectory?.trim()) {
-    return appSettings.globalLocalCacheDirectory.trim();
-  }
-
-  return loadLegacyGlobalCacheDirectoryCandidate() ?? "";
+  return resolveInitialGlobalCacheDirectory({
+    settingsDirectory: appSettings.globalLocalCacheDirectory,
+    legacyDirectoryCandidate: loadLegacyGlobalCacheDirectoryCandidate()
+  });
 }
 
 function loadInitialContentListingPageSize(): number {
-  const appSettings = appSettingsStore.load();
-
-  if (typeof appSettings.contentListingPageSize === "number") {
-    return normalizeContentListingPageSize(appSettings.contentListingPageSize);
-  }
-
-  return DEFAULT_CONTENT_LISTING_PAGE_SIZE;
+  return resolveInitialContentListingPageSize(appSettingsStore.load().contentListingPageSize);
 }
 
 type ActiveTransfer = {
@@ -627,28 +596,18 @@ export function ConnectionNavigator({
     if (typeof window === "undefined") {
       return "list";
     }
-
-    const savedMode = window.localStorage.getItem(CONTENT_VIEW_MODE_STORAGE_KEY);
-    return savedMode === "compact" ? "compact" : "list";
+    return resolveInitialContentViewMode(window.localStorage.getItem(CONTENT_VIEW_MODE_STORAGE_KEY));
   });
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     if (typeof window === "undefined") {
       return DEFAULT_SIDEBAR_WIDTH;
     }
-
-    const savedSidebarWidth = window.localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY);
-
-    if (!savedSidebarWidth) {
-      return DEFAULT_SIDEBAR_WIDTH;
-    }
-
-    const parsedSidebarWidth = Number(savedSidebarWidth);
-
-    if (!Number.isFinite(parsedSidebarWidth)) {
-      return DEFAULT_SIDEBAR_WIDTH;
-    }
-
-    return Math.min(Math.max(parsedSidebarWidth, MIN_SIDEBAR_WIDTH), MAX_SIDEBAR_WIDTH);
+    return resolveInitialSidebarWidth(
+      window.localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY),
+      DEFAULT_SIDEBAR_WIDTH,
+      MIN_SIDEBAR_WIDTH,
+      MAX_SIDEBAR_WIDTH
+    );
   });
   const [isResizingSidebar, setIsResizingSidebar] = useState(false);
   const workspaceRef = useRef<HTMLDivElement | null>(null);
