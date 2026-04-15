@@ -271,6 +271,11 @@ import {
   updateTransfersFromDownloadEvent,
   updateTransfersFromUploadEvent
 } from "./navigationTransfers";
+import {
+  buildUploadTransferEntry,
+  normalizeUploadBatchPaths,
+  prepareUploadBatchCandidates
+} from "./navigationUploadPreparation";
 
 function Globe2Icon() {
   return (
@@ -1106,21 +1111,12 @@ export function ConnectionNavigator({
 
       setActiveTransfers((currentTransfers) => ({
         ...currentTransfers,
-        [operationId]: {
+        [operationId]: buildUploadTransferEntry({
           operationId,
-          itemId: `upload:${input.objectKey}`,
-          fileIdentity: input.fileIdentity,
-          fileName: input.fileName,
-          bucketName: selectedBucketName,
-          provider: selectedBucketProvider ?? "aws",
-          transferKind: "upload",
-          progressPercent: 0,
-          bytesTransferred: 0,
-          totalBytes: 0,
-          state: "progress",
-          objectKey: input.objectKey,
-          localFilePath: input.localFilePath ?? input.fileName
-        }
+          input,
+          selectedBucketName,
+          selectedBucketProvider
+        })
       }));
       didCreateTransferEntry = true;
 
@@ -1186,39 +1182,28 @@ export function ConnectionNavigator({
       selectedBucketProvider === "aws"
         ? await connectionService.getAwsConnectionDraft(selectedBucketConnectionId)
         : await connectionService.getAzureConnectionDraft(selectedBucketConnectionId);
+    const { preparedItems: candidateItems, issues } = prepareUploadBatchCandidates({
+      inputs,
+      selectedBucketConnectionId,
+      selectedBucketName,
+      selectedBucketPath,
+      activeTransferIdentityMap
+    });
     const preparedItems: PreparedSimpleUploadBatchItem[] = [];
-    const seenObjectKeys = new Set<string>();
 
-    for (const input of inputs) {
-      const fileName = input.fileName.trim();
-
-      if (!fileName) {
+    for (const issue of issues) {
+      if (issue.kind === "invalid_path") {
         showTransferErrorToast(t("content.transfer.upload_invalid_path"));
-        continue;
-      }
-
-      const objectKey = buildUploadObjectKey(selectedBucketPath, fileName);
-
-      if (seenObjectKeys.has(objectKey)) {
+      } else if (issue.kind === "duplicate_batch") {
         showTransferErrorToast(
-          t("content.transfer.upload_duplicate_batch").replace("{name}", fileName)
+          t("content.transfer.upload_duplicate_batch").replace("{name}", issue.fileName)
         );
-        continue;
-      }
-
-      seenObjectKeys.add(objectKey);
-
-      const fileIdentity = buildFileIdentity(
-        selectedBucketConnectionId,
-        selectedBucketName,
-        objectKey
-      );
-
-      if (activeTransferIdentityMap.has(fileIdentity)) {
+      } else if (issue.kind === "duplicate_active") {
         showTransferErrorToast(t("content.transfer.upload_duplicate_active"));
-        continue;
       }
+    }
 
+    for (const item of candidateItems) {
       let objectAlreadyExists = false;
 
       try {
@@ -1227,7 +1212,7 @@ export function ConnectionNavigator({
             draft.accessKeyId.trim(),
             draft.secretAccessKey.trim(),
             selectedBucketName,
-            objectKey,
+            item.objectKey,
             selectedBucketRegion && selectedBucketRegion !== BUCKET_REGION_PLACEHOLDER
               ? selectedBucketRegion
               : undefined,
@@ -1238,7 +1223,7 @@ export function ConnectionNavigator({
             draft.storageAccountName,
             draft.accountKey.trim(),
             selectedBucketName,
-            objectKey
+            item.objectKey
           );
         }
       } catch (error) {
@@ -1248,10 +1233,8 @@ export function ConnectionNavigator({
       }
 
       preparedItems.push({
-        ...input,
-        fileName,
-        objectKey,
-        fileIdentity,
+        ...item,
+        startUpload: item.startUpload,
         objectAlreadyExists
       });
     }
@@ -1341,9 +1324,7 @@ export function ConnectionNavigator({
   }
 
   function runSimpleAwsUploads(localFilePaths: string[]) {
-    const normalizedPaths = localFilePaths
-      .map((localFilePath) => localFilePath.trim())
-      .filter((localFilePath) => localFilePath.length > 0);
+    const normalizedPaths = normalizeUploadBatchPaths(localFilePaths);
 
     void processSimpleUploadBatch(
       normalizedPaths.map((localFilePath) => ({
