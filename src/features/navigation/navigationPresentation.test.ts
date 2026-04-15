@@ -2,17 +2,25 @@ import { describe, expect, it } from "vitest";
 
 import type { NavigationContentExplorerItem } from "./navigationContent";
 import {
+  buildConnectionFailureMessage,
   buildAvailableUntilTooltip,
   buildBreadcrumbs,
   buildContentCounterLabel,
+  extractErrorMessage,
   filterTreeNodes,
+  formatBytes,
+  formatDateTime,
+  getConnectionActions,
   getContentStatusLabel,
   getDisplayContentStatus,
   getFileStatusBadgeDescriptors,
+  getFileNameFromPath,
   getPathTitle,
   getPreferredFileStatusBadgeDescriptors,
   getSummaryContentStatuses,
+  isCancelledTransferError,
   isTemporaryRestoredArchivalFile,
+  isUploadExistsPreflightPermissionError,
   matchesFilter,
   normalizeFilterText,
   type NavigationTreeNode
@@ -23,6 +31,72 @@ describe("navigationPresentation", () => {
     expect(normalizeFilterText("  Reports ")).toBe("reports");
     expect(matchesFilter(["Reports", "aws"], "reports")).toBe(true);
     expect(matchesFilter(["Reports", "aws"], "azure")).toBe(false);
+  });
+
+  it("extracts error messages and cancellation state", () => {
+    expect(extractErrorMessage("plain failure")).toBe("plain failure");
+    expect(extractErrorMessage(new Error("boom"))).toBe("boom");
+    expect(extractErrorMessage({ message: "denied" })).toBe("denied");
+    expect(extractErrorMessage({})).toBeNull();
+    expect(isCancelledTransferError("DOWNLOAD_CANCELLED")).toBe(true);
+    expect(isCancelledTransferError(new Error("other"))).toBe(false);
+  });
+
+  it("formats bytes and date values for display", () => {
+    expect(formatBytes(undefined, "en-US")).toBe("-");
+    expect(formatBytes(512, "en-US")).toBe("512 B");
+    expect(formatBytes(1536, "en-US")).toBe("1.5 KB");
+    expect(formatBytes(1024 * 1024, "en-US")).toBe("1 MB");
+    expect(formatDateTime(null, "en-US")).toBe("-");
+    expect(formatDateTime("invalid-date", "en-US")).toBe("invalid-date");
+    expect(formatDateTime("2026-04-15T13:45:00Z", "en-US")).toContain("2026");
+  });
+
+  it("builds connection failure messages and available actions", () => {
+    const t = (key: string) => key;
+
+    expect(
+      buildConnectionFailureMessage("AWS_S3_LIST_BUCKETS_PERMISSION_REQUIRED", t)
+    ).toBe("navigation.modal.aws.test_connection_missing_minimum_permission");
+    expect(
+      buildConnectionFailureMessage("AWS_S3_RESTRICTED_BUCKET_MISMATCH", t)
+    ).toBe("navigation.modal.aws.test_connection_restricted_bucket_mismatch");
+    expect(buildConnectionFailureMessage("generic", t)).toBe("generic");
+    expect(buildConnectionFailureMessage({}, t)).toBe(
+      "navigation.modal.aws.test_connection_failure"
+    );
+
+    expect(getConnectionActions(t, { status: "connecting" })).toEqual([
+      { id: "cancelConnect", label: "navigation.menu.cancel_connect" },
+      { id: "edit", label: "navigation.menu.edit_settings" },
+      {
+        id: "remove",
+        label: "navigation.menu.remove",
+        variant: "danger"
+      }
+    ]);
+    expect(getConnectionActions(t, { status: "connected" })[0]).toEqual({
+      id: "disconnect",
+      label: "navigation.menu.disconnect"
+    });
+    expect(getConnectionActions(t, { status: "error" })[0]).toEqual({
+      id: "connect",
+      label: "navigation.menu.connect"
+    });
+  });
+
+  it("derives file names and upload permission preflight errors", () => {
+    expect(getFileNameFromPath("reports/2026/file.txt")).toBe("file.txt");
+    expect(getFileNameFromPath("C:\\temp\\file.txt")).toBe("file.txt");
+    expect(getFileNameFromPath("file.txt")).toBe("file.txt");
+
+    expect(
+      isUploadExistsPreflightPermissionError(new Error("AccessDenied: failed to probe"))
+    ).toBe(true);
+    expect(
+      isUploadExistsPreflightPermissionError("forbidden while checking upload destination")
+    ).toBe(true);
+    expect(isUploadExistsPreflightPermissionError(new Error("network timeout"))).toBe(false);
   });
 
   it("filters tree nodes while preserving matching descendants", () => {
