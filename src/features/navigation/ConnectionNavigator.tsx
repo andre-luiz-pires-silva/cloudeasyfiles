@@ -201,6 +201,16 @@ import {
   toggleCollapsedConnection,
   updateBucketNodeMap
 } from "./navigationTreeState";
+import {
+  buildContentResetState,
+  buildInitialContentFailureState,
+  buildInitialContentLoadingState,
+  buildInitialContentSuccessState,
+  buildLoadMoreFailureState,
+  buildLoadMoreStartState,
+  buildLoadMoreSuccessState,
+  getRegionUpdate
+} from "./navigationLoading";
 
 function Globe2Icon() {
   return (
@@ -2969,26 +2979,28 @@ export function ConnectionNavigator({
     async function loadContentItems() {
       if (!selectedBucketId || !selectedBucketConnectionId || !selectedBucketName || !selectedConnection) {
         contentRequestIdRef.current += 1;
-        setContentItems([]);
-        setContentContinuationToken(null);
-        setContentHasMore(false);
-        setContentError(null);
-        setContentActionError(null);
-        setLoadMoreContentError(null);
-        setIsLoadingContent(false);
-        setIsLoadingMoreContent(false);
+        const resetState = buildContentResetState<ContentExplorerItem>();
+        setContentItems(resetState.contentItems);
+        setContentContinuationToken(resetState.continuationToken);
+        setContentHasMore(resetState.hasMore);
+        setContentError(resetState.contentError);
+        setContentActionError(resetState.contentActionError ?? null);
+        setLoadMoreContentError(resetState.loadMoreContentError);
+        setIsLoadingContent(resetState.isLoadingContent);
+        setIsLoadingMoreContent(resetState.isLoadingMoreContent);
         return;
       }
 
       const requestId = contentRequestIdRef.current + 1;
       contentRequestIdRef.current = requestId;
-      setIsLoadingContent(true);
-      setIsLoadingMoreContent(false);
-      setContentError(null);
-      setContentActionError(null);
-      setLoadMoreContentError(null);
-      setContentContinuationToken(null);
-      setContentHasMore(false);
+      const loadingState = buildInitialContentLoadingState<ContentExplorerItem>();
+      setIsLoadingContent(loadingState.isLoadingContent);
+      setIsLoadingMoreContent(loadingState.isLoadingMoreContent);
+      setContentError(loadingState.contentError);
+      setContentActionError(loadingState.contentActionError ?? null);
+      setLoadMoreContentError(loadingState.loadMoreContentError);
+      setContentContinuationToken(loadingState.continuationToken);
+      setContentHasMore(loadingState.hasMore);
 
       try {
         const result = await listContainerItemsForSavedConnection(selectedConnection, selectedBucketName, {
@@ -3005,24 +3017,29 @@ export function ConnectionNavigator({
           return;
         }
 
-        setContentItems(
-          applyDownloadedFileState(
-            nextItems,
-            downloadedFilePathSet,
-            selectedBucketConnectionId,
-            selectedBucketName,
-            hasValidGlobalLocalCacheDirectory
-          )
+        const nextLoadedItems = applyDownloadedFileState(
+          nextItems,
+          downloadedFilePathSet,
+          selectedBucketConnectionId,
+          selectedBucketName,
+          hasValidGlobalLocalCacheDirectory
         );
-        setContentContinuationToken(result.continuationToken ?? null);
-        setContentHasMore(result.hasMore);
-        setIsLoadingContent(false);
-        setLoadMoreContentError(null);
+        const successState = buildInitialContentSuccessState(nextLoadedItems, result);
+        setContentItems(successState.contentItems);
+        setContentContinuationToken(successState.continuationToken);
+        setContentHasMore(successState.hasMore);
+        setIsLoadingContent(successState.isLoadingContent);
+        setIsLoadingMoreContent(successState.isLoadingMoreContent);
+        setContentError(successState.contentError);
+        setContentActionError(successState.contentActionError ?? null);
+        setLoadMoreContentError(successState.loadMoreContentError);
 
-        if (result.region && result.region !== selectedBucketRegion) {
+        const nextRegion = getRegionUpdate(result.region, selectedBucketRegion, selectedBucketId);
+
+        if (nextRegion) {
           updateBucketNode(selectedBucketConnectionId, selectedBucketId, (node) => ({
             ...node,
-            region: result.region ?? undefined
+            region: nextRegion
           }));
         }
       } catch (error) {
@@ -3031,12 +3048,15 @@ export function ConnectionNavigator({
         }
 
         const message = extractErrorMessage(error) ?? t("content.list.load_error");
-        setContentItems([]);
-        setContentContinuationToken(null);
-        setContentHasMore(false);
-        setContentError(message);
-        setLoadMoreContentError(null);
-        setIsLoadingContent(false);
+        const failureState = buildInitialContentFailureState<ContentExplorerItem>(message);
+        setContentItems(failureState.contentItems);
+        setContentContinuationToken(failureState.continuationToken);
+        setContentHasMore(failureState.hasMore);
+        setContentError(failureState.contentError);
+        setContentActionError(failureState.contentActionError ?? null);
+        setLoadMoreContentError(failureState.loadMoreContentError);
+        setIsLoadingContent(failureState.isLoadingContent);
+        setIsLoadingMoreContent(failureState.isLoadingMoreContent);
       }
     }
 
@@ -3263,8 +3283,15 @@ export function ConnectionNavigator({
     }
 
     const requestId = contentRequestIdRef.current;
-    setIsLoadingMoreContent(true);
-    setLoadMoreContentError(null);
+    const loadMoreStartState = buildLoadMoreStartState(
+      contentItems,
+      contentContinuationToken,
+      contentHasMore
+    );
+    setIsLoadingContent(loadMoreStartState.isLoadingContent);
+    setIsLoadingMoreContent(loadMoreStartState.isLoadingMoreContent);
+    setContentError(loadMoreStartState.contentError);
+    setLoadMoreContentError(loadMoreStartState.loadMoreContentError);
 
     try {
       const result = await listContainerItemsForSavedConnection(selectedConnection, selectedBucketName, {
@@ -3282,24 +3309,28 @@ export function ConnectionNavigator({
         return;
       }
 
-      setContentItems((previousItems) =>
-        applyDownloadedFileState(
-          mergeContentItems(previousItems, nextItems),
-          downloadedFilePathSet,
-          selectedBucketConnectionId,
-          selectedBucketName,
-          hasValidGlobalLocalCacheDirectory
-        )
+      const nextMergedItems = applyDownloadedFileState(
+        mergeContentItems(contentItems, nextItems),
+        downloadedFilePathSet,
+        selectedBucketConnectionId,
+        selectedBucketName,
+        hasValidGlobalLocalCacheDirectory
       );
-      setContentContinuationToken(result.continuationToken ?? null);
-      setContentHasMore(result.hasMore);
-      setIsLoadingMoreContent(false);
-      setLoadMoreContentError(null);
+      const loadMoreSuccessState = buildLoadMoreSuccessState(nextMergedItems, result);
+      setContentItems(loadMoreSuccessState.contentItems);
+      setContentContinuationToken(loadMoreSuccessState.continuationToken);
+      setContentHasMore(loadMoreSuccessState.hasMore);
+      setIsLoadingContent(loadMoreSuccessState.isLoadingContent);
+      setIsLoadingMoreContent(loadMoreSuccessState.isLoadingMoreContent);
+      setContentError(loadMoreSuccessState.contentError);
+      setLoadMoreContentError(loadMoreSuccessState.loadMoreContentError);
 
-      if (result.region && result.region !== selectedBucketRegion && selectedBucketId) {
+      const nextRegion = getRegionUpdate(result.region, selectedBucketRegion, selectedBucketId);
+
+      if (nextRegion && selectedBucketId) {
         updateBucketNode(selectedBucketConnectionId, selectedBucketId, (node) => ({
           ...node,
-          region: result.region ?? undefined
+          region: nextRegion
         }));
       }
     } catch (error) {
@@ -3307,8 +3338,19 @@ export function ConnectionNavigator({
         return;
       }
 
-      setLoadMoreContentError(extractErrorMessage(error) ?? t("content.list.load_error"));
-      setIsLoadingMoreContent(false);
+      const failureState = buildLoadMoreFailureState(
+        contentItems,
+        contentContinuationToken,
+        contentHasMore,
+        extractErrorMessage(error) ?? t("content.list.load_error")
+      );
+      setContentItems(failureState.contentItems);
+      setContentContinuationToken(failureState.continuationToken);
+      setContentHasMore(failureState.hasMore);
+      setIsLoadingContent(failureState.isLoadingContent);
+      setIsLoadingMoreContent(failureState.isLoadingMoreContent);
+      setContentError(failureState.contentError);
+      setLoadMoreContentError(failureState.loadMoreContentError);
     }
   }
 
