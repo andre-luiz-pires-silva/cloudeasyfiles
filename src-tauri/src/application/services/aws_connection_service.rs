@@ -2455,6 +2455,7 @@ impl AwsConnectionService {
 mod tests {
     use super::*;
     use std::path::PathBuf;
+    use std::sync::atomic::Ordering;
 
     #[test]
     fn normalizes_listing_page_size_with_bounds() {
@@ -2740,5 +2741,87 @@ mod tests {
         assert_eq!(batches[1].len(), 3);
         assert_eq!(batches[0][0], "docs/file-0.txt");
         assert_eq!(batches[1][2], format!("docs/file-{}.txt", S3_DELETE_BATCH_SIZE + 2));
+    }
+
+    #[tokio::test]
+    async fn resolves_cached_object_path_and_cleans_up_temp_files() {
+        let temp_root = std::env::temp_dir().join(format!(
+            "cloudeasyfiles-aws-cache-test-{}",
+            std::process::id()
+        ));
+        let recent_legacy_path = AwsConnectionService::build_recent_legacy_cache_object_path(
+            temp_root.to_str().unwrap(),
+            "bucket-a",
+            "docs/report.txt",
+        )
+        .unwrap();
+
+        fs::create_dir_all(recent_legacy_path.parent().unwrap())
+            .await
+            .unwrap();
+        fs::write(&recent_legacy_path, b"cached")
+            .await
+            .unwrap();
+
+        let resolved = AwsConnectionService::resolve_cached_object_path(
+            "connection-123".to_string(),
+            "Primary Connection".to_string(),
+            "bucket-a".to_string(),
+            temp_root.to_string_lossy().to_string(),
+            "docs/report.txt".to_string(),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(resolved, recent_legacy_path);
+
+        let temp_file = temp_root.join("downloads").join(".report.txt.part");
+        fs::create_dir_all(temp_file.parent().unwrap()).await.unwrap();
+        fs::write(&temp_file, b"partial").await.unwrap();
+
+        AwsConnectionService::remove_temp_file_if_exists(&temp_file)
+            .await
+            .unwrap();
+        assert!(!fs::try_exists(&temp_file).await.unwrap());
+        AwsConnectionService::remove_temp_file_if_exists(&temp_file)
+            .await
+            .unwrap();
+
+        let missing = AwsConnectionService::resolve_cached_object_path(
+            "connection-123".to_string(),
+            "Primary Connection".to_string(),
+            "bucket-a".to_string(),
+            temp_root.to_string_lossy().to_string(),
+            "docs/missing.txt".to_string(),
+        )
+        .await;
+        assert!(missing.is_err());
+
+        fs::remove_dir_all(&temp_root).await.unwrap();
+    }
+
+    #[test]
+    fn registers_and_cancels_transfers() {
+        let download_operation_id = format!("download-{}", std::process::id());
+        let upload_operation_id = format!("upload-{}", std::process::id());
+
+        {
+            let (download_flag, download_guard) =
+                AwsConnectionService::register_download_cancellation(&download_operation_id)
+                    .unwrap();
+            let (upload_flag, upload_guard) =
+                AwsConnectionService::register_upload_cancellation(&upload_operation_id).unwrap();
+
+            assert!(AwsConnectionService::cancel_download(download_operation_id.clone()).unwrap());
+            assert!(AwsConnectionService::cancel_upload(upload_operation_id.clone()).unwrap());
+            assert!(download_flag.load(Ordering::SeqCst));
+            assert!(upload_flag.load(Ordering::SeqCst));
+
+            drop(download_guard);
+            drop(upload_guard);
+        }
+
+        assert!(!AwsConnectionService::cancel_download(download_operation_id).unwrap());
+        assert!(!AwsConnectionService::cancel_upload(upload_operation_id).unwrap());
     }
 }
