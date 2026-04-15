@@ -233,6 +233,14 @@ import {
   resolveInitialGlobalCacheDirectory,
   resolveInitialSidebarWidth
 } from "./navigationPreferences";
+import {
+  buildAwsEditModalState,
+  buildAzureEditModalState,
+  buildBaseEditModalState,
+  buildCreateModalState,
+  buildModalLoadErrorMessage,
+  buildResetModalFormState
+} from "./navigationModalState";
 
 function Globe2Icon() {
   return (
@@ -3128,20 +3136,21 @@ export function ConnectionNavigator({
   }, [isResizingSidebar]);
 
   function resetForm() {
+    const resetState = buildResetModalFormState();
     resetConnectionTestState();
-    setConnectionName("");
-    setConnectionProvider("aws");
-    setAccessKeyId("");
-    setSecretAccessKey("");
-    setRestrictedBucketName("");
-    setStorageAccountName("");
-    setAzureAuthenticationMethod("shared_key");
-    setAzureAccountKey("");
-    setConnectOnStartup(false);
-    setDefaultAwsUploadStorageClass(DEFAULT_AWS_UPLOAD_STORAGE_CLASS);
-    setDefaultAzureUploadTier(DEFAULT_AZURE_UPLOAD_TIER);
-    setFormErrors({});
-    setSubmitError(null);
+    setConnectionName(resetState.connectionName);
+    setConnectionProvider(resetState.connectionProvider);
+    setAccessKeyId(resetState.accessKeyId);
+    setSecretAccessKey(resetState.secretAccessKey);
+    setRestrictedBucketName(resetState.restrictedBucketName);
+    setStorageAccountName(resetState.storageAccountName);
+    setAzureAuthenticationMethod(resetState.azureAuthenticationMethod);
+    setAzureAccountKey(resetState.azureAccountKey);
+    setConnectOnStartup(resetState.connectOnStartup);
+    setDefaultAwsUploadStorageClass(resetState.defaultAwsUploadStorageClass);
+    setDefaultAzureUploadTier(resetState.defaultAzureUploadTier);
+    setFormErrors(resetState.formErrors);
+    setSubmitError(resetState.submitError);
   }
 
   function handleResizeStart() {
@@ -3149,10 +3158,11 @@ export function ConnectionNavigator({
   }
 
   function openCreateModal() {
-    setModalMode("create");
-    setEditingConnectionId(null);
+    const createState = buildCreateModalState();
+    setModalMode(createState.modalMode);
+    setEditingConnectionId(createState.editingConnectionId);
     resetForm();
-    setIsModalOpen(true);
+    setIsModalOpen(createState.isModalOpen);
   }
 
   async function openEditModal(connectionId: string) {
@@ -3164,58 +3174,45 @@ export function ConnectionNavigator({
     }
 
     try {
-      setSubmitError(null);
-      setModalMode("edit");
-      setEditingConnectionId(connectionId);
-      setConnectionName(connection.name);
-      setConnectionProvider(connection.provider);
-      setAccessKeyId("");
-      setSecretAccessKey("");
-      setRestrictedBucketName(
-        connection.provider === "aws" ? connection.restrictedBucketName ?? "" : ""
-      );
-      setStorageAccountName(
-        connection.provider === "azure" ? connection.storageAccountName ?? "" : ""
-      );
-      setAzureAuthenticationMethod(
-        connection.provider === "azure" ? connection.authenticationMethod : "shared_key"
-      );
-      setAzureAccountKey("");
-      setDefaultAzureUploadTier(
-        connection.provider === "azure"
-          ? normalizeAzureUploadTier(connection.defaultUploadTier)
-          : DEFAULT_AZURE_UPLOAD_TIER
-      );
-      setConnectOnStartup(connection.connectOnStartup === true);
-      setDefaultAwsUploadStorageClass(DEFAULT_AWS_UPLOAD_STORAGE_CLASS);
+      const baseEditState = buildBaseEditModalState(connection, connectionId);
+      setSubmitError(baseEditState.submitError);
+      setModalMode(baseEditState.modalMode);
+      setEditingConnectionId(baseEditState.editingConnectionId);
+      setConnectionName(baseEditState.connectionName);
+      setConnectionProvider(baseEditState.connectionProvider);
+      setAccessKeyId(baseEditState.accessKeyId);
+      setSecretAccessKey(baseEditState.secretAccessKey);
+      setRestrictedBucketName(baseEditState.restrictedBucketName);
+      setStorageAccountName(baseEditState.storageAccountName);
+      setAzureAuthenticationMethod(baseEditState.azureAuthenticationMethod);
+      setAzureAccountKey(baseEditState.azureAccountKey);
+      setDefaultAzureUploadTier(baseEditState.defaultAzureUploadTier);
+      setConnectOnStartup(baseEditState.connectOnStartup);
+      setDefaultAwsUploadStorageClass(baseEditState.defaultAwsUploadStorageClass);
       resetConnectionTestState();
-      setFormErrors({});
-      setIsModalOpen(true);
+      setFormErrors(baseEditState.formErrors);
+      setIsModalOpen(baseEditState.isModalOpen);
 
       if (connection.provider === "aws") {
         const draft = await connectionService.getAwsConnectionDraft(connectionId);
-        setAccessKeyId(draft.accessKeyId);
-        setSecretAccessKey(draft.secretAccessKey);
-        setRestrictedBucketName(draft.restrictedBucketName ?? "");
-        setConnectOnStartup(draft.connectOnStartup === true);
-        setDefaultAwsUploadStorageClass(
-          normalizeAwsUploadStorageClass(draft.defaultUploadStorageClass)
-        );
+        const awsEditState = buildAwsEditModalState(baseEditState, draft);
+        setAccessKeyId(awsEditState.accessKeyId);
+        setSecretAccessKey(awsEditState.secretAccessKey);
+        setRestrictedBucketName(awsEditState.restrictedBucketName);
+        setConnectOnStartup(awsEditState.connectOnStartup);
+        setDefaultAwsUploadStorageClass(awsEditState.defaultAwsUploadStorageClass);
         return;
       }
 
       const draft = await connectionService.getAzureConnectionDraft(connectionId);
-      setStorageAccountName(draft.storageAccountName);
-      setAzureAuthenticationMethod(draft.authenticationMethod);
-      setAzureAccountKey(draft.accountKey);
-      setConnectOnStartup(draft.connectOnStartup === true);
-      setDefaultAzureUploadTier(normalizeAzureUploadTier(draft.defaultUploadTier));
+      const azureEditState = buildAzureEditModalState(baseEditState, draft);
+      setStorageAccountName(azureEditState.storageAccountName);
+      setAzureAuthenticationMethod(azureEditState.azureAuthenticationMethod);
+      setAzureAccountKey(azureEditState.azureAccountKey);
+      setConnectOnStartup(azureEditState.connectOnStartup);
+      setDefaultAzureUploadTier(azureEditState.defaultAzureUploadTier);
     } catch (error) {
-      setSubmitError(
-        error instanceof Error
-          ? error.message
-          : t("navigation.modal.credentials_load_warning")
-      );
+      setSubmitError(buildModalLoadErrorMessage(error, t));
     }
   }
 
