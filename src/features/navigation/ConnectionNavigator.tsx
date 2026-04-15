@@ -59,12 +59,6 @@ import type {
 } from "../connections/models";
 import { connectionService } from "../connections/services/connectionService";
 import {
-  isConnectionNameFormatValid,
-  isRestrictedBucketNameFormatValid,
-  isStorageAccountNameFormatValid,
-  MAX_CONNECTION_NAME_LENGTH
-} from "../connections/services/connectionService";
-import {
   type AwsRestoreTier,
   type AwsDownloadProgressEvent,
   type AwsUploadProgressEvent,
@@ -188,6 +182,11 @@ import {
   type UploadConflictDecision,
   type UploadConflictPromptState
 } from "./navigationUploads";
+import {
+  type NavigationFormErrors as FormErrors,
+  validateConnectionForm as validateNavigationConnectionForm,
+  validateConnectionTestFields as validateNavigationConnectionTestFields
+} from "./navigationValidation";
 
 function Globe2Icon() {
   return (
@@ -212,18 +211,6 @@ function Globe2Icon() {
 type NavigatorView = "home" | "node";
 type ConnectionTestStatus = "idle" | "testing" | "success" | "error";
 type ConnectionIndicatorStatus = "disconnected" | "connecting" | "connected" | "error";
-type FormErrors = Partial<
-  Record<
-    | "connectionName"
-    | "accessKeyId"
-    | "secretAccessKey"
-    | "restrictedBucketName"
-    | "storageAccountName"
-    | "authenticationMethod"
-    | "accountKey",
-    string
-  >
->;
 const DEFAULT_SIDEBAR_WIDTH = 360;
 const MIN_SIDEBAR_WIDTH = 300;
 const MAX_SIDEBAR_WIDTH = 520;
@@ -3602,46 +3589,16 @@ export function ConnectionNavigator({
   }
 
   function validateConnectionTestFields(): FormErrors {
-    const nextErrors: FormErrors = {};
-
-    if (connectionProvider === "aws") {
-      if (!accessKeyId.trim()) {
-        nextErrors.accessKeyId = t("navigation.modal.validation.access_key_required");
-      }
-
-      if (!secretAccessKey.trim()) {
-        nextErrors.secretAccessKey = t("navigation.modal.validation.secret_key_required");
-      }
-
-      if (
-        restrictedBucketName.trim() &&
-        !isRestrictedBucketNameFormatValid(restrictedBucketName.trim())
-      ) {
-        nextErrors.restrictedBucketName = t("navigation.modal.validation.restricted_bucket_invalid");
-      }
-    } else {
-      if (!storageAccountName.trim()) {
-        nextErrors.storageAccountName = t(
-          "navigation.modal.validation.storage_account_name_required"
-        );
-      } else if (!isStorageAccountNameFormatValid(storageAccountName.trim())) {
-        nextErrors.storageAccountName = t(
-          "navigation.modal.validation.storage_account_name_invalid"
-        );
-      }
-
-      if (azureAuthenticationMethod !== "shared_key") {
-        nextErrors.authenticationMethod = t(
-          "navigation.modal.validation.azure_authentication_method_invalid"
-        );
-      }
-
-      if (!azureAccountKey.trim()) {
-        nextErrors.accountKey = t("navigation.modal.validation.account_key_required");
-      }
-    }
-
-    return nextErrors;
+    return validateNavigationConnectionTestFields({
+      provider: connectionProvider,
+      accessKeyId,
+      secretAccessKey,
+      restrictedBucketName,
+      storageAccountName,
+      azureAuthenticationMethod,
+      azureAccountKey,
+      t
+    });
   }
 
   async function handleTestConnection() {
@@ -3890,62 +3847,20 @@ export function ConnectionNavigator({
   }
 
   function validateForm(): FormErrors {
-    const nextErrors: FormErrors = {};
-    const normalizedConnectionName = connectionName.trim();
-
-    if (!normalizedConnectionName) {
-      nextErrors.connectionName = t("navigation.modal.validation.connection_name_required");
-    } else if (!isConnectionNameFormatValid(normalizedConnectionName)) {
-      nextErrors.connectionName = t("navigation.modal.validation.connection_name_invalid").replace(
-        "{max}",
-        String(MAX_CONNECTION_NAME_LENGTH)
-      );
-    } else {
-      const hasDuplicateName = connections.some(
-        (connection) =>
-          connection.id !== (modalMode === "edit" ? editingConnectionId : null) &&
-          connection.name.trim().toLocaleLowerCase() === normalizedConnectionName.toLocaleLowerCase()
-      );
-
-      if (hasDuplicateName) {
-        nextErrors.connectionName = t("navigation.modal.validation.connection_name_duplicate");
-      }
-    }
-
-    if (connectionProvider === "aws") {
-      if (!accessKeyId.trim()) {
-        nextErrors.accessKeyId = t("navigation.modal.validation.access_key_required");
-      }
-
-      if (!secretAccessKey.trim()) {
-        nextErrors.secretAccessKey = t("navigation.modal.validation.secret_key_required");
-      }
-
-      if (
-        restrictedBucketName.trim() &&
-        !isRestrictedBucketNameFormatValid(restrictedBucketName.trim())
-      ) {
-        nextErrors.restrictedBucketName = t("navigation.modal.validation.restricted_bucket_invalid");
-      }
-    } else {
-      if (!storageAccountName.trim()) {
-        nextErrors.storageAccountName = t("navigation.modal.validation.storage_account_name_required");
-      } else if (!isStorageAccountNameFormatValid(storageAccountName.trim())) {
-        nextErrors.storageAccountName = t("navigation.modal.validation.storage_account_name_invalid");
-      }
-
-      if (azureAuthenticationMethod !== "shared_key") {
-        nextErrors.authenticationMethod = t(
-          "navigation.modal.validation.azure_authentication_method_invalid"
-        );
-      }
-
-      if (!azureAccountKey.trim()) {
-        nextErrors.accountKey = t("navigation.modal.validation.account_key_required");
-      }
-    }
-
-    return nextErrors;
+    return validateNavigationConnectionForm({
+      provider: connectionProvider,
+      connectionName,
+      connections,
+      modalMode,
+      editingConnectionId,
+      accessKeyId,
+      secretAccessKey,
+      restrictedBucketName,
+      storageAccountName,
+      azureAuthenticationMethod,
+      azureAccountKey,
+      t
+    });
   }
 
   async function handleSaveConnection() {
