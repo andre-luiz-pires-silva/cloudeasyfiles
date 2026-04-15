@@ -261,6 +261,16 @@ import {
   buildOpenedUploadSettingsModalState,
   buildPendingRemoveConnectionState
 } from "./navigationSecondaryModalState";
+import {
+  buildDownloadCompletionToast,
+  buildTransferErrorToast,
+  buildUploadCompletionToast,
+  reconcileContentItemsFromDownloadEvent,
+  reconcileDownloadedFilePathsFromDownloadEvent,
+  shouldShowTransferError,
+  updateTransfersFromDownloadEvent,
+  updateTransfersFromUploadEvent
+} from "./navigationTransfers";
 
 function Globe2Icon() {
   return (
@@ -2224,58 +2234,21 @@ export function ConnectionNavigator({
 
             const payload = event.payload;
 
-            setActiveTransfers((currentTransfers) => {
-              const existingTransfer = currentTransfers[payload.operationId];
+            setActiveTransfers((currentTransfers) =>
+              updateTransfersFromDownloadEvent(currentTransfers, payload)
+            );
+            setDownloadedFilePaths((currentPaths) =>
+              reconcileDownloadedFilePathsFromDownloadEvent(currentPaths, payload)
+            );
+            setContentItems((currentItems) =>
+              reconcileContentItemsFromDownloadEvent(currentItems, payload)
+            );
 
-              if (!existingTransfer) {
-                return currentTransfers;
-              }
+            const completionToast = buildDownloadCompletionToast(payload, t);
 
-              return {
-                ...currentTransfers,
-                [payload.operationId]: {
-                  ...existingTransfer,
-                  progressPercent: payload.progressPercent,
-                  bytesTransferred: payload.bytesReceived,
-                  totalBytes: payload.totalBytes,
-                  state: payload.state,
-                  transferKind: payload.transferKind,
-                  targetPath: payload.targetPath,
-                  error: payload.error
-                }
-              };
-            });
-
-            if (payload.state === "completed" && payload.transferKind === "cache") {
-              const fileIdentity = buildFileIdentity(
-                payload.connectionId,
-                payload.bucketName,
-                payload.objectKey
-              );
-
-              setDownloadedFilePaths((currentPaths) =>
-                currentPaths.includes(fileIdentity)
-                  ? currentPaths
-                  : [...currentPaths, fileIdentity]
-              );
-              setContentItems((currentItems) =>
-                currentItems.map((currentItem) =>
-                  currentItem.kind === "file" && currentItem.path === payload.objectKey
-                    ? { ...currentItem, downloadState: "downloaded" }
-                    : currentItem
-                )
-              );
-            }
-
-            if (payload.state === "completed" && payload.transferKind === "direct") {
-              setCompletionToast({
-                id: payload.operationId,
-                title: t("content.transfer.download_as_completed"),
-                description:
-                  payload.targetPath ?? t("content.transfer.download_as_completed_fallback"),
-                tone: "success"
-              });
-            } else if (payload.state === "failed" && payload.error) {
+            if (completionToast) {
+              setCompletionToast(completionToast);
+            } else if (shouldShowTransferError(payload) && payload.error) {
               showTransferErrorToast(payload.error);
             }
           }
@@ -2319,58 +2292,21 @@ export function ConnectionNavigator({
 
             const payload = event.payload;
 
-            setActiveTransfers((currentTransfers) => {
-              const existingTransfer = currentTransfers[payload.operationId];
+            setActiveTransfers((currentTransfers) =>
+              updateTransfersFromDownloadEvent(currentTransfers, payload)
+            );
+            setDownloadedFilePaths((currentPaths) =>
+              reconcileDownloadedFilePathsFromDownloadEvent(currentPaths, payload)
+            );
+            setContentItems((currentItems) =>
+              reconcileContentItemsFromDownloadEvent(currentItems, payload)
+            );
 
-              if (!existingTransfer) {
-                return currentTransfers;
-              }
+            const completionToast = buildDownloadCompletionToast(payload, t);
 
-              return {
-                ...currentTransfers,
-                [payload.operationId]: {
-                  ...existingTransfer,
-                  progressPercent: payload.progressPercent,
-                  bytesTransferred: payload.bytesReceived,
-                  totalBytes: payload.totalBytes,
-                  state: payload.state,
-                  transferKind: payload.transferKind,
-                  targetPath: payload.targetPath,
-                  error: payload.error
-                }
-              };
-            });
-
-            if (payload.state === "completed" && payload.transferKind === "cache") {
-              const fileIdentity = buildFileIdentity(
-                payload.connectionId,
-                payload.bucketName,
-                payload.objectKey
-              );
-
-              setDownloadedFilePaths((currentPaths) =>
-                currentPaths.includes(fileIdentity)
-                  ? currentPaths
-                  : [...currentPaths, fileIdentity]
-              );
-              setContentItems((currentItems) =>
-                currentItems.map((currentItem) =>
-                  currentItem.kind === "file" && currentItem.path === payload.objectKey
-                    ? { ...currentItem, downloadState: "downloaded" }
-                    : currentItem
-                )
-              );
-            }
-
-            if (payload.state === "completed" && payload.transferKind === "direct") {
-              setCompletionToast({
-                id: payload.operationId,
-                title: t("content.transfer.download_as_completed"),
-                description:
-                  payload.targetPath ?? t("content.transfer.download_as_completed_fallback"),
-                tone: "success"
-              });
-            } else if (payload.state === "failed" && payload.error) {
+            if (completionToast) {
+              setCompletionToast(completionToast);
+            } else if (shouldShowTransferError(payload) && payload.error) {
               showTransferErrorToast(payload.error);
             }
           }
@@ -2426,35 +2362,14 @@ export function ConnectionNavigator({
 
             const payload = event.payload;
 
-            setActiveTransfers((currentTransfers) => {
-              const existingTransfer = currentTransfers[payload.operationId];
+            setActiveTransfers((currentTransfers) =>
+              updateTransfersFromUploadEvent(currentTransfers, payload)
+            );
 
-              if (!existingTransfer) {
-                return currentTransfers;
-              }
+            const completionToast = buildUploadCompletionToast(payload, t);
 
-              return {
-                ...currentTransfers,
-                [payload.operationId]: {
-                  ...existingTransfer,
-                  progressPercent: payload.progressPercent,
-                  bytesTransferred: payload.bytesTransferred,
-                  totalBytes: payload.totalBytes,
-                  state: payload.state,
-                  error: payload.error,
-                  objectKey: payload.objectKey,
-                  localFilePath: payload.localFilePath
-                }
-              };
-            });
-
-            if (payload.state === "completed") {
-              setCompletionToast({
-                id: payload.operationId,
-                title: t("content.transfer.upload_completed"),
-                description: payload.objectKey,
-                tone: "success"
-              });
+            if (completionToast) {
+              setCompletionToast(completionToast);
 
               if (
                 shouldRefreshAfterUploadCompletion({
@@ -2468,7 +2383,7 @@ export function ConnectionNavigator({
               ) {
                 setContentRefreshNonce((currentValue) => currentValue + 1);
               }
-            } else if (payload.state === "failed" && payload.error) {
+            } else if (shouldShowTransferError(payload) && payload.error) {
               showTransferErrorToast(payload.error);
             }
           }
@@ -2512,35 +2427,14 @@ export function ConnectionNavigator({
 
             const payload = event.payload;
 
-            setActiveTransfers((currentTransfers) => {
-              const existingTransfer = currentTransfers[payload.operationId];
+            setActiveTransfers((currentTransfers) =>
+              updateTransfersFromUploadEvent(currentTransfers, payload)
+            );
 
-              if (!existingTransfer) {
-                return currentTransfers;
-              }
+            const completionToast = buildUploadCompletionToast(payload, t);
 
-              return {
-                ...currentTransfers,
-                [payload.operationId]: {
-                  ...existingTransfer,
-                  progressPercent: payload.progressPercent,
-                  bytesTransferred: payload.bytesTransferred,
-                  totalBytes: payload.totalBytes,
-                  state: payload.state,
-                  error: payload.error,
-                  objectKey: payload.objectKey,
-                  localFilePath: payload.localFilePath
-                }
-              };
-            });
-
-            if (payload.state === "completed") {
-              setCompletionToast({
-                id: payload.operationId,
-                title: t("content.transfer.upload_completed"),
-                description: payload.objectKey,
-                tone: "success"
-              });
+            if (completionToast) {
+              setCompletionToast(completionToast);
 
               if (
                 shouldRefreshAfterUploadCompletion({
@@ -2554,7 +2448,7 @@ export function ConnectionNavigator({
               ) {
                 setContentRefreshNonce((currentValue) => currentValue + 1);
               }
-            } else if (payload.state === "failed" && payload.error) {
+            } else if (shouldShowTransferError(payload) && payload.error) {
               showTransferErrorToast(payload.error);
             }
           }
@@ -2682,15 +2576,11 @@ export function ConnectionNavigator({
   }, [completionToast]);
 
   function showTransferErrorToast(description: string) {
-    setCompletionToast({
-      id:
-        typeof globalThis.crypto !== "undefined" && "randomUUID" in globalThis.crypto
-          ? globalThis.crypto.randomUUID()
-          : `toast-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
-      title: t("content.transfer.error_title"),
-      description,
-      tone: "error"
-    });
+    const toastId =
+      typeof globalThis.crypto !== "undefined" && "randomUUID" in globalThis.crypto
+        ? globalThis.crypto.randomUUID()
+        : `toast-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    setCompletionToast(buildTransferErrorToast(toastId, description, t));
   }
 
   useEffect(() => {
