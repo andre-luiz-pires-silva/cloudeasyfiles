@@ -246,6 +246,15 @@ import {
   getContentAreaActionDispatchStep,
   getDefaultConnectionActionStep
 } from "./navigationActionDispatch";
+import {
+  buildClosedCreateFolderModalState,
+  buildClosedPendingDeleteModalState,
+  buildOpenedCreateFolderModalState,
+  canCloseCreateFolderModal,
+  canClosePendingDeleteModal,
+  canOpenCreateFolderModal,
+  shouldOpenContentAreaContextMenu
+} from "./navigationModalGuards";
 
 function Globe2Icon() {
   return (
@@ -1510,14 +1519,15 @@ export function ConnectionNavigator({
   }
 
   function closeDeleteContentModal(force = false) {
-    if (isDeletingContent && !force) {
+    if (!canClosePendingDeleteModal(isDeletingContent, force)) {
       return;
     }
 
-    setPendingContentDelete(null);
-    setDeleteConfirmationValue("");
-    setDeleteContentError(null);
-    setIsDeletingContent(false);
+    const nextState = buildClosedPendingDeleteModalState();
+    setPendingContentDelete(nextState.pendingContentDelete);
+    setDeleteConfirmationValue(nextState.deleteConfirmationValue);
+    setDeleteContentError(nextState.deleteContentError);
+    setIsDeletingContent(nextState.isDeletingContent);
   }
 
   async function handleConfirmDeleteContent() {
@@ -3647,25 +3657,35 @@ export function ConnectionNavigator({
   }
 
   function openCreateFolderModal() {
-    if (selectedNode?.kind !== "bucket" || !selectedBucketProvider) {
+    if (
+      !canOpenCreateFolderModal({
+        selectedNodeKind: selectedNode?.kind,
+        hasSelectedBucketProvider: !!selectedBucketProvider
+      })
+    ) {
       return;
     }
 
-    setContentAreaMenuAnchor(null);
-    setNewFolderName("");
-    setCreateFolderError(null);
-    setIsCreatingFolder(false);
-    setIsCreateFolderModalOpen(true);
+    const nextState = buildOpenedCreateFolderModalState();
+    setContentAreaMenuAnchor(nextState.contentAreaMenuAnchor);
+    setNewFolderName(nextState.newFolderName);
+    setCreateFolderError(nextState.createFolderError);
+    setIsCreatingFolder(nextState.isCreatingFolder);
+    setIsCreateFolderModalOpen(nextState.isCreateFolderModalOpen);
   }
 
   function closeCreateFolderModal(force = false) {
-    if (isCreatingFolder && !force) {
+    if (!canCloseCreateFolderModal(isCreatingFolder, force)) {
       return;
     }
 
-    setIsCreateFolderModalOpen(false);
-    setNewFolderName("");
-    setCreateFolderError(null);
+    const nextState = buildClosedCreateFolderModalState({
+      contentAreaMenuAnchor,
+      isCreatingFolder
+    });
+    setIsCreateFolderModalOpen(nextState.isCreateFolderModalOpen);
+    setNewFolderName(nextState.newFolderName);
+    setCreateFolderError(nextState.createFolderError);
   }
 
   async function handleCreateFolder() {
@@ -3727,16 +3747,15 @@ export function ConnectionNavigator({
   }
 
   function handleOpenContentAreaContextMenu(event: React.MouseEvent<HTMLElement>) {
-    if (!selectedNode) {
-      return;
-    }
-
     const target = event.target as HTMLElement | null;
 
     if (
-      target?.closest(".content-list-item") ||
-      target?.closest(".content-list-header") ||
-      target?.closest(".tree-menu-popup")
+      !shouldOpenContentAreaContextMenu({
+        hasSelectedNode: !!selectedNode,
+        clickedContentListItem: !!target?.closest(".content-list-item"),
+        clickedContentListHeader: !!target?.closest(".content-list-header"),
+        clickedTreeMenuPopup: !!target?.closest(".tree-menu-popup")
+      })
     ) {
       return;
     }
