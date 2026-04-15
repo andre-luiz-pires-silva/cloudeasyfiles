@@ -2559,6 +2559,94 @@ mod tests {
     }
 
     #[test]
+    fn builds_cache_path_candidates_and_temp_files_with_expected_structure() {
+        let candidates = AwsConnectionService::build_cache_object_path_candidates(
+            "/tmp/cache",
+            "connection-123",
+            "Primary Connection",
+            "bucket-a",
+            "docs/report.txt",
+        )
+        .unwrap();
+
+        assert_eq!(candidates.len(), 4);
+        assert_eq!(
+            candidates[0],
+            PathBuf::from("/tmp/cache")
+                .join("Primary Connection")
+                .join("bucket-a")
+                .join("docs")
+                .join("report.txt")
+        );
+        assert_eq!(
+            candidates[1],
+            PathBuf::from("/tmp/cache")
+                .join("bucket-a")
+                .join("docs")
+                .join("report.txt")
+        );
+        assert_eq!(
+            candidates[2],
+            PathBuf::from("/tmp/cache")
+                .join("connection-123")
+                .join("bucket-a")
+                .join("docs")
+                .join("report.txt")
+        );
+        assert_eq!(
+            candidates[3],
+            PathBuf::from("/tmp/cache")
+                .join("connection-123")
+                .join("bucket-a")
+                .join(AwsConnectionService::encode_cache_path_segment("docs"))
+                .join(AwsConnectionService::encode_cache_path_segment("report.txt"))
+        );
+
+        let temp_cache_path = AwsConnectionService::build_cache_temp_object_path(
+            "/tmp/cache",
+            "Primary Connection",
+            "bucket-a",
+            "docs/report.txt",
+        )
+        .unwrap();
+
+        assert!(temp_cache_path.starts_with(
+            PathBuf::from("/tmp/cache")
+                .join(AwsConnectionService::CACHE_TEMP_DIRECTORY)
+                .join("Primary Connection")
+        ));
+        assert_eq!(
+            temp_cache_path.file_stem().and_then(|value| value.to_str()),
+            Some("report")
+        );
+        assert!(
+            temp_cache_path
+                .extension()
+                .and_then(|value| value.to_str())
+                .is_some_and(|value| value.starts_with("part-"))
+        );
+
+        let temp_file_path =
+            AwsConnectionService::build_temp_file_path(Path::new("/tmp/downloads/report.txt"))
+                .unwrap();
+        let temp_file_name = temp_file_path
+            .file_name()
+            .and_then(|value| value.to_str())
+            .unwrap();
+        let temp_directory_path =
+            AwsConnectionService::build_temp_file_path(Path::new("/tmp/downloads")).unwrap();
+        let temp_directory_name = temp_directory_path
+            .file_name()
+            .and_then(|value| value.to_str())
+            .unwrap();
+
+        assert!(temp_file_path.starts_with("/tmp/downloads"));
+        assert!(temp_file_name.starts_with(".report.txt.cloudeasyfiles.part-"));
+        assert!(temp_directory_path.starts_with("/tmp"));
+        assert!(temp_directory_name.starts_with(".downloads.cloudeasyfiles.part-"));
+    }
+
+    #[test]
     fn parses_storage_classes_restore_tiers_and_directory_names() {
         assert_eq!(build_directory_name("docs/reports/"), "reports");
         assert_eq!(build_directory_name("/"), "/");
