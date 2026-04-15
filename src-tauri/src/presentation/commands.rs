@@ -316,6 +316,102 @@ fn build_azure_direct_download_terminal_event(
     )
 }
 
+fn build_aws_upload_progress_event(
+    operation_id: String,
+    connection_id: String,
+    bucket_name: String,
+    object_key: String,
+    local_file_path: String,
+    bytes_transferred: i64,
+    total_bytes: i64,
+) -> AwsUploadEvent {
+    build_aws_upload_event(
+        operation_id,
+        connection_id,
+        bucket_name,
+        object_key,
+        local_file_path,
+        bytes_transferred,
+        total_bytes,
+        calculate_progress_percent(bytes_transferred, total_bytes),
+        "progress",
+        None,
+    )
+}
+
+fn build_aws_upload_terminal_event(
+    operation_id: String,
+    connection_id: String,
+    bucket_name: String,
+    object_key: String,
+    local_file_path: String,
+    state: &str,
+    error: Option<String>,
+) -> AwsUploadEvent {
+    let progress_percent = if state == "completed" { 100.0 } else { 0.0 };
+
+    build_aws_upload_event(
+        operation_id,
+        connection_id,
+        bucket_name,
+        object_key,
+        local_file_path,
+        0,
+        0,
+        progress_percent,
+        state,
+        error,
+    )
+}
+
+fn build_azure_upload_progress_event(
+    operation_id: String,
+    connection_id: String,
+    bucket_name: String,
+    object_key: String,
+    local_file_path: String,
+    bytes_transferred: i64,
+    total_bytes: i64,
+) -> AzureUploadEvent {
+    build_azure_upload_event(
+        operation_id,
+        connection_id,
+        bucket_name,
+        object_key,
+        local_file_path,
+        bytes_transferred,
+        total_bytes,
+        calculate_progress_percent(bytes_transferred, total_bytes),
+        "progress",
+        None,
+    )
+}
+
+fn build_azure_upload_terminal_event(
+    operation_id: String,
+    connection_id: String,
+    bucket_name: String,
+    object_key: String,
+    local_file_path: String,
+    state: &str,
+    error: Option<String>,
+) -> AzureUploadEvent {
+    let progress_percent = if state == "completed" { 100.0 } else { 0.0 };
+
+    build_azure_upload_event(
+        operation_id,
+        connection_id,
+        bucket_name,
+        object_key,
+        local_file_path,
+        0,
+        0,
+        progress_percent,
+        state,
+        error,
+    )
+}
+
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct AzureDownloadEvent {
@@ -1357,7 +1453,7 @@ pub async fn start_aws_upload(
         storage_class,
         bucket_region,
         |bytes_transferred, total_bytes| {
-            emit_event(build_aws_upload_event(
+            emit_event(build_aws_upload_progress_event(
                 operation_id_for_progress.clone(),
                 connection_id_for_progress.clone(),
                 bucket_name_for_progress.clone(),
@@ -1365,9 +1461,6 @@ pub async fn start_aws_upload(
                 local_file_path_for_progress.clone(),
                 bytes_transferred,
                 total_bytes,
-                calculate_progress_percent(bytes_transferred, total_bytes),
-                "progress",
-                None,
             ))
         },
     )
@@ -1375,15 +1468,12 @@ pub async fn start_aws_upload(
 
     match result {
         Ok(local_file_path) => {
-            emit_event(build_aws_upload_event(
+            emit_event(build_aws_upload_terminal_event(
                 operation_id,
                 connection_id,
                 bucket_name,
                 object_key,
                 local_file_path.clone(),
-                0,
-                0,
-                100.0,
                 "completed",
                 None,
             ))?;
@@ -1393,15 +1483,12 @@ pub async fn start_aws_upload(
         Err(error) => {
             let state = upload_terminal_state(&error, is_cancelled_upload_error);
 
-            emit_event(build_aws_upload_event(
+            emit_event(build_aws_upload_terminal_event(
                 operation_id,
                 connection_id,
                 bucket_name,
                 object_key,
                 local_file_path,
-                0,
-                0,
-                0.0,
                 &state,
                 Some(error.clone()),
             ))?;
@@ -1457,7 +1544,7 @@ pub async fn start_aws_upload_bytes(
         storage_class,
         bucket_region,
         |bytes_transferred, total_bytes| {
-            emit_event(build_aws_upload_event(
+            emit_event(build_aws_upload_progress_event(
                 operation_id_for_progress.clone(),
                 connection_id_for_progress.clone(),
                 bucket_name_for_progress.clone(),
@@ -1465,9 +1552,6 @@ pub async fn start_aws_upload_bytes(
                 file_name_for_progress.clone(),
                 bytes_transferred,
                 total_bytes,
-                calculate_progress_percent(bytes_transferred, total_bytes),
-                "progress",
-                None,
             ))
         },
     )
@@ -1475,15 +1559,12 @@ pub async fn start_aws_upload_bytes(
 
     match result {
         Ok(returned_file_name) => {
-            emit_event(build_aws_upload_event(
+            emit_event(build_aws_upload_terminal_event(
                 operation_id,
                 connection_id,
                 bucket_name,
                 object_key,
                 returned_file_name.clone(),
-                0,
-                0,
-                100.0,
                 "completed",
                 None,
             ))?;
@@ -1493,15 +1574,12 @@ pub async fn start_aws_upload_bytes(
         Err(error) => {
             let state = upload_terminal_state(&error, is_cancelled_upload_error);
 
-            emit_event(build_aws_upload_event(
+            emit_event(build_aws_upload_terminal_event(
                 operation_id,
                 connection_id,
                 bucket_name,
                 object_key,
                 file_name,
-                0,
-                0,
-                0.0,
                 &state,
                 Some(error.clone()),
             ))?;
@@ -1546,7 +1624,7 @@ pub async fn start_azure_upload(
         local_file_path.clone(),
         access_tier,
         |bytes_transferred, total_bytes| {
-            emit_event(build_azure_upload_event(
+            emit_event(build_azure_upload_progress_event(
                 operation_id_for_progress.clone(),
                 connection_id_for_progress.clone(),
                 container_name_for_progress.clone(),
@@ -1554,9 +1632,6 @@ pub async fn start_azure_upload(
                 local_file_path_for_progress.clone(),
                 bytes_transferred,
                 total_bytes,
-                calculate_progress_percent(bytes_transferred, total_bytes),
-                "progress",
-                None,
             ))
         },
     )
@@ -1564,15 +1639,12 @@ pub async fn start_azure_upload(
 
     match result {
         Ok(local_file_path) => {
-            emit_event(build_azure_upload_event(
+            emit_event(build_azure_upload_terminal_event(
                 operation_id,
                 connection_id,
                 container_name,
                 blob_name,
                 local_file_path.clone(),
-                0,
-                0,
-                100.0,
                 "completed",
                 None,
             ))?;
@@ -1582,15 +1654,12 @@ pub async fn start_azure_upload(
         Err(error) => {
             let state = upload_terminal_state(&error, is_cancelled_azure_upload_error);
 
-            emit_event(build_azure_upload_event(
+            emit_event(build_azure_upload_terminal_event(
                 operation_id,
                 connection_id,
                 container_name,
                 blob_name,
                 local_file_path,
-                0,
-                0,
-                0.0,
                 &state,
                 Some(error.clone()),
             ))?;
@@ -1637,7 +1706,7 @@ pub async fn start_azure_upload_bytes(
         file_bytes,
         access_tier,
         |bytes_transferred, total_bytes| {
-            emit_event(build_azure_upload_event(
+            emit_event(build_azure_upload_progress_event(
                 operation_id_for_progress.clone(),
                 connection_id_for_progress.clone(),
                 container_name_for_progress.clone(),
@@ -1645,9 +1714,6 @@ pub async fn start_azure_upload_bytes(
                 file_name_for_progress.clone(),
                 bytes_transferred,
                 total_bytes,
-                calculate_progress_percent(bytes_transferred, total_bytes),
-                "progress",
-                None,
             ))
         },
     )
@@ -1655,15 +1721,12 @@ pub async fn start_azure_upload_bytes(
 
     match result {
         Ok(returned_file_name) => {
-            emit_event(build_azure_upload_event(
+            emit_event(build_azure_upload_terminal_event(
                 operation_id,
                 connection_id,
                 container_name,
                 blob_name,
                 returned_file_name.clone(),
-                0,
-                0,
-                100.0,
                 "completed",
                 None,
             ))?;
@@ -1673,15 +1736,12 @@ pub async fn start_azure_upload_bytes(
         Err(error) => {
             let state = upload_terminal_state(&error, is_cancelled_azure_upload_error);
 
-            emit_event(build_azure_upload_event(
+            emit_event(build_azure_upload_terminal_event(
                 operation_id,
                 connection_id,
                 container_name,
                 blob_name,
                 file_name,
-                0,
-                0,
-                0.0,
                 &state,
                 Some(error.clone()),
             ))?;
@@ -1831,12 +1891,14 @@ pub async fn cancel_azure_upload(operation_id: String) -> Result<(), String> {
 mod tests {
     use super::{
         build_aws_direct_download_progress_event, build_aws_direct_download_terminal_event,
-        build_aws_download_event, build_aws_upload_event,
+        build_aws_download_event, build_aws_upload_event, build_aws_upload_progress_event,
+        build_aws_upload_terminal_event,
         build_azure_direct_download_progress_event, build_azure_direct_download_terminal_event,
-        build_azure_download_event, build_azure_upload_event, calculate_progress_percent,
-        download_terminal_state, get_greeting, is_cancelled_azure_download_error,
-        is_cancelled_azure_upload_error, is_cancelled_download_error, is_cancelled_upload_error,
-        upload_terminal_state, validate_local_mapping_directory, AZURE_DOWNLOAD_CANCELLED_ERROR,
+        build_azure_download_event, build_azure_upload_event, build_azure_upload_progress_event,
+        build_azure_upload_terminal_event, calculate_progress_percent, download_terminal_state,
+        get_greeting, is_cancelled_azure_download_error, is_cancelled_azure_upload_error,
+        is_cancelled_download_error, is_cancelled_upload_error, upload_terminal_state,
+        validate_local_mapping_directory, AZURE_DOWNLOAD_CANCELLED_ERROR,
         AZURE_UPLOAD_CANCELLED_ERROR, DOWNLOAD_CANCELLED_ERROR, UPLOAD_CANCELLED_ERROR,
     };
     use std::fs::{self, File};
@@ -2070,6 +2132,73 @@ mod tests {
         assert_eq!(azure_event.progress_percent, 0.0);
         assert_eq!(azure_event.state, "failed");
         assert_eq!(azure_event.error.as_deref(), Some("network error"));
+    }
+
+    #[test]
+    fn builds_upload_progress_and_terminal_events_with_expected_defaults() {
+        let aws_progress = build_aws_upload_progress_event(
+            "op-aws-progress".to_string(),
+            "conn-1".to_string(),
+            "bucket-a".to_string(),
+            "docs/report.txt".to_string(),
+            "/tmp/report.txt".to_string(),
+            50,
+            200,
+        );
+        assert_eq!(aws_progress.progress_percent, 25.0);
+        assert_eq!(aws_progress.state, "progress");
+        assert_eq!(aws_progress.error, None);
+
+        let aws_completed = build_aws_upload_terminal_event(
+            "op-aws-complete".to_string(),
+            "conn-1".to_string(),
+            "bucket-a".to_string(),
+            "docs/report.txt".to_string(),
+            "/tmp/report.txt".to_string(),
+            "completed",
+            None,
+        );
+        assert_eq!(aws_completed.progress_percent, 100.0);
+        assert_eq!(aws_completed.state, "completed");
+
+        let aws_cancelled = build_aws_upload_terminal_event(
+            "op-aws-cancelled".to_string(),
+            "conn-1".to_string(),
+            "bucket-a".to_string(),
+            "docs/report.txt".to_string(),
+            "/tmp/report.txt".to_string(),
+            "cancelled",
+            Some(UPLOAD_CANCELLED_ERROR.to_string()),
+        );
+        assert_eq!(aws_cancelled.progress_percent, 0.0);
+        assert_eq!(aws_cancelled.state, "cancelled");
+        assert_eq!(aws_cancelled.error.as_deref(), Some(UPLOAD_CANCELLED_ERROR));
+
+        let azure_progress = build_azure_upload_progress_event(
+            "op-az-progress".to_string(),
+            "conn-2".to_string(),
+            "container-a".to_string(),
+            "archive.zip".to_string(),
+            "archive.zip".to_string(),
+            90,
+            300,
+        );
+        assert_eq!(azure_progress.progress_percent, 30.0);
+        assert_eq!(azure_progress.state, "progress");
+        assert_eq!(azure_progress.error, None);
+
+        let azure_failed = build_azure_upload_terminal_event(
+            "op-az-failed".to_string(),
+            "conn-2".to_string(),
+            "container-a".to_string(),
+            "archive.zip".to_string(),
+            "archive.zip".to_string(),
+            "failed",
+            Some("network error".to_string()),
+        );
+        assert_eq!(azure_failed.progress_percent, 0.0);
+        assert_eq!(azure_failed.state, "failed");
+        assert_eq!(azure_failed.error.as_deref(), Some("network error"));
     }
 
     #[tokio::test]
