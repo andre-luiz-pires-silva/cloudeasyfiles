@@ -160,6 +160,21 @@ import {
   mergeContentItems
 } from "./navigationContent";
 import {
+  buildAvailableUntilTooltip,
+  buildBreadcrumbs,
+  buildContentCounterLabel,
+  filterTreeNodes,
+  getContentStatusLabel,
+  getDisplayContentStatus,
+  getFileStatusBadgeDescriptors,
+  getPathTitle,
+  getPreferredFileStatusBadgeDescriptors,
+  getSummaryContentStatuses,
+  isTemporaryRestoredArchivalFile,
+  matchesFilter,
+  normalizeFilterText
+} from "./navigationPresentation";
+import {
   isAzureArchivedOverwriteBlocked,
   resolveUploadConflictDecisions,
   type UploadConflictDecision,
@@ -406,84 +421,6 @@ function isCancelledTransferError(error: unknown): boolean {
   return extractErrorMessage(error) === "DOWNLOAD_CANCELLED";
 }
 
-function normalizeFilterText(value: string): string {
-  return value.trim().toLocaleLowerCase();
-}
-
-function matchesFilter(parts: Array<string | null | undefined>, normalizedFilter: string): boolean {
-  if (!normalizedFilter) {
-    return true;
-  }
-
-  return parts.some((part) => part?.toLocaleLowerCase().includes(normalizedFilter));
-}
-
-function filterTreeNodes(
-  nodes: ExplorerTreeNode[],
-  normalizedFilter: string
-): ExplorerTreeNode[] {
-  if (!normalizedFilter) {
-    return nodes;
-  }
-
-  return nodes.reduce<ExplorerTreeNode[]>((filteredNodes, node) => {
-    const filteredChildren = node.children
-      ? filterTreeNodes(node.children, normalizedFilter)
-      : undefined;
-    const nodeMatches = matchesFilter(
-      [node.name, node.provider, node.region, node.bucketName, node.path],
-      normalizedFilter
-    );
-
-    if (!nodeMatches && (!filteredChildren || filteredChildren.length === 0)) {
-      return filteredNodes;
-    }
-
-    filteredNodes.push({
-      ...node,
-      children: filteredChildren
-    });
-
-    return filteredNodes;
-  }, []);
-}
-
-function getPathTitle(path: string, fallback: string): string {
-  if (!path) {
-    return fallback;
-  }
-
-  const trimmed = path.endsWith("/") ? path.slice(0, -1) : path;
-  const name = trimmed.split("/").pop();
-
-  return name && name.length > 0 ? name : path;
-}
-
-function buildBreadcrumbs(connectionName: string, bucketName: string, path: string) {
-  const breadcrumbs = [
-    { label: connectionName, path: null as string | null },
-    { label: bucketName, path: "" }
-  ];
-
-  if (!path) {
-    return breadcrumbs;
-  }
-
-  const trimmed = path.endsWith("/") ? path.slice(0, -1) : path;
-  const segments = trimmed.split("/");
-  let accumulatedPath = "";
-
-  for (const segment of segments) {
-    accumulatedPath += `${segment}/`;
-    breadcrumbs.push({
-      label: segment || "/",
-      path: accumulatedPath
-    });
-  }
-
-  return breadcrumbs;
-}
-
 function formatBytes(size: number | undefined, locale: Locale): string {
   if (typeof size !== "number" || !Number.isFinite(size)) {
     return "-";
@@ -557,172 +494,11 @@ function getConnectionActions(
   ];
 }
 
-function buildContentCounterLabel(
-  t: (key: string) => string,
-  isFilterActive: boolean,
-  displayedCount: number,
-  loadedCount: number
-): string {
-  if (isFilterActive) {
-    return t("content.list.count_filtered")
-      .replace("{filtered}", String(displayedCount))
-      .replace("{loaded}", String(loadedCount));
-  }
-
-  return t("content.list.count_loaded").replace("{loaded}", String(loadedCount));
-}
-
-function getSummaryContentStatuses(item: ContentExplorerItem): ContentStatusFilter[] {
-  if (item.kind === "directory") {
-    return ["directory"];
-  }
-
-  if (item.kind !== "file") {
-    return [];
-  }
-
-  if (item.downloadState === "downloaded") {
-    return ["downloaded"];
-  }
-
-  if (item.availabilityStatus === "restoring") {
-    return ["restoring"];
-  }
-
-  if (isTemporaryRestoredArchivalFile(item)) {
-    return ["available", "archived"];
-  }
-
-  if (item.availabilityStatus === "available") {
-    return ["available"];
-  }
-
-  if (item.availabilityStatus === "archived") {
-    return ["archived"];
-  }
-
-  return [];
-}
-
-function getDisplayContentStatus(item: ContentExplorerItem): ContentStatusFilter | null {
-  if (item.kind !== "file") {
-    return null;
-  }
-
-  if (item.downloadState === "downloaded") {
-    return "downloaded";
-  }
-
-  if (item.availabilityStatus === "available") {
-    return "available";
-  }
-
-  if (item.availabilityStatus === "restoring") {
-    return "restoring";
-  }
-
-  if (item.availabilityStatus === "archived") {
-    return "archived";
-  }
-
-  return null;
-}
-
-function getContentStatusLabel(
-  status: ContentStatusFilter | null,
-  t: (key: string) => string
-): string | null {
-  if (status === "directory") {
-    return t("content.filter.status.directory");
-  }
-
-  if (status === "downloaded") {
-    return t("content.download_state.downloaded");
-  }
-
-  if (status === "available" || status === "restoring" || status === "archived") {
-    return t(`content.availability.${status}`);
-  }
-
-  return null;
-}
-
 type FileStatusBadgeDescriptor = {
   status: "available" | "downloaded" | "archived" | "restoring";
   label: string;
   title: string;
 };
-
-function isTemporaryRestoredArchivalFile(item: ContentExplorerItem): boolean {
-  return (
-    item.kind === "file" &&
-    item.downloadState !== "downloaded" &&
-    item.availabilityStatus === "available" &&
-    Boolean(item.restoreExpiryDate) &&
-    isArchivedStorageClass(item.storageClass)
-  );
-}
-
-function buildAvailableUntilTooltip(
-  restoreExpiryDate: string | null | undefined,
-  locale: Locale,
-  t: (key: string) => string
-): string {
-  const formattedDate = formatDateTime(restoreExpiryDate, locale);
-
-  return t("content.availability.available_until").replace("{date}", formattedDate);
-}
-
-function getFileStatusBadgeDescriptors(
-  item: ContentExplorerItem,
-  locale: Locale,
-  t: (key: string) => string
-): FileStatusBadgeDescriptor[] {
-  if (item.kind !== "file") {
-    return [];
-  }
-
-  if (isTemporaryRestoredArchivalFile(item)) {
-    return [
-      {
-        status: "available",
-        label: t("content.availability.available"),
-        title: buildAvailableUntilTooltip(item.restoreExpiryDate, locale, t)
-      },
-      {
-        status: "archived",
-        label: t("content.availability.archived"),
-        title: t("content.availability.archived")
-      }
-    ];
-  }
-
-  const primaryStatus = getDisplayContentStatus(item);
-  const primaryLabel = getContentStatusLabel(primaryStatus, t);
-
-  if (!primaryStatus || primaryStatus === "directory" || !primaryLabel) {
-    return [];
-  }
-
-  return [
-    {
-      status: primaryStatus,
-      label: primaryLabel,
-      title: primaryLabel
-    }
-  ];
-}
-
-function getPreferredFileStatusBadgeDescriptors(
-  item: ContentExplorerItem,
-  locale: Locale,
-  t: (key: string) => string
-): FileStatusBadgeDescriptor[] {
-  const descriptors = getFileStatusBadgeDescriptors(item, locale, t);
-  const availableDescriptor = descriptors.find((descriptor) => descriptor.status === "available");
-
-  return availableDescriptor ? [availableDescriptor] : descriptors;
-}
 
 async function resolveCachedFileIdentities(
   provider: ConnectionProvider,
