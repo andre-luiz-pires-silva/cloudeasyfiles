@@ -44,6 +44,17 @@ export type NavigationActionContext = {
   activeTransferIdentityMap: Map<string, NavigationTransferSummary>;
 };
 
+export type NavigationBatchSelectionActions<T extends NavigationContentItem = NavigationContentItem> = {
+  downloadableItems: T[];
+  restorableItems: T[];
+  changeTierableItems: T[];
+  deletableItems: T[];
+  canBatchDownload: boolean;
+  canBatchRestore: boolean;
+  canBatchChangeTier: boolean;
+  canBatchDelete: boolean;
+};
+
 export type ContentDeletePlan = {
   fileKeys: string[];
   directoryPrefixes: string[];
@@ -197,6 +208,28 @@ export function isFileIdentityInContext(
       item.kind === "file" &&
       buildFileIdentity(connectionId, bucketName, item.path) === fileIdentity
   );
+}
+
+export function getBatchSelectionActions<T extends NavigationContentItem>(
+  items: T[],
+  context: NavigationActionContext,
+  provider: ConnectionProvider | null | undefined
+): NavigationBatchSelectionActions<T> {
+  const downloadableItems = items.filter((item) => canDownloadItem(item, context));
+  const restorableItems = items.filter((item) => canRestoreItem(item, provider));
+  const changeTierableItems = items.filter((item) => canChangeTierItem(item, provider));
+  const deletableItems = provider ? items : [];
+
+  return {
+    downloadableItems,
+    restorableItems,
+    changeTierableItems,
+    deletableItems,
+    canBatchDownload: items.length > 0 && downloadableItems.length === items.length,
+    canBatchRestore: items.length > 0 && restorableItems.length === items.length,
+    canBatchChangeTier: items.length > 0 && changeTierableItems.length === items.length,
+    canBatchDelete: items.length > 0 && deletableItems.length === items.length
+  };
 }
 
 export function getStartupAutoConnectConnections(

@@ -9,6 +9,7 @@ import {
   canDownloadItem,
   canRestoreItem,
   dedupeDirectoryPrefixes,
+  getBatchSelectionActions,
   getStartupAutoConnectConnections,
   getUploadParentPath,
   getFileActionKind,
@@ -249,5 +250,55 @@ describe("navigationGuards", () => {
     expect(getFileActionKind("openFile")).toBe("local-read");
     expect(getFileActionKind("openInExplorer")).toBe("local-read");
     expect(getFileActionKind("cancelDownload")).toBe("transfer-control");
+  });
+
+  it("computes batch selection actions without mixing incompatible operations", () => {
+    const archivedFile: NavigationContentItem = {
+      id: "f1",
+      kind: "file",
+      path: "docs/archive.zip",
+      availabilityStatus: "archived",
+      downloadState: "not_downloaded"
+    };
+    const availableFile: NavigationContentItem = {
+      id: "f2",
+      kind: "file",
+      path: "docs/report.txt",
+      availabilityStatus: "available",
+      downloadState: "available_to_download"
+    };
+
+    const archivedSelection = getBatchSelectionActions([archivedFile], createContext(), "aws");
+    expect(archivedSelection.restorableItems).toEqual([archivedFile]);
+    expect(archivedSelection.canBatchRestore).toBe(true);
+    expect(archivedSelection.canBatchDownload).toBe(false);
+    expect(archivedSelection.canBatchChangeTier).toBe(false);
+    expect(archivedSelection.canBatchDelete).toBe(true);
+
+    const availableSelection = getBatchSelectionActions([availableFile], createContext(), "azure");
+    expect(availableSelection.downloadableItems).toEqual([availableFile]);
+    expect(availableSelection.changeTierableItems).toEqual([availableFile]);
+    expect(availableSelection.canBatchDownload).toBe(true);
+    expect(availableSelection.canBatchChangeTier).toBe(true);
+    expect(availableSelection.canBatchRestore).toBe(false);
+    expect(availableSelection.canBatchDelete).toBe(true);
+
+    const mixedSelection = getBatchSelectionActions(
+      [archivedFile, availableFile],
+      createContext(),
+      "aws"
+    );
+    expect(mixedSelection.canBatchDownload).toBe(false);
+    expect(mixedSelection.canBatchRestore).toBe(false);
+    expect(mixedSelection.canBatchChangeTier).toBe(false);
+    expect(mixedSelection.canBatchDelete).toBe(true);
+
+    const disconnectedSelection = getBatchSelectionActions(
+      [availableFile],
+      createContext({ provider: null }),
+      null
+    );
+    expect(disconnectedSelection.canBatchDelete).toBe(false);
+    expect(disconnectedSelection.deletableItems).toEqual([]);
   });
 });

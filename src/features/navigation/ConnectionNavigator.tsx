@@ -129,6 +129,7 @@ import {
   canDownloadItem,
   canRestoreItem,
   dedupeDirectoryPrefixes,
+  getBatchSelectionActions,
   getFileActionKind,
   getRefreshPlan,
   type NavigationFileActionId as FileActionId,
@@ -1420,31 +1421,11 @@ export function ConnectionNavigator({
     [downloadedFilePaths]
   );
   const batchSelectionActions = useMemo<BatchSelectionActionsState>(() => {
-    const downloadableItems = selectedContentItems.filter((item) =>
-      canDownloadItem(item, fileActionAvailabilityContext)
+    return getBatchSelectionActions(
+      selectedContentItems,
+      fileActionAvailabilityContext,
+      selectedBucketProvider
     );
-    const restorableItems = selectedContentItems.filter((item) =>
-      canRestoreItem(item, selectedBucketProvider)
-    );
-    const changeTierableItems = selectedContentItems.filter((item) =>
-      canChangeTierItem(item, selectedBucketProvider)
-    );
-    const deletableItems = selectedBucketProvider ? selectedContentItems : [];
-
-    return {
-      downloadableItems,
-      restorableItems,
-      changeTierableItems,
-      deletableItems,
-      canBatchDownload:
-        selectedContentItems.length > 0 && downloadableItems.length === selectedContentItems.length,
-      canBatchRestore:
-        selectedContentItems.length > 0 && restorableItems.length === selectedContentItems.length,
-      canBatchChangeTier:
-        selectedContentItems.length > 0 && changeTierableItems.length === selectedContentItems.length,
-      canBatchDelete:
-        selectedContentItems.length > 0 && deletableItems.length === selectedContentItems.length
-    };
   }, [selectedContentItems, fileActionAvailabilityContext, selectedBucketProvider]);
   const localMappingDirectoryAlertKey =
     localMappingDirectoryStatus === "invalid"
