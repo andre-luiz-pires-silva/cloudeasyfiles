@@ -154,6 +154,12 @@ import {
   resolveDownloadState
 } from "./navigationDownloads";
 import {
+  buildContentItems,
+  buildPreviewFileState,
+  isArchivedStorageClass,
+  mergeContentItems
+} from "./navigationContent";
+import {
   isAzureArchivedOverwriteBlocked,
   resolveUploadConflictDecisions,
   type UploadConflictDecision,
@@ -398,109 +404,6 @@ function extractErrorMessage(error: unknown): string | null {
 
 function isCancelledTransferError(error: unknown): boolean {
   return extractErrorMessage(error) === "DOWNLOAD_CANCELLED";
-}
-
-function isArchivedStorageClass(storageClass: string | null | undefined): boolean {
-  const normalizedStorageClass = storageClass?.toLocaleLowerCase() ?? "";
-
-  return normalizedStorageClass.includes("archive") || normalizedStorageClass.includes("glacier");
-}
-
-function buildPreviewFileState(
-  storageClass: string | null | undefined,
-  restoreInProgress?: boolean | null,
-  restoreExpiryDate?: string | null
-): Pick<ContentExplorerItem, "availabilityStatus" | "downloadState"> {
-  const isArchivedTier = isArchivedStorageClass(storageClass);
-
-  if (restoreInProgress) {
-    return {
-      availabilityStatus: "restoring",
-      downloadState: "restoring"
-    };
-  }
-
-  if (isArchivedTier && restoreExpiryDate) {
-    return {
-      availabilityStatus: "available",
-      downloadState: "not_downloaded"
-    };
-  }
-
-  if (isArchivedTier) {
-    return {
-      availabilityStatus: "archived",
-      downloadState: "not_downloaded"
-    };
-  }
-
-  return {
-    availabilityStatus: "available",
-    downloadState: "not_downloaded"
-  };
-}
-
-function buildContentItems(result: CloudContainerItemsResult): ContentExplorerItem[] {
-  const directories: ContentExplorerItem[] = result.directories
-    .map((directory) => ({
-      id: `directory:${directory.path}`,
-      kind: "directory" as const,
-      name: directory.name,
-      path: directory.path
-    }))
-    .sort((left, right) =>
-      left.name.localeCompare(right.name, undefined, {
-        sensitivity: "base",
-        numeric: true
-      })
-    );
-
-  const files: ContentExplorerItem[] = result.files
-    .map((file) => ({
-      ...buildPreviewFileState(file.storageClass, file.restoreInProgress, file.restoreExpiryDate),
-      id: `file:${file.path}`,
-      kind: "file" as const,
-      name: file.path.split("/").pop() || file.path,
-      path: file.path,
-      size: file.size,
-      lastModified: file.lastModified,
-      storageClass: file.storageClass,
-      restoreExpiryDate: file.restoreExpiryDate
-    }))
-    .sort((left, right) =>
-      left.name.localeCompare(right.name, undefined, {
-        sensitivity: "base",
-        numeric: true
-      })
-    );
-
-  return [...directories, ...files];
-}
-
-function mergeContentItems(
-  currentItems: ContentExplorerItem[],
-  nextItems: ContentExplorerItem[]
-): ContentExplorerItem[] {
-  const mergedItems = new Map<string, ContentExplorerItem>();
-
-  for (const item of currentItems) {
-    mergedItems.set(item.id, item);
-  }
-
-  for (const item of nextItems) {
-    mergedItems.set(item.id, item);
-  }
-
-  return [...mergedItems.values()].sort((left, right) => {
-    if (left.kind !== right.kind) {
-      return left.kind === "directory" ? -1 : 1;
-    }
-
-    return left.name.localeCompare(right.name, undefined, {
-      sensitivity: "base",
-      numeric: true
-    });
-  });
 }
 
 function normalizeFilterText(value: string): string {
