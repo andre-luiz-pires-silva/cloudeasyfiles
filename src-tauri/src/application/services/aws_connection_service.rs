@@ -242,6 +242,44 @@ fn normalize_delete_object_keys(object_keys: Vec<String>) -> Vec<String> {
     normalized_keys
 }
 
+fn validate_mutation_bucket_and_object(
+    bucket_name: &str,
+    object_key: &str,
+    operation: &str,
+) -> Result<(), String> {
+    if bucket_name.trim().is_empty() {
+        return Err(format!("Bucket name is required for {operation}."));
+    }
+
+    if object_key.trim().is_empty() {
+        return Err(format!("Object key is required for {operation}."));
+    }
+
+    Ok(())
+}
+
+fn validate_restore_retention_days(days: i32) -> Result<(), String> {
+    if !(1..=365).contains(&days) {
+        return Err("Restore retention days must be between 1 and 365.".to_string());
+    }
+
+    Ok(())
+}
+
+fn normalize_recursive_delete_prefix(prefix: &str) -> Result<String, String> {
+    let normalized_prefix = prefix
+        .trim()
+        .trim_start_matches('/')
+        .trim_end_matches('/')
+        .to_string();
+
+    if normalized_prefix.is_empty() {
+        return Err("Directory prefix is required for recursive delete requests.".to_string());
+    }
+
+    Ok(format!("{normalized_prefix}/"))
+}
+
 impl AwsConnectionService {
     const CACHE_TEMP_DIRECTORY: &'static str = ".cloudeasyfiles-tmp";
     const CACHE_ESCAPED_SEGMENT_PREFIX: &'static str = ".cloudeasyfiles-segment-";
@@ -927,17 +965,8 @@ impl AwsConnectionService {
         let restricted_bucket_name =
             Self::normalize_restricted_bucket_name(input.restricted_bucket_name);
 
-        if bucket_name.is_empty() {
-            return Err("Bucket name is required for restore requests.".to_string());
-        }
-
-        if object_key.is_empty() {
-            return Err("Object key is required for restore requests.".to_string());
-        }
-
-        if !(1..=365).contains(&days) {
-            return Err("Restore retention days must be between 1 and 365.".to_string());
-        }
+        validate_mutation_bucket_and_object(&bucket_name, &object_key, "restore requests")?;
+        validate_restore_retention_days(days)?;
 
         let tier = parse_restore_tier(&restore_tier)?;
         validate_restore_tier_for_storage_class(storage_class.as_deref(), &tier)?;
@@ -1084,13 +1113,11 @@ impl AwsConnectionService {
         let restricted_bucket_name =
             Self::normalize_restricted_bucket_name(input.restricted_bucket_name);
 
-        if bucket_name.is_empty() {
-            return Err("Bucket name is required for storage class changes.".to_string());
-        }
-
-        if object_key.is_empty() {
-            return Err("Object key is required for storage class changes.".to_string());
-        }
+        validate_mutation_bucket_and_object(
+            &bucket_name,
+            &object_key,
+            "storage class changes",
+        )?;
 
         let storage_class = parse_required_storage_class(&target_storage_class)?;
 
@@ -1462,19 +1489,11 @@ impl AwsConnectionService {
         let bucket_name = bucket_name.trim().to_string();
         let restricted_bucket_name =
             Self::normalize_restricted_bucket_name(input.restricted_bucket_name);
-        let normalized_prefix = prefix
-            .trim()
-            .trim_start_matches('/')
-            .trim_end_matches('/')
-            .to_string();
-
         if bucket_name.is_empty() {
             return Err("Bucket name is required for delete requests.".to_string());
         }
 
-        if normalized_prefix.is_empty() {
-            return Err("Directory prefix is required for recursive delete requests.".to_string());
-        }
+        let recursive_prefix = normalize_recursive_delete_prefix(&prefix)?;
 
         let resolved_bucket_region = Self::resolve_bucket_region(
             &access_key_id,
@@ -1488,7 +1507,6 @@ impl AwsConnectionService {
         let (_, s3_client) =
             Self::build_clients(&resolved_bucket_region, access_key_id, secret_access_key).await;
 
-        let recursive_prefix = format!("{normalized_prefix}/");
         let mut continuation_token = None;
         let mut object_keys = Vec::new();
 
@@ -2572,5 +2590,31 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn validates_mutation_inputs_for_restore_tier_change_and_delete() {
+        assert!(
+            validate_mutation_bucket_and_object("bucket-a", "docs/file.txt", "restore requests")
+                .is_ok()
+        );
+        assert!(
+            validate_mutation_bucket_and_object("", "docs/file.txt", "restore requests").is_err()
+        );
+        assert!(
+            validate_mutation_bucket_and_object("bucket-a", "   ", "storage class changes")
+                .is_err()
+        );
+
+        assert!(validate_restore_retention_days(1).is_ok());
+        assert!(validate_restore_retention_days(365).is_ok());
+        assert!(validate_restore_retention_days(0).is_err());
+        assert!(validate_restore_retention_days(366).is_err());
+
+        assert_eq!(
+            normalize_recursive_delete_prefix(" /docs/reports/ ").unwrap(),
+            "docs/reports/"
+        );
+        assert!(normalize_recursive_delete_prefix(" / ").is_err());
     }
 }

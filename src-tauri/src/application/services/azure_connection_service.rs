@@ -344,12 +344,9 @@ impl AzureConnectionService {
         object_keys: Vec<String>,
     ) -> Result<AzureDeleteResult, String> {
         let storage_account_name = normalize_storage_account_name(&input.storage_account_name)?;
-        let normalized_container_name = container_name.trim().to_string();
+        let normalized_container_name =
+            normalize_container_name_for_operation(&container_name, "delete requests")?;
         let normalized_object_keys = normalize_delete_object_keys(object_keys);
-
-        if normalized_container_name.is_empty() {
-            return Err("The Azure container name is required for delete requests.".to_string());
-        }
 
         if normalized_object_keys.is_empty() {
             return Err("At least one blob name is required for delete requests.".to_string());
@@ -377,23 +374,11 @@ impl AzureConnectionService {
         prefix: String,
     ) -> Result<AzureDeleteResult, String> {
         let storage_account_name = normalize_storage_account_name(&input.storage_account_name)?;
-        let normalized_container_name = container_name.trim().to_string();
-        let normalized_prefix = prefix
-            .trim()
-            .trim_start_matches('/')
-            .trim_end_matches('/')
-            .to_string();
-
-        if normalized_container_name.is_empty() {
-            return Err("The Azure container name is required for delete requests.".to_string());
-        }
-
-        if normalized_prefix.is_empty() {
-            return Err("Directory prefix is required for recursive delete requests.".to_string());
-        }
+        let normalized_container_name =
+            normalize_container_name_for_operation(&container_name, "delete requests")?;
+        let recursive_prefix = normalize_recursive_delete_prefix(&prefix)?;
 
         let client = Client::new();
-        let recursive_prefix = format!("{normalized_prefix}/");
         let mut marker = None;
         let mut object_keys = Vec::new();
 
@@ -651,8 +636,10 @@ impl AzureConnectionService {
         target_tier: String,
     ) -> Result<(), String> {
         let storage_account_name = normalize_storage_account_name(&input.storage_account_name)?;
-        let normalized_container_name = container_name.trim().to_string();
-        let normalized_blob_name = blob_name.trim().to_string();
+        let normalized_container_name =
+            normalize_container_name_for_operation(&container_name, "access tier changes")?;
+        let normalized_blob_name =
+            normalize_blob_name_for_operation(&blob_name, "access tier changes")?;
         let normalized_target_tier =
             parse_access_tier(Some(target_tier.as_str()))?.ok_or_else(|| {
                 "A target Azure access tier is required.".to_string()
@@ -679,8 +666,10 @@ impl AzureConnectionService {
         priority: String,
     ) -> Result<(), String> {
         let storage_account_name = normalize_storage_account_name(&input.storage_account_name)?;
-        let normalized_container_name = container_name.trim().to_string();
-        let normalized_blob_name = blob_name.trim().to_string();
+        let normalized_container_name =
+            normalize_container_name_for_operation(&container_name, "rehydration requests")?;
+        let normalized_blob_name =
+            normalize_blob_name_for_operation(&blob_name, "rehydration requests")?;
         let normalized_target_tier =
             parse_rehydration_target_tier(target_tier.as_str())?;
         let normalized_priority = parse_rehydration_priority(priority.as_str())?;
@@ -1476,6 +1465,48 @@ fn normalize_delete_object_keys(object_keys: Vec<String>) -> Vec<String> {
     normalized_object_keys
 }
 
+fn normalize_container_name_for_operation(
+    container_name: &str,
+    operation: &str,
+) -> Result<String, String> {
+    let normalized_container_name = container_name.trim().to_string();
+
+    if normalized_container_name.is_empty() {
+        return Err(format!(
+            "The Azure container name is required for {operation}."
+        ));
+    }
+
+    Ok(normalized_container_name)
+}
+
+fn normalize_blob_name_for_operation(
+    blob_name: &str,
+    operation: &str,
+) -> Result<String, String> {
+    let normalized_blob_name = blob_name.trim().to_string();
+
+    if normalized_blob_name.is_empty() {
+        return Err(format!("The Azure blob name is required for {operation}."));
+    }
+
+    Ok(normalized_blob_name)
+}
+
+fn normalize_recursive_delete_prefix(prefix: &str) -> Result<String, String> {
+    let normalized_prefix = prefix
+        .trim()
+        .trim_start_matches('/')
+        .trim_end_matches('/')
+        .to_string();
+
+    if normalized_prefix.is_empty() {
+        return Err("Directory prefix is required for recursive delete requests.".to_string());
+    }
+
+    Ok(format!("{normalized_prefix}/"))
+}
+
 fn parse_blob_listing_response(
     response_text: &str,
     normalized_prefix: Option<&str>,
@@ -1843,6 +1874,22 @@ fn normalize_listing_page_size(value: Option<i32>) -> usize {
     }
 }
 
+fn build_access_tier_headers(
+    target_tier: &str,
+    rehydration_priority: Option<&str>,
+) -> Vec<(String, String)> {
+    let mut extra_headers = vec![("x-ms-access-tier".to_string(), target_tier.to_string())];
+
+    if let Some(rehydration_priority) = rehydration_priority {
+        extra_headers.push((
+            "x-ms-rehydrate-priority".to_string(),
+            rehydration_priority.to_string(),
+        ));
+    }
+
+    extra_headers
+}
+
 async fn upload_blob_single_request(
     client: &Client,
     storage_account_name: &str,
@@ -2030,14 +2077,7 @@ async fn set_blob_access_tier(
 ) -> Result<(), String> {
     let query = vec![("comp".to_string(), "tier".to_string())];
     let url = build_blob_url(storage_account_name, container_name, blob_name, &query)?;
-    let mut extra_headers = vec![("x-ms-access-tier".to_string(), target_tier.to_string())];
-
-    if let Some(rehydration_priority) = rehydration_priority {
-        extra_headers.push((
-            "x-ms-rehydrate-priority".to_string(),
-            rehydration_priority.to_string(),
-        ));
-    }
+    let extra_headers = build_access_tier_headers(target_tier, rehydration_priority);
 
     let response = execute_signed_request(
         client,
@@ -2310,6 +2350,37 @@ mod tests {
         assert_eq!(
             blob_url.as_str(),
             "https://acct.blob.core.windows.net/reports/annual%20files/report%20%231.csv?timeout=30"
+        );
+    }
+
+    #[test]
+    fn validates_mutation_inputs_and_access_tier_headers() {
+        assert_eq!(
+            normalize_container_name_for_operation(" reports ", "delete requests").unwrap(),
+            "reports"
+        );
+        assert!(normalize_container_name_for_operation("   ", "delete requests").is_err());
+        assert_eq!(
+            normalize_blob_name_for_operation(" docs/file.txt ", "rehydration requests").unwrap(),
+            "docs/file.txt"
+        );
+        assert!(normalize_blob_name_for_operation("   ", "access tier changes").is_err());
+        assert_eq!(
+            normalize_recursive_delete_prefix(" /docs/reports/ ").unwrap(),
+            "docs/reports/"
+        );
+        assert!(normalize_recursive_delete_prefix(" / ").is_err());
+
+        assert_eq!(
+            build_access_tier_headers("Cool", None),
+            vec![("x-ms-access-tier".to_string(), "Cool".to_string())]
+        );
+        assert_eq!(
+            build_access_tier_headers("Hot", Some("High")),
+            vec![
+                ("x-ms-access-tier".to_string(), "Hot".to_string()),
+                ("x-ms-rehydrate-priority".to_string(), "High".to_string())
+            ]
         );
     }
 }
