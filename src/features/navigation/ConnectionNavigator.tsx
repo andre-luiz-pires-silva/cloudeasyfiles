@@ -241,6 +241,11 @@ import {
   buildModalLoadErrorMessage,
   buildResetModalFormState
 } from "./navigationModalState";
+import {
+  getConnectionActionDispatchSteps,
+  getContentAreaActionDispatchStep,
+  getDefaultConnectionActionStep
+} from "./navigationActionDispatch";
 
 function Globe2Icon() {
   return (
@@ -3748,7 +3753,7 @@ export function ConnectionNavigator({
   async function handleContentAreaMenuAction(actionId: "createFolder" | "refresh") {
     setContentAreaMenuAnchor(null);
 
-    if (actionId === "createFolder") {
+    if (getContentAreaActionDispatchStep(actionId) === "openCreateFolder") {
       openCreateFolderModal();
       return;
     }
@@ -3897,46 +3902,32 @@ export function ConnectionNavigator({
     actionId: "connect" | "cancelConnect" | "disconnect" | "edit" | "remove",
     connectionId: string
   ) {
-    if (actionId === "connect") {
-      setOpenMenuConnectionId(null);
-      await connectConnection(connectionId);
-      return;
+    for (const step of getConnectionActionDispatchSteps(actionId)) {
+      if (step === "closeMenu") {
+        setOpenMenuConnectionId(null);
+      } else if (step === "connect") {
+        await connectConnection(connectionId);
+      } else if (step === "cancelConnect") {
+        await cancelConnectionAttempt(connectionId);
+      } else if (step === "disconnect") {
+        await disconnectConnection(connectionId);
+      } else if (step === "edit") {
+        await openEditModal(connectionId);
+      } else if (step === "remove") {
+        await handleRemoveConnection(connectionId);
+      }
     }
-
-    if (actionId === "cancelConnect") {
-      await cancelConnectionAttempt(connectionId);
-      setOpenMenuConnectionId(null);
-      return;
-    }
-
-    if (actionId === "disconnect") {
-      await disconnectConnection(connectionId);
-      setOpenMenuConnectionId(null);
-      return;
-    }
-
-    if (actionId === "edit") {
-      await openEditModal(connectionId);
-      setOpenMenuConnectionId(null);
-      return;
-    }
-
-    await handleRemoveConnection(connectionId);
   }
 
   async function handleDefaultConnectionAction(connectionId: string) {
     const indicator = connectionIndicators[connectionId] ?? { status: "disconnected" };
+    const nextStep = getDefaultConnectionActionStep({ status: indicator.status });
 
-    if (indicator.status === "connecting") {
-      return;
-    }
-
-    if (indicator.status === "connected") {
+    if (nextStep === "edit") {
       await openEditModal(connectionId);
-      return;
+    } else if (nextStep === "connect") {
+      await connectConnection(connectionId);
     }
-
-    await connectConnection(connectionId);
   }
 
   return (
