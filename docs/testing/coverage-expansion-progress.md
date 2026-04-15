@@ -186,3 +186,8 @@ Increase automated test coverage toward the agreed long-term target of `75%` lin
   - Rust regions: `21.69%`
   - Rust functions: `20.25%`
   - `presentation/commands.rs` line coverage: `18.36%`
+- After Phase 2 substep 4:
+  - Rust line coverage: `21.93%`
+  - Rust regions: `23.31%`
+  - Rust functions: `20.86%`
+  - `presentation/commands.rs` line coverage: `25.28%`

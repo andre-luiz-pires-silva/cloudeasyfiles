@@ -216,6 +216,106 @@ fn build_azure_upload_event(
     }
 }
 
+fn build_aws_direct_download_progress_event(
+    operation_id: String,
+    connection_id: String,
+    bucket_name: String,
+    object_key: String,
+    target_path: String,
+    bytes_received: i64,
+    total_bytes: i64,
+) -> AwsDownloadEvent {
+    build_aws_download_event(
+        operation_id,
+        "direct",
+        connection_id,
+        bucket_name,
+        object_key,
+        Some(target_path),
+        bytes_received,
+        total_bytes,
+        calculate_progress_percent(bytes_received, total_bytes),
+        "progress",
+        None,
+    )
+}
+
+fn build_aws_direct_download_terminal_event(
+    operation_id: String,
+    connection_id: String,
+    bucket_name: String,
+    object_key: String,
+    target_path: Option<String>,
+    state: &str,
+    error: Option<String>,
+) -> AwsDownloadEvent {
+    let progress_percent = if state == "completed" { 100.0 } else { 0.0 };
+
+    build_aws_download_event(
+        operation_id,
+        "direct",
+        connection_id,
+        bucket_name,
+        object_key,
+        target_path,
+        0,
+        0,
+        progress_percent,
+        state,
+        error,
+    )
+}
+
+fn build_azure_direct_download_progress_event(
+    operation_id: String,
+    connection_id: String,
+    bucket_name: String,
+    object_key: String,
+    target_path: String,
+    bytes_received: i64,
+    total_bytes: i64,
+) -> AzureDownloadEvent {
+    build_azure_download_event(
+        operation_id,
+        "direct",
+        connection_id,
+        bucket_name,
+        object_key,
+        Some(target_path),
+        bytes_received,
+        total_bytes,
+        calculate_progress_percent(bytes_received, total_bytes),
+        "progress",
+        None,
+    )
+}
+
+fn build_azure_direct_download_terminal_event(
+    operation_id: String,
+    connection_id: String,
+    bucket_name: String,
+    object_key: String,
+    target_path: Option<String>,
+    state: &str,
+    error: Option<String>,
+) -> AzureDownloadEvent {
+    let progress_percent = if state == "completed" { 100.0 } else { 0.0 };
+
+    build_azure_download_event(
+        operation_id,
+        "direct",
+        connection_id,
+        bucket_name,
+        object_key,
+        target_path,
+        0,
+        0,
+        progress_percent,
+        state,
+        error,
+    )
+}
+
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct AzureDownloadEvent {
@@ -991,44 +1091,30 @@ pub async fn download_aws_object_to_path(
         bucket_region,
         destination_path,
         |bytes_received, total_bytes, target_path| {
-            let progress_percent = if total_bytes > 0 {
-                (bytes_received as f64 / total_bytes as f64) * 100.0
-            } else {
-                0.0
-            };
-
-            emit_event(AwsDownloadEvent {
-                operation_id: operation_id_for_progress.clone(),
-                transfer_kind: "direct".to_string(),
-                connection_id: connection_id_for_progress.clone(),
-                bucket_name: bucket_name_for_progress.clone(),
-                object_key: object_key_for_progress.clone(),
-                target_path: Some(target_path.to_string()),
+            emit_event(build_aws_direct_download_progress_event(
+                operation_id_for_progress.clone(),
+                connection_id_for_progress.clone(),
+                bucket_name_for_progress.clone(),
+                object_key_for_progress.clone(),
+                target_path.to_string(),
                 bytes_received,
                 total_bytes,
-                progress_percent,
-                state: "progress".to_string(),
-                error: None,
-            })
+            ))
         },
     )
     .await;
 
     match result {
         Ok(target_path) => {
-            emit_event(AwsDownloadEvent {
+            emit_event(build_aws_direct_download_terminal_event(
                 operation_id,
-                transfer_kind: "direct".to_string(),
                 connection_id,
                 bucket_name,
                 object_key,
-                target_path: Some(target_path.clone()),
-                bytes_received: 0,
-                total_bytes: 0,
-                progress_percent: 100.0,
-                state: "completed".to_string(),
-                error: None,
-            })?;
+                Some(target_path.clone()),
+                "completed",
+                None,
+            ))?;
 
             Ok(target_path)
         }
@@ -1038,25 +1124,17 @@ pub async fn download_aws_object_to_path(
                 error
             );
 
-            let state = if is_cancelled_download_error(&error) {
-                "cancelled"
-            } else {
-                "failed"
-            };
+            let state = download_terminal_state(&error, is_cancelled_download_error);
 
-            emit_event(AwsDownloadEvent {
+            emit_event(build_aws_direct_download_terminal_event(
                 operation_id,
-                transfer_kind: "direct".to_string(),
                 connection_id,
                 bucket_name,
                 object_key,
-                target_path: None,
-                bytes_received: 0,
-                total_bytes: 0,
-                progress_percent: 0.0,
-                state: state.to_string(),
-                error: Some(error.clone()),
-            })?;
+                None,
+                &state,
+                Some(error.clone()),
+            ))?;
 
             Err(error)
         }
@@ -1190,67 +1268,45 @@ pub async fn download_azure_blob_to_path(
         blob_name.clone(),
         destination_path,
         |bytes_received, total_bytes, target_path| {
-            let progress_percent = if total_bytes > 0 {
-                (bytes_received as f64 / total_bytes as f64) * 100.0
-            } else {
-                0.0
-            };
-
-            emit_event(AzureDownloadEvent {
-                operation_id: operation_id_for_progress.clone(),
-                transfer_kind: "direct".to_string(),
-                connection_id: connection_id_for_progress.clone(),
-                bucket_name: container_name_for_progress.clone(),
-                object_key: blob_name_for_progress.clone(),
-                target_path: Some(target_path.to_string()),
+            emit_event(build_azure_direct_download_progress_event(
+                operation_id_for_progress.clone(),
+                connection_id_for_progress.clone(),
+                container_name_for_progress.clone(),
+                blob_name_for_progress.clone(),
+                target_path.to_string(),
                 bytes_received,
                 total_bytes,
-                progress_percent,
-                state: "progress".to_string(),
-                error: None,
-            })
+            ))
         },
     )
     .await;
 
     match result {
         Ok(target_path) => {
-            emit_event(AzureDownloadEvent {
+            emit_event(build_azure_direct_download_terminal_event(
                 operation_id,
-                transfer_kind: "direct".to_string(),
                 connection_id,
-                bucket_name: container_name,
-                object_key: blob_name,
-                target_path: Some(target_path.clone()),
-                bytes_received: 0,
-                total_bytes: 0,
-                progress_percent: 100.0,
-                state: "completed".to_string(),
-                error: None,
-            })?;
+                container_name,
+                blob_name,
+                Some(target_path.clone()),
+                "completed",
+                None,
+            ))?;
 
             Ok(target_path)
         }
         Err(error) => {
-            let state = if is_cancelled_azure_download_error(&error) {
-                "cancelled"
-            } else {
-                "failed"
-            };
+            let state = download_terminal_state(&error, is_cancelled_azure_download_error);
 
-            emit_event(AzureDownloadEvent {
+            emit_event(build_azure_direct_download_terminal_event(
                 operation_id,
-                transfer_kind: "direct".to_string(),
                 connection_id,
-                bucket_name: container_name,
-                object_key: blob_name,
-                target_path: None,
-                bytes_received: 0,
-                total_bytes: 0,
-                progress_percent: 0.0,
-                state: state.to_string(),
-                error: Some(error.clone()),
-            })?;
+                container_name,
+                blob_name,
+                None,
+                &state,
+                Some(error.clone()),
+            ))?;
 
             Err(error)
         }
@@ -1774,11 +1830,13 @@ pub async fn cancel_azure_upload(operation_id: String) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        build_aws_download_event, build_aws_upload_event, build_azure_download_event,
-        build_azure_upload_event, calculate_progress_percent, download_terminal_state,
-        get_greeting, is_cancelled_azure_download_error, is_cancelled_azure_upload_error,
-        is_cancelled_download_error, is_cancelled_upload_error, upload_terminal_state,
-        validate_local_mapping_directory, AZURE_DOWNLOAD_CANCELLED_ERROR,
+        build_aws_direct_download_progress_event, build_aws_direct_download_terminal_event,
+        build_aws_download_event, build_aws_upload_event,
+        build_azure_direct_download_progress_event, build_azure_direct_download_terminal_event,
+        build_azure_download_event, build_azure_upload_event, calculate_progress_percent,
+        download_terminal_state, get_greeting, is_cancelled_azure_download_error,
+        is_cancelled_azure_upload_error, is_cancelled_download_error, is_cancelled_upload_error,
+        upload_terminal_state, validate_local_mapping_directory, AZURE_DOWNLOAD_CANCELLED_ERROR,
         AZURE_UPLOAD_CANCELLED_ERROR, DOWNLOAD_CANCELLED_ERROR, UPLOAD_CANCELLED_ERROR,
     };
     use std::fs::{self, File};
@@ -1889,6 +1947,80 @@ mod tests {
         assert_eq!(azure_event.progress_percent, 0.0);
         assert_eq!(azure_event.state, "failed");
         assert_eq!(azure_event.error.as_deref(), Some("network error"));
+    }
+
+    #[test]
+    fn builds_direct_download_events_with_expected_progress_and_terminal_states() {
+        let aws_progress = build_aws_direct_download_progress_event(
+            "op-aws-progress".to_string(),
+            "conn-1".to_string(),
+            "bucket-a".to_string(),
+            "docs/report.txt".to_string(),
+            "/tmp/report.txt".to_string(),
+            50,
+            200,
+        );
+        assert_eq!(aws_progress.transfer_kind, "direct");
+        assert_eq!(aws_progress.target_path.as_deref(), Some("/tmp/report.txt"));
+        assert_eq!(aws_progress.progress_percent, 25.0);
+        assert_eq!(aws_progress.state, "progress");
+        assert_eq!(aws_progress.error, None);
+
+        let aws_completed = build_aws_direct_download_terminal_event(
+            "op-aws-done".to_string(),
+            "conn-1".to_string(),
+            "bucket-a".to_string(),
+            "docs/report.txt".to_string(),
+            Some("/tmp/report.txt".to_string()),
+            "completed",
+            None,
+        );
+        assert_eq!(aws_completed.progress_percent, 100.0);
+        assert_eq!(aws_completed.state, "completed");
+        assert_eq!(aws_completed.target_path.as_deref(), Some("/tmp/report.txt"));
+
+        let aws_failed = build_aws_direct_download_terminal_event(
+            "op-aws-failed".to_string(),
+            "conn-1".to_string(),
+            "bucket-a".to_string(),
+            "docs/report.txt".to_string(),
+            None,
+            "failed",
+            Some("network error".to_string()),
+        );
+        assert_eq!(aws_failed.progress_percent, 0.0);
+        assert_eq!(aws_failed.state, "failed");
+        assert_eq!(aws_failed.error.as_deref(), Some("network error"));
+
+        let azure_progress = build_azure_direct_download_progress_event(
+            "op-az-progress".to_string(),
+            "conn-2".to_string(),
+            "container-a".to_string(),
+            "archive.zip".to_string(),
+            "/tmp/archive.zip".to_string(),
+            75,
+            300,
+        );
+        assert_eq!(azure_progress.transfer_kind, "direct");
+        assert_eq!(azure_progress.target_path.as_deref(), Some("/tmp/archive.zip"));
+        assert_eq!(azure_progress.progress_percent, 25.0);
+        assert_eq!(azure_progress.state, "progress");
+
+        let azure_cancelled = build_azure_direct_download_terminal_event(
+            "op-az-cancelled".to_string(),
+            "conn-2".to_string(),
+            "container-a".to_string(),
+            "archive.zip".to_string(),
+            None,
+            "cancelled",
+            Some(AZURE_DOWNLOAD_CANCELLED_ERROR.to_string()),
+        );
+        assert_eq!(azure_cancelled.progress_percent, 0.0);
+        assert_eq!(azure_cancelled.state, "cancelled");
+        assert_eq!(
+            azure_cancelled.error.as_deref(),
+            Some(AZURE_DOWNLOAD_CANCELLED_ERROR)
+        );
     }
 
     #[test]
