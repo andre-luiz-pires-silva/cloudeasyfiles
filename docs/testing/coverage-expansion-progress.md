@@ -153,6 +153,11 @@ Increase automated test coverage toward the agreed long-term target of `75%` lin
   - Frontend statements: `11.14%`
   - Frontend branches: `75.00%`
   - Frontend functions: `51.92%`
+- After Phase 1 substep 10:
+  - Frontend line coverage: `11.69%`
+  - Frontend statements: `11.69%`
+  - Frontend branches: `75.51%`
+  - Frontend functions: `53.98%`
 - After Phase 2 substep 1:
   - Rust line coverage: `10.72%`
   - Rust regions: `11.75%`

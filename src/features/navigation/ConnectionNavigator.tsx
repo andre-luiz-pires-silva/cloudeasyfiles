@@ -189,6 +189,15 @@ import {
   validateConnectionForm as validateNavigationConnectionForm,
   validateConnectionTestFields as validateNavigationConnectionTestFields
 } from "./navigationValidation";
+import {
+  buildHomeSelectionState,
+  buildNodeSelectionState,
+  clearConnectionBucketNodes,
+  getTransferCancelLabel,
+  setBucketPath,
+  toggleCollapsedConnection,
+  updateBucketNodeMap
+} from "./navigationTreeState";
 
 function Globe2Icon() {
   return (
@@ -3280,12 +3289,6 @@ export function ConnectionNavigator({
     }
   }
 
-  function getTransferCancelLabel(transferKind: TransferKind) {
-    return transferKind === "upload"
-      ? t("navigation.menu.cancel_upload")
-      : t("navigation.menu.cancel_download");
-  }
-
   function resetConnectionTestState() {
     connectionTestRequestIdRef.current += 1;
     setConnectionTestStatus("idle");
@@ -3300,18 +3303,15 @@ export function ConnectionNavigator({
   }
 
   function clearConnectionBuckets(connectionId: string) {
-    setConnectionBuckets((previousConnectionBuckets) => {
-      const nextConnectionBuckets = { ...previousConnectionBuckets };
-      delete nextConnectionBuckets[connectionId];
-      return nextConnectionBuckets;
-    });
+    setConnectionBuckets((previousConnectionBuckets) =>
+      clearConnectionBucketNodes(previousConnectionBuckets, connectionId)
+    );
   }
 
   function navigateBucketPath(bucketNodeId: string, nextPath: string) {
-    setBucketContentPaths((previousBucketContentPaths) => ({
-      ...previousBucketContentPaths,
-      [bucketNodeId]: nextPath
-    }));
+    setBucketContentPaths((previousBucketContentPaths) =>
+      setBucketPath(previousBucketContentPaths, bucketNodeId, nextPath)
+    );
   }
 
   async function handleLoadMoreContent() {
@@ -3401,12 +3401,9 @@ export function ConnectionNavigator({
     bucketNodeId: string,
     updater: (node: ExplorerTreeNode) => ExplorerTreeNode
   ) {
-    setConnectionBuckets((previousConnectionBuckets) => ({
-      ...previousConnectionBuckets,
-      [connectionId]: (previousConnectionBuckets[connectionId] ?? []).map((bucket) =>
-        bucket.id === bucketNodeId ? updater(bucket) : bucket
-      )
-    }));
+    setConnectionBuckets((previousConnectionBuckets) =>
+      updateBucketNodeMap(previousConnectionBuckets, connectionId, bucketNodeId, updater)
+    );
   }
 
   async function hydrateBucketRegions(
@@ -3571,10 +3568,9 @@ export function ConnectionNavigator({
   }
 
   function toggleConnectionCollapsed(connectionId: string) {
-    setCollapsedConnectionIds((currentCollapsedConnectionIds) => ({
-      ...currentCollapsedConnectionIds,
-      [connectionId]: !currentCollapsedConnectionIds[connectionId]
-    }));
+    setCollapsedConnectionIds((currentCollapsedConnectionIds) =>
+      toggleCollapsedConnection(currentCollapsedConnectionIds, connectionId)
+    );
   }
 
   function validateConnectionTestFields(): FormErrors {
@@ -3820,9 +3816,10 @@ export function ConnectionNavigator({
   }
 
   function handleSelectHome() {
-    setSelectedView("home");
-    setSelectedNodeId(null);
-    setOpenMenuConnectionId(null);
+    const nextSelectionState = buildHomeSelectionState();
+    setSelectedView(nextSelectionState.selectedView);
+    setSelectedNodeId(nextSelectionState.selectedNodeId);
+    setOpenMenuConnectionId(nextSelectionState.openMenuConnectionId);
   }
 
   function handleSelectNode(node: ExplorerTreeNode) {
@@ -3830,9 +3827,10 @@ export function ConnectionNavigator({
       navigateBucketPath(node.id, "");
     }
 
-    setSelectedView("node");
-    setSelectedNodeId(node.id);
-    setOpenMenuConnectionId(null);
+    const nextSelectionState = buildNodeSelectionState(node.id);
+    setSelectedView(nextSelectionState.selectedView);
+    setSelectedNodeId(nextSelectionState.selectedNodeId);
+    setOpenMenuConnectionId(nextSelectionState.openMenuConnectionId);
   }
 
   function validateForm(): FormErrors {
@@ -5339,7 +5337,7 @@ export function ConnectionNavigator({
                           handleCancelActiveTransfer(download.operationId, download.transferKind)
                         }
                       >
-                        {getTransferCancelLabel(download.transferKind)}
+                        {getTransferCancelLabel(download.transferKind, t)}
                       </button>
                     </div>
                   </article>
