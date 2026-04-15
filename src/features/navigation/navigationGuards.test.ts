@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildContentDeletePlan,
+  buildPendingDeleteState,
   buildFileIdentity,
   buildUploadObjectKey,
   canChangeTierItem,
@@ -17,6 +18,8 @@ import {
   isFileIdentityInContext,
   normalizeDirectoryPrefix,
   shouldRefreshAfterUploadCompletion,
+  toggleSelectedItemId,
+  toggleVisibleSelection,
   validateNewFolderNameInput,
   type NavigationActionContext,
   type NavigationContentItem
@@ -63,6 +66,24 @@ describe("navigationGuards", () => {
       directoryPrefixes: ["docs/"],
       fileKeys: ["logs/app.log"]
     });
+    expect(buildPendingDeleteState(items)).toEqual({
+      items,
+      fileCount: 3,
+      directoryCount: 1,
+      plan: {
+        directoryPrefixes: ["docs/"],
+        fileKeys: ["logs/app.log"]
+      }
+    });
+    expect(buildPendingDeleteState([])).toBeNull();
+  });
+
+  it("toggles individual and visible content selection deterministically", () => {
+    expect(toggleSelectedItemId(["a", "b"], "c")).toEqual(["a", "b", "c"]);
+    expect(toggleSelectedItemId(["a", "b"], "a")).toEqual(["b"]);
+    expect(toggleVisibleSelection(["a"], [])).toEqual(["a"]);
+    expect(toggleVisibleSelection(["a"], ["a", "b"])).toEqual(["a", "b"]);
+    expect(toggleVisibleSelection(["a", "b", "c"], ["a", "b"])).toEqual(["c"]);
   });
 
   it("builds upload keys and validates folder names", () => {

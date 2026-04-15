@@ -115,7 +115,7 @@ import {
   testConnectionForSavedConnection
 } from "./providerReadAdapters";
 import {
-  buildContentDeletePlan,
+  buildPendingDeleteState,
   buildFileIdentity,
   buildUploadObjectKey,
   canChangeTierItem,
@@ -133,6 +133,8 @@ import {
   isFileIdentityInContext,
   normalizeDirectoryPrefix,
   shouldRefreshAfterUploadCompletion,
+  toggleSelectedItemId,
+  toggleVisibleSelection,
   validateNewFolderNameInput
 } from "./navigationGuards";
 import {
@@ -1537,11 +1539,7 @@ export function ConnectionNavigator({
   }
 
   function toggleContentItemSelection(itemId: string) {
-    setSelectedContentItemIds((currentItemIds) =>
-      currentItemIds.includes(itemId)
-        ? currentItemIds.filter((currentItemId) => currentItemId !== itemId)
-        : [...currentItemIds, itemId]
-    );
+    setSelectedContentItemIds((currentItemIds) => toggleSelectedItemId(currentItemIds, itemId));
   }
 
   function toggleSelectAllVisibleContentItems() {
@@ -1549,33 +1547,24 @@ export function ConnectionNavigator({
       return;
     }
 
-    setSelectedContentItemIds((currentItemIds) => {
-      if (visibleContentItemIds.every((itemId) => currentItemIds.includes(itemId))) {
-        return currentItemIds.filter((itemId) => !visibleContentItemIds.includes(itemId));
-      }
-
-      return [...new Set([...currentItemIds, ...visibleContentItemIds])];
-    });
+    setSelectedContentItemIds((currentItemIds) =>
+      toggleVisibleSelection(currentItemIds, visibleContentItemIds)
+    );
   }
 
   function openDeleteContentModal(items: ContentExplorerItem[]) {
-    if (items.length === 0) {
+    const nextPendingDeleteState = buildPendingDeleteState(items);
+
+    if (!nextPendingDeleteState) {
       return;
     }
-
-    const plan = buildContentDeletePlan(items);
 
     setOpenContentMenuItemId(null);
     setContentMenuAnchor(null);
     setContentAreaMenuAnchor(null);
     setDeleteConfirmationValue("");
     setDeleteContentError(null);
-    setPendingContentDelete({
-      items,
-      fileCount: items.filter((item) => item.kind === "file").length,
-      directoryCount: items.filter((item) => item.kind === "directory").length,
-      plan
-    });
+    setPendingContentDelete(nextPendingDeleteState);
   }
 
   function closeDeleteContentModal(force = false) {

@@ -60,6 +60,13 @@ export type ContentDeletePlan = {
   directoryPrefixes: string[];
 };
 
+export type NavigationPendingDeleteState<T extends NavigationContentItem = NavigationContentItem> = {
+  items: T[];
+  fileCount: number;
+  directoryCount: number;
+  plan: ContentDeletePlan;
+};
+
 export function normalizeDirectoryPrefix(path: string): string {
   const normalizedPath = path.trim().replace(/^\/+|\/+$/g, "");
   return normalizedPath ? `${normalizedPath}/` : "";
@@ -104,6 +111,42 @@ export function buildContentDeletePlan(items: NavigationContentItem[]): ContentD
   ];
 
   return { fileKeys, directoryPrefixes };
+}
+
+export function toggleSelectedItemId(currentItemIds: string[], itemId: string): string[] {
+  return currentItemIds.includes(itemId)
+    ? currentItemIds.filter((currentItemId) => currentItemId !== itemId)
+    : [...currentItemIds, itemId];
+}
+
+export function toggleVisibleSelection(
+  currentItemIds: string[],
+  visibleContentItemIds: string[]
+): string[] {
+  if (visibleContentItemIds.length === 0) {
+    return currentItemIds;
+  }
+
+  if (visibleContentItemIds.every((itemId) => currentItemIds.includes(itemId))) {
+    return currentItemIds.filter((itemId) => !visibleContentItemIds.includes(itemId));
+  }
+
+  return [...new Set([...currentItemIds, ...visibleContentItemIds])];
+}
+
+export function buildPendingDeleteState<T extends NavigationContentItem>(
+  items: T[]
+): NavigationPendingDeleteState<T> | null {
+  if (items.length === 0) {
+    return null;
+  }
+
+  return {
+    items,
+    fileCount: items.filter((item) => item.kind === "file").length,
+    directoryCount: items.filter((item) => item.kind === "directory").length,
+    plan: buildContentDeletePlan(items)
+  };
 }
 
 export function buildUploadObjectKey(currentPath: string, fileName: string) {
