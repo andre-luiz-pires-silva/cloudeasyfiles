@@ -394,11 +394,7 @@ impl AzureConnectionService {
             .await?;
             object_keys.append(&mut batch);
 
-            if next_marker
-                .as_ref()
-                .map(|value| value.trim().is_empty())
-                .unwrap_or(true)
-            {
+            if !has_next_marker(next_marker.as_deref()) {
                 break;
             }
 
@@ -1890,6 +1886,26 @@ fn build_access_tier_headers(
     extra_headers
 }
 
+fn build_list_blob_names_query(prefix: &str, marker: Option<String>) -> Vec<(String, String)> {
+    let mut query = vec![
+        ("restype".to_string(), "container".to_string()),
+        ("comp".to_string(), "list".to_string()),
+        ("prefix".to_string(), prefix.to_string()),
+        ("include".to_string(), "metadata".to_string()),
+        ("maxresults".to_string(), DEFAULT_MAX_RESULTS.to_string()),
+    ];
+
+    if let Some(marker_value) = marker.filter(|value| !value.trim().is_empty()) {
+        query.push(("marker".to_string(), marker_value));
+    }
+
+    query
+}
+
+fn has_next_marker(marker: Option<&str>) -> bool {
+    marker.map(|value| !value.trim().is_empty()).unwrap_or(false)
+}
+
 async fn upload_blob_single_request(
     client: &Client,
     storage_account_name: &str,
@@ -2102,18 +2118,7 @@ async fn list_blob_names_with_prefix(
     prefix: &str,
     marker: Option<String>,
 ) -> Result<(Vec<String>, Option<String>), String> {
-    let mut query = vec![
-        ("restype".to_string(), "container".to_string()),
-        ("comp".to_string(), "list".to_string()),
-        ("prefix".to_string(), prefix.to_string()),
-        ("include".to_string(), "metadata".to_string()),
-        ("maxresults".to_string(), DEFAULT_MAX_RESULTS.to_string()),
-    ];
-
-    if let Some(marker_value) = marker.filter(|value| !value.trim().is_empty()) {
-        query.push(("marker".to_string(), marker_value));
-    }
-
+    let query = build_list_blob_names_query(prefix, marker);
     let url = build_container_url(storage_account_name, container_name, &query)?;
     let response_text = execute_signed_get(
         client,
@@ -2382,5 +2387,33 @@ mod tests {
                 ("x-ms-rehydrate-priority".to_string(), "High".to_string())
             ]
         );
+    }
+
+    #[test]
+    fn builds_listing_queries_and_marker_rules() {
+        assert_eq!(
+            build_list_blob_names_query("docs/", None),
+            vec![
+                ("restype".to_string(), "container".to_string()),
+                ("comp".to_string(), "list".to_string()),
+                ("prefix".to_string(), "docs/".to_string()),
+                ("include".to_string(), "metadata".to_string()),
+                ("maxresults".to_string(), DEFAULT_MAX_RESULTS.to_string())
+            ]
+        );
+        assert_eq!(
+            build_list_blob_names_query("docs/", Some("cursor-1".to_string())),
+            vec![
+                ("restype".to_string(), "container".to_string()),
+                ("comp".to_string(), "list".to_string()),
+                ("prefix".to_string(), "docs/".to_string()),
+                ("include".to_string(), "metadata".to_string()),
+                ("maxresults".to_string(), DEFAULT_MAX_RESULTS.to_string()),
+                ("marker".to_string(), "cursor-1".to_string())
+            ]
+        );
+        assert!(has_next_marker(Some("cursor-1")));
+        assert!(!has_next_marker(Some("   ")));
+        assert!(!has_next_marker(None));
     }
 }

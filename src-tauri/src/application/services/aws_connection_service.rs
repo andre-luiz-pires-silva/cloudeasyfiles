@@ -280,6 +280,23 @@ fn normalize_recursive_delete_prefix(prefix: &str) -> Result<String, String> {
     Ok(format!("{normalized_prefix}/"))
 }
 
+fn has_more_listing_results(
+    is_truncated: Option<bool>,
+    continuation_token: Option<&str>,
+) -> bool {
+    is_truncated.unwrap_or(false)
+        && continuation_token
+            .map(|value| !value.trim().is_empty())
+            .unwrap_or(false)
+}
+
+fn chunk_delete_object_keys(object_keys: &[String]) -> Vec<Vec<String>> {
+    object_keys
+        .chunks(S3_DELETE_BATCH_SIZE)
+        .map(|chunk| chunk.to_vec())
+        .collect()
+}
+
 impl AwsConnectionService {
     const CACHE_TEMP_DIRECTORY: &'static str = ".cloudeasyfiles-tmp";
     const CACHE_ESCAPED_SEGMENT_PREFIX: &'static str = ".cloudeasyfiles-segment-";
@@ -938,7 +955,7 @@ impl AwsConnectionService {
 
         let next_continuation_token = response.next_continuation_token().map(ToString::to_string);
         let has_more =
-            response.is_truncated().unwrap_or(false) && next_continuation_token.is_some();
+            has_more_listing_results(response.is_truncated(), next_continuation_token.as_deref());
 
         Ok(AwsBucketItemsResult {
             bucket_region: resolved_bucket_region,
@@ -1385,7 +1402,7 @@ impl AwsConnectionService {
         bucket_name: &str,
         object_keys: &[String],
     ) -> Result<(), String> {
-        for key_batch in object_keys.chunks(S3_DELETE_BATCH_SIZE) {
+        for key_batch in chunk_delete_object_keys(object_keys) {
             let object_identifiers = key_batch
                 .iter()
                 .map(|object_key| ObjectIdentifier::builder().key(object_key).build())
@@ -2616,5 +2633,24 @@ mod tests {
             "docs/reports/"
         );
         assert!(normalize_recursive_delete_prefix(" / ").is_err());
+    }
+
+    #[test]
+    fn handles_listing_pagination_and_delete_batch_chunking() {
+        assert!(has_more_listing_results(Some(true), Some("cursor-1")));
+        assert!(!has_more_listing_results(Some(false), Some("cursor-1")));
+        assert!(!has_more_listing_results(Some(true), Some("   ")));
+        assert!(!has_more_listing_results(None, None));
+
+        let object_keys = (0..(S3_DELETE_BATCH_SIZE + 3))
+            .map(|index| format!("docs/file-{index}.txt"))
+            .collect::<Vec<_>>();
+        let batches = chunk_delete_object_keys(&object_keys);
+
+        assert_eq!(batches.len(), 2);
+        assert_eq!(batches[0].len(), S3_DELETE_BATCH_SIZE);
+        assert_eq!(batches[1].len(), 3);
+        assert_eq!(batches[0][0], "docs/file-0.txt");
+        assert_eq!(batches[1][2], format!("docs/file-{}.txt", S3_DELETE_BATCH_SIZE + 2));
     }
 }

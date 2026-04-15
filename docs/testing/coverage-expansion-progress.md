@@ -57,8 +57,8 @@ Increase automated test coverage toward the agreed long-term target of `75%` lin
 - [x] Expand AWS service coverage beyond current helpers
 - [x] Expand Azure service coverage beyond current helpers
 - [x] Cover delete/restore/tier-change sensitive paths
-- [ ] Cover pagination, batching, and chunking rules
-- [ ] Re-measure Rust coverage
+- [x] Cover pagination, batching, and chunking rules
+- [x] Re-measure Rust coverage
 
 ### Phase 4. Frontend workflow refinement
 
@@ -82,7 +82,7 @@ Increase automated test coverage toward the agreed long-term target of `75%` lin
 ## Current Risks
 
 - `ConnectionNavigator.tsx` remains the largest uncovered frontend orchestration surface
-- `presentation/commands.rs` still has no meaningful unit coverage
+- upload command/event paths in `presentation/commands.rs` are still only partially covered
 - current overall coverage is too low to treat percentage as an enforcement gate
 
 ## Notes
@@ -134,3 +134,9 @@ Increase automated test coverage toward the agreed long-term target of `75%` lin
   - Rust functions: `18.30%`
   - `aws_connection_service.rs` line coverage: `14.91%`
   - `azure_connection_service.rs` line coverage: `26.23%`
+- After Phase 3 substep 3:
+  - Rust line coverage: `18.60%`
+  - Rust regions: `20.73%`
+  - Rust functions: `19.75%`
+  - `aws_connection_service.rs` line coverage: `16.21%`
+  - `azure_connection_service.rs` line coverage: `27.88%`
