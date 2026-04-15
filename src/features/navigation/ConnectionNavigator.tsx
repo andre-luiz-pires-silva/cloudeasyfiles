@@ -211,6 +211,21 @@ import {
   buildLoadMoreSuccessState,
   getRegionUpdate
 } from "./navigationLoading";
+import {
+  buildConnectedIndicator,
+  buildConnectingIndicator,
+  buildConnectionErrorIndicator,
+  buildConnectionTestInProgressState,
+  buildConnectionTestMissingAccountState,
+  buildConnectionTestSuccessState,
+  buildConnectionTestValidationFailureState,
+  buildDisconnectedIndicator,
+  buildNextConnectionRequestId,
+  buildResetConnectionTestState,
+  clearConnectionProviderAccountId,
+  setConnectionProviderAccountId,
+  updateConnectionIndicatorMap
+} from "./navigationConnectionState";
 
 function Globe2Icon() {
   return (
@@ -3246,16 +3261,16 @@ export function ConnectionNavigator({
   }
 
   function resetConnectionTestState() {
-    connectionTestRequestIdRef.current += 1;
-    setConnectionTestStatus("idle");
-    setConnectionTestMessage(null);
+    const nextState = buildResetConnectionTestState(connectionTestRequestIdRef.current);
+    connectionTestRequestIdRef.current = nextState.requestId;
+    setConnectionTestStatus(nextState.status);
+    setConnectionTestMessage(nextState.message);
   }
 
   function updateConnectionIndicator(connectionId: string, indicator: ConnectionIndicator) {
-    setConnectionIndicators((previousIndicators) => ({
-      ...previousIndicators,
-      [connectionId]: indicator
-    }));
+    setConnectionIndicators((previousIndicators) =>
+      updateConnectionIndicatorMap(previousIndicators, connectionId, indicator)
+    );
   }
 
   function clearConnectionBuckets(connectionId: string) {
@@ -3441,16 +3456,15 @@ export function ConnectionNavigator({
       return;
     }
 
-    const requestId = (connectionRequestIdsRef.current[connectionId] ?? 0) + 1;
-    connectionRequestIdsRef.current[connectionId] = requestId;
+    const nextRequest = buildNextConnectionRequestId(connectionRequestIdsRef.current, connectionId);
+    const requestId = nextRequest.requestId;
+    connectionRequestIdsRef.current = nextRequest.requestIds;
 
-    setConnectionProviderAccountIds((previousProviderAccountIds) => {
-      const nextProviderAccountIds = { ...previousProviderAccountIds };
-      delete nextProviderAccountIds[connectionId];
-      return nextProviderAccountIds;
-    });
+    setConnectionProviderAccountIds((previousProviderAccountIds) =>
+      clearConnectionProviderAccountId(previousProviderAccountIds, connectionId)
+    );
     clearConnectionBuckets(connectionId);
-    updateConnectionIndicator(connectionId, { status: "connecting" });
+    updateConnectionIndicator(connectionId, buildConnectingIndicator());
 
     try {
       const result = await testConnectionForSavedConnection(connection);
@@ -3460,20 +3474,24 @@ export function ConnectionNavigator({
       }
 
       if (!result.accountLabel) {
-        updateConnectionIndicator(connectionId, {
-          status: "error",
-          message:
+        updateConnectionIndicator(
+          connectionId,
+          buildConnectionErrorIndicator(
             connection.provider === "aws"
               ? t("navigation.modal.aws.test_connection_failure")
               : t("navigation.modal.azure.test_connection_failure")
-        });
+          )
+        );
         return;
       }
 
-      setConnectionProviderAccountIds((previousProviderAccountIds) => ({
-        ...previousProviderAccountIds,
-        [connectionId]: result.accountLabel
-      }));
+      setConnectionProviderAccountIds((previousProviderAccountIds) =>
+        setConnectionProviderAccountId(
+          previousProviderAccountIds,
+          connectionId,
+          result.accountLabel
+        )
+      );
       const buckets = await listContainersForSavedConnection(connection);
 
       if (connectionRequestIdsRef.current[connectionId] !== requestId) {
@@ -3502,47 +3520,41 @@ export function ConnectionNavigator({
         );
       }
 
-      updateConnectionIndicator(connectionId, { status: "connected" });
+      updateConnectionIndicator(connectionId, buildConnectedIndicator());
     } catch (error) {
       if (connectionRequestIdsRef.current[connectionId] !== requestId) {
         return;
       }
 
-      setConnectionProviderAccountIds((previousProviderAccountIds) => {
-        const nextProviderAccountIds = { ...previousProviderAccountIds };
-        delete nextProviderAccountIds[connectionId];
-        return nextProviderAccountIds;
-      });
-      updateConnectionIndicator(connectionId, {
-        status: "error",
-        message: buildConnectionFailureMessage(error, t)
-      });
+      setConnectionProviderAccountIds((previousProviderAccountIds) =>
+        clearConnectionProviderAccountId(previousProviderAccountIds, connectionId)
+      );
+      updateConnectionIndicator(
+        connectionId,
+        buildConnectionErrorIndicator(buildConnectionFailureMessage(error, t))
+      );
       clearConnectionBuckets(connectionId);
     }
   }
 
   async function disconnectConnection(connectionId: string) {
-    connectionRequestIdsRef.current[connectionId] =
-      (connectionRequestIdsRef.current[connectionId] ?? 0) + 1;
-    setConnectionProviderAccountIds((previousProviderAccountIds) => {
-      const nextProviderAccountIds = { ...previousProviderAccountIds };
-      delete nextProviderAccountIds[connectionId];
-      return nextProviderAccountIds;
-    });
+    const nextRequest = buildNextConnectionRequestId(connectionRequestIdsRef.current, connectionId);
+    connectionRequestIdsRef.current = nextRequest.requestIds;
+    setConnectionProviderAccountIds((previousProviderAccountIds) =>
+      clearConnectionProviderAccountId(previousProviderAccountIds, connectionId)
+    );
     clearConnectionBuckets(connectionId);
-    updateConnectionIndicator(connectionId, { status: "disconnected" });
+    updateConnectionIndicator(connectionId, buildDisconnectedIndicator());
   }
 
   async function cancelConnectionAttempt(connectionId: string) {
-    connectionRequestIdsRef.current[connectionId] =
-      (connectionRequestIdsRef.current[connectionId] ?? 0) + 1;
-    setConnectionProviderAccountIds((previousProviderAccountIds) => {
-      const nextProviderAccountIds = { ...previousProviderAccountIds };
-      delete nextProviderAccountIds[connectionId];
-      return nextProviderAccountIds;
-    });
+    const nextRequest = buildNextConnectionRequestId(connectionRequestIdsRef.current, connectionId);
+    connectionRequestIdsRef.current = nextRequest.requestIds;
+    setConnectionProviderAccountIds((previousProviderAccountIds) =>
+      clearConnectionProviderAccountId(previousProviderAccountIds, connectionId)
+    );
     clearConnectionBuckets(connectionId);
-    updateConnectionIndicator(connectionId, { status: "disconnected" });
+    updateConnectionIndicator(connectionId, buildDisconnectedIndicator());
   }
 
   function toggleConnectionCollapsed(connectionId: string) {
@@ -3569,23 +3581,20 @@ export function ConnectionNavigator({
     setFormErrors(nextErrors);
 
     if (Object.keys(nextErrors).length > 0) {
-      setConnectionTestStatus("error");
-      setConnectionTestMessage(
-        connectionProvider === "aws"
-          ? t("navigation.modal.aws.test_connection_validation_error")
-          : t("navigation.modal.azure.test_connection_validation_error")
-      );
+      const failureState = buildConnectionTestValidationFailureState(connectionProvider, t);
+      setConnectionTestStatus(failureState.status);
+      setConnectionTestMessage(failureState.message);
       return;
     }
 
-    setConnectionTestStatus("testing");
-    setConnectionTestMessage(
-      connectionProvider === "aws"
-        ? t("navigation.modal.aws.test_connection_in_progress")
-        : t("navigation.modal.azure.test_connection_in_progress")
+    const inProgressState = buildConnectionTestInProgressState(
+      connectionProvider,
+      connectionTestRequestIdRef.current,
+      t
     );
-
-    const requestId = connectionTestRequestIdRef.current + 1;
+    setConnectionTestStatus(inProgressState.status);
+    setConnectionTestMessage(inProgressState.message);
+    const requestId = inProgressState.requestId;
     connectionTestRequestIdRef.current = requestId;
 
     try {
@@ -3601,18 +3610,15 @@ export function ConnectionNavigator({
         }
 
         if (!result.accountId) {
-          setConnectionTestStatus("error");
-          setConnectionTestMessage(t("navigation.modal.aws.test_connection_failure"));
+          const missingAccountState = buildConnectionTestMissingAccountState("aws", t);
+          setConnectionTestStatus(missingAccountState.status);
+          setConnectionTestMessage(missingAccountState.message);
           return;
         }
 
-        setConnectionTestStatus("success");
-        setConnectionTestMessage(
-          t("navigation.modal.aws.test_connection_success").replace(
-            "{accountId}",
-            result.accountId
-          )
-        );
+        const successState = buildConnectionTestSuccessState("aws", result.accountId, t);
+        setConnectionTestStatus(successState.status);
+        setConnectionTestMessage(successState.message);
         return;
       }
 
@@ -3623,18 +3629,19 @@ export function ConnectionNavigator({
       }
 
       if (!result.storageAccountName) {
-        setConnectionTestStatus("error");
-        setConnectionTestMessage(t("navigation.modal.azure.test_connection_failure"));
+        const missingAccountState = buildConnectionTestMissingAccountState("azure", t);
+        setConnectionTestStatus(missingAccountState.status);
+        setConnectionTestMessage(missingAccountState.message);
         return;
       }
 
-      setConnectionTestStatus("success");
-      setConnectionTestMessage(
-        t("navigation.modal.azure.test_connection_success").replace(
-          "{storageAccountName}",
-          result.storageAccountName
-        )
+      const successState = buildConnectionTestSuccessState(
+        "azure",
+        result.storageAccountName,
+        t
       );
+      setConnectionTestStatus(successState.status);
+      setConnectionTestMessage(successState.message);
     } catch (error) {
       if (connectionTestRequestIdRef.current !== requestId) {
         return;
