@@ -149,6 +149,11 @@ import {
   type NavigationRestoreRequestState as RestoreRequestState
 } from "./navigationWorkflows";
 import {
+  applyDownloadedFileState,
+  reconcileDownloadedFilePathsForContext,
+  resolveDownloadState
+} from "./navigationDownloads";
+import {
   isAzureArchivedOverwriteBlocked,
   resolveUploadConflictDecisions,
   type UploadConflictDecision,
@@ -816,72 +821,6 @@ function getPreferredFileStatusBadgeDescriptors(
   return availableDescriptor ? [availableDescriptor] : descriptors;
 }
 
-function resolveDownloadState(
-  item: ContentExplorerItem,
-  downloadedPaths: Set<string>,
-  connectionId: string | null,
-  bucketName: string | null,
-  hasLocalCacheDirectory: boolean
-): FileDownloadState | undefined {
-  if (item.kind !== "file") {
-    return item.downloadState;
-  }
-
-  if (item.availabilityStatus === "restoring") {
-    return "restoring";
-  }
-
-  if (
-    connectionId &&
-    bucketName &&
-    downloadedPaths.has(buildFileIdentity(connectionId, bucketName, item.path))
-  ) {
-    return "downloaded";
-  }
-
-  if (item.availabilityStatus === "available") {
-    return hasLocalCacheDirectory ? "available_to_download" : "not_downloaded";
-  }
-
-  if (item.availabilityStatus === "archived") {
-    return "not_downloaded";
-  }
-
-  return item.downloadState;
-}
-
-function applyDownloadedFileState(
-  items: ContentExplorerItem[],
-  downloadedPaths: Set<string>,
-  connectionId: string | null,
-  bucketName: string | null,
-  hasLocalCacheDirectory: boolean
-): ContentExplorerItem[] {
-  let hasChanges = false;
-  const nextItems = items.map((item) => {
-    const nextDownloadState = resolveDownloadState(
-      item,
-      downloadedPaths,
-      connectionId,
-      bucketName,
-      hasLocalCacheDirectory
-    );
-
-    if (item.downloadState === nextDownloadState) {
-      return item;
-    }
-
-    hasChanges = true;
-
-    return {
-      ...item,
-      downloadState: nextDownloadState
-    };
-  });
-
-  return hasChanges ? nextItems : items;
-}
-
 async function resolveCachedFileIdentities(
   provider: ConnectionProvider,
   connectionId: string,
@@ -924,32 +863,6 @@ async function resolveCachedFileIdentities(
   );
 }
 
-function reconcileDownloadedFilePathsForContext(
-  currentPaths: string[],
-  cachedPaths: Set<string>,
-  connectionId: string,
-  bucketName: string,
-  items: ContentExplorerItem[]
-): string[] {
-  const nextPaths = currentPaths.filter(
-    (path) => !isFileIdentityInContext(path, connectionId, bucketName, items)
-  );
-
-  for (const path of cachedPaths) {
-    nextPaths.push(path);
-  }
-
-  const uniqueNextPaths = [...new Set(nextPaths)];
-
-  if (
-    uniqueNextPaths.length === currentPaths.length &&
-    uniqueNextPaths.every((path, index) => path === currentPaths[index])
-  ) {
-    return currentPaths;
-  }
-
-  return uniqueNextPaths;
-}
 
 function loadLegacyGlobalCacheDirectoryCandidate(): string | undefined {
   if (typeof window === "undefined") {
