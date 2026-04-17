@@ -293,6 +293,10 @@ import {
   startSimpleUploadForProvider
 } from "./navigationUploadExecution";
 import {
+  collectDroppedFiles,
+  resolveSingleDirectoryPickResult
+} from "./navigationFileInput";
+import {
   buildContentStatusSummaryItems,
   countLoadedItemsByStatus,
   filterConnectionBuckets,
@@ -941,16 +945,10 @@ export function ConnectionNavigator({
   }
 
   function extractDroppedFiles(event: React.DragEvent<HTMLElement>) {
-    const droppedFilesFromItems = Array.from(event.dataTransfer?.items ?? [])
-      .filter((item) => item.kind === "file")
-      .map((item) => item.getAsFile())
-      .filter((candidate): candidate is File => candidate instanceof File);
-
-    if (droppedFilesFromItems.length > 0) {
-      return droppedFilesFromItems;
-    }
-
-    return Array.from(event.dataTransfer?.files ?? []);
+    return collectDroppedFiles({
+      items: event.dataTransfer?.items,
+      files: event.dataTransfer?.files
+    });
   }
 
   function handlePickGlobalCacheDirectory() {
@@ -968,11 +966,13 @@ export function ConnectionNavigator({
           defaultPath: globalLocalCacheDirectory.trim() || undefined
         });
 
-        if (!selectedPath || Array.isArray(selectedPath)) {
+        const normalizedSelectedPath = resolveSingleDirectoryPickResult(selectedPath);
+
+        if (!normalizedSelectedPath) {
           return;
         }
 
-        setGlobalLocalCacheDirectory(selectedPath);
+        setGlobalLocalCacheDirectory(normalizedSelectedPath);
       } catch (error) {
         setSubmitError(
           extractErrorMessage(error) ?? t("settings.download_directory_pick_failed")
