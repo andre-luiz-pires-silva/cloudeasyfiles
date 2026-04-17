@@ -253,4 +253,87 @@ describe("navigationWorkflows", () => {
       })
     ).toBe("navigation.menu.change_tier");
   });
+
+  it("returns the azure rehydration tooltip for archived azure items", () => {
+    expect(
+      getBatchChangeTierTooltip({
+        items: [
+          {
+            kind: "file",
+            name: "archive.zip",
+            path: "archive.zip",
+            availabilityStatus: "archived"
+          }
+        ],
+        provider: "azure",
+        isContentSelectionActive: false,
+        canBatchChangeTier: false,
+        t: (key) => key
+      })
+    ).toBe("content.azure_storage_class_change.tooltip_archived_requires_rehydration");
+  });
+
+  it("returns null change-tier state without bucket context or files", () => {
+    expect(
+      buildChangeStorageClassRequestState({
+        items: [{ kind: "file", name: "report.csv", path: "report.csv" }],
+        provider: null,
+        connectionId: "conn-1",
+        bucketName: "bucket-a",
+        bucketRegion: null,
+        bucketRegionPlaceholder: "...",
+        formatBytes,
+        getMultipleCurrentClassesLabel: () => "mixed"
+      })
+    ).toBeNull();
+
+    expect(
+      buildChangeStorageClassRequestState({
+        items: [{ kind: "directory", name: "docs", path: "docs" }],
+        provider: "aws",
+        connectionId: "conn-1",
+        bucketName: "bucket-a",
+        bucketRegion: null,
+        bucketRegionPlaceholder: "...",
+        formatBytes,
+        getMultipleCurrentClassesLabel: () => "mixed"
+      })
+    ).toBeNull();
+  });
+
+  it("builds a batch restore request with a single common storage class label", () => {
+    const result = buildRestoreRequestState({
+      items: [
+        { kind: "file", name: "a.zip", path: "a.zip", size: 5, storageClass: "GLACIER" },
+        { kind: "file", name: "b.zip", path: "b.zip", size: 5, storageClass: "GLACIER" }
+      ],
+      provider: "aws",
+      connectionId: "conn-1",
+      bucketName: "bucket-a",
+      bucketRegion: null,
+      bucketRegionPlaceholder: "...",
+      formatBytes,
+      getMixedStorageClassesLabel: () => "mixed"
+    });
+
+    expect(result).not.toBeNull();
+    if (result && "storageClassLabel" in result.request) {
+      expect(result.request.storageClassLabel).toBe("GLACIER");
+    }
+  });
+
+  it("returns null restore state when items array is empty", () => {
+    expect(
+      buildRestoreRequestState({
+        items: [],
+        provider: "aws",
+        connectionId: "conn-1",
+        bucketName: "bucket-a",
+        bucketRegion: null,
+        bucketRegionPlaceholder: "...",
+        formatBytes,
+        getMixedStorageClassesLabel: () => "mixed"
+      })
+    ).toBeNull();
+  });
 });
