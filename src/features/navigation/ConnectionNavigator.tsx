@@ -297,6 +297,12 @@ import {
   resolveSingleDirectoryPickResult
 } from "./navigationFileInput";
 import {
+  buildContentSelectionState,
+  clearContentSelectionState,
+  toggleAllVisibleContentSelection,
+  toggleContentSelectionItem
+} from "./navigationSelectionState";
+import {
   buildContentStatusSummaryItems,
   countLoadedItemsByStatus,
   filterConnectionBuckets,
@@ -725,10 +731,6 @@ export function ConnectionNavigator({
   const isStatusFilterInactive =
     contentStatusFilters.length === 0 ||
     contentStatusFilters.length === ALL_CONTENT_STATUS_FILTERS.length;
-  const selectedContentItemIdSet = useMemo(
-    () => new Set(selectedContentItemIds),
-    [selectedContentItemIds]
-  );
   const filteredContentItems = useMemo(
     () =>
       filterContentItems({
@@ -748,19 +750,21 @@ export function ConnectionNavigator({
     () => contentItems.filter((item) => item.kind === "directory").length,
     [contentItems]
   );
-  const selectedContentItems = useMemo(
-    () => contentItems.filter((item) => selectedContentItemIdSet.has(item.id)),
-    [contentItems, selectedContentItemIdSet]
+  const contentSelectionState = useMemo(
+    () =>
+      buildContentSelectionState({
+        items: contentItems,
+        filteredItems: filteredContentItems,
+        selectedItemIds: selectedContentItemIds
+      }),
+    [contentItems, filteredContentItems, selectedContentItemIds]
   );
-  const selectedContentCount = selectedContentItems.length;
-  const isContentSelectionActive = selectedContentCount > 0;
-  const visibleContentItemIds = useMemo(
-    () => filteredContentItems.map((item) => item.id),
-    [filteredContentItems]
-  );
-  const allVisibleContentItemsSelected =
-    visibleContentItemIds.length > 0 &&
-    visibleContentItemIds.every((itemId) => selectedContentItemIdSet.has(itemId));
+  const selectedContentItemIdSet = contentSelectionState.selectedItemIdSet;
+  const selectedContentItems = contentSelectionState.selectedItems;
+  const selectedContentCount = contentSelectionState.selectedCount;
+  const isContentSelectionActive = contentSelectionState.isSelectionActive;
+  const visibleContentItemIds = contentSelectionState.visibleItemIds;
+  const allVisibleContentItemsSelected = contentSelectionState.allVisibleItemsSelected;
   const loadedContentCount =
     selectedNode?.kind === "connection"
       ? (connectionBuckets[selectedNode.id] ?? []).length
@@ -1328,20 +1332,18 @@ export function ConnectionNavigator({
   }
 
   function clearContentSelection() {
-    setSelectedContentItemIds([]);
+    setSelectedContentItemIds(clearContentSelectionState());
   }
 
   function toggleContentItemSelection(itemId: string) {
-    setSelectedContentItemIds((currentItemIds) => toggleSelectedItemId(currentItemIds, itemId));
+    setSelectedContentItemIds((currentItemIds) =>
+      toggleContentSelectionItem(currentItemIds, itemId)
+    );
   }
 
   function toggleSelectAllVisibleContentItems() {
-    if (visibleContentItemIds.length === 0) {
-      return;
-    }
-
     setSelectedContentItemIds((currentItemIds) =>
-      toggleVisibleSelection(currentItemIds, visibleContentItemIds)
+      toggleAllVisibleContentSelection(currentItemIds, visibleContentItemIds)
     );
   }
 

@@ -79,6 +79,42 @@ Increase automated test coverage toward the agreed long-term target of `75%` lin
 2. remaining upload orchestration still embedded in `ConnectionNavigator.tsx`
 3. higher-level `Window`-driven flows in `presentation/commands.rs`
 
+## Operational Roadmap
+
+Use the checklist below as the next execution guide for the coverage-expansion branch. Each step should end with:
+
+- targeted tests passing for the touched area
+- `npm run build` or `cargo check` passing
+- updated measurements in this file
+- one dedicated commit for that step
+
+### Near-Term Frontend Steps
+
+- [x] Step F1. Extract visible-selection and batch-selection state transitions from `ConnectionNavigator.tsx`
+- [ ] Step F2. Extract restore-modal open-state orchestration from `ConnectionNavigator.tsx`
+- [ ] Step F3. Extract change-tier modal open-state orchestration from `ConnectionNavigator.tsx`
+- [ ] Step F4. Extract batch-download orchestration planning from `ConnectionNavigator.tsx`
+- [ ] Step F5. Extract delete success/error state transitions from `ConnectionNavigator.tsx`
+- [ ] Step F6. Finish cache-directory picker and local file-input orchestration cleanup
+- [ ] Step F7. Revisit remaining content filter/counter glue still embedded in `ConnectionNavigator.tsx`
+
+### Near-Term Rust Steps
+
+- [ ] Step R1. Expand `presentation/commands.rs` coverage for higher-level `Window`-driven command flows
+- [ ] Step R2. Expand `presentation/commands.rs` coverage for upload/download command-service handoff flows
+
+### Review Step
+
+- [ ] Step V1. Re-measure milestone status after F1-F7 and R1-R2, then decide whether Milestone C is reached
+
+## Estimated Remaining Work
+
+- Estimated steps to reach Milestone C (`35%` frontend, `40%` Rust): `7-9`
+- Likely composition:
+  - `4-6` frontend-heavy steps
+  - `2` Rust command-layer steps
+  - `1` review/replanning step
+
 ## Current Risks
 
 - `ConnectionNavigator.tsx` remains the largest uncovered frontend orchestration surface
@@ -326,6 +362,15 @@ Increase automated test coverage toward the agreed long-term target of `75%` lin
   - Delivered:
     - extracted and covered `src/features/navigation/navigationFileInput.ts`
     - reduced drag-and-drop and directory-picker normalization branching inside `ConnectionNavigator.tsx`
+- After frontend selection-state extraction:
+  - Frontend line coverage: `28.46%`
+  - Frontend statements: `28.46%`
+  - Frontend branches: `88.10%`
+  - Frontend functions: `80.27%`
+  - Delivered:
+    - completed roadmap Step `F1`
+    - extracted and covered `src/features/navigation/navigationSelectionState.ts`
+    - reduced visible-selection and batch-selection state branching inside `ConnectionNavigator.tsx`
   - Rust regions: `31.02%`
   - Rust functions: `26.11%`
   - `aws_connection_service.rs` line coverage: `24.64%`
