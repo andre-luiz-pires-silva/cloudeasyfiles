@@ -60,3 +60,45 @@ export function getContentAreaActionDispatchStep(
 ): NavigationContentAreaDispatchStep {
   return actionId === "createFolder" ? "openCreateFolder" : "refresh";
 }
+
+export async function executeConnectionActionDispatch(params: {
+  steps: NavigationConnectionDispatchStep[];
+  handlers: {
+    closeMenu: () => void;
+    connect: () => Promise<void>;
+    cancelConnect: () => Promise<void>;
+    disconnect: () => Promise<void>;
+    edit: () => Promise<void>;
+    remove: () => Promise<void>;
+  };
+}): Promise<void> {
+  for (const step of params.steps) {
+    if (step === "closeMenu") {
+      params.handlers.closeMenu();
+    } else if (step === "connect") {
+      await params.handlers.connect();
+    } else if (step === "cancelConnect") {
+      await params.handlers.cancelConnect();
+    } else if (step === "disconnect") {
+      await params.handlers.disconnect();
+    } else if (step === "edit") {
+      await params.handlers.edit();
+    } else if (step === "remove") {
+      await params.handlers.remove();
+    }
+  }
+}
+
+export async function executeDefaultConnectionAction(params: {
+  step: NavigationDefaultConnectionStep;
+  handlers: {
+    connect: () => Promise<void>;
+    edit: () => Promise<void>;
+  };
+}): Promise<void> {
+  if (params.step === "edit") {
+    await params.handlers.edit();
+  } else if (params.step === "connect") {
+    await params.handlers.connect();
+  }
+}

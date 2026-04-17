@@ -241,6 +241,8 @@ import {
   buildResetModalFormState
 } from "./navigationModalState";
 import {
+  executeConnectionActionDispatch,
+  executeDefaultConnectionAction,
   getConnectionActionDispatchSteps,
   getContentAreaActionDispatchStep,
   getDefaultConnectionActionStep
@@ -3643,32 +3645,28 @@ export function ConnectionNavigator({
     actionId: "connect" | "cancelConnect" | "disconnect" | "edit" | "remove",
     connectionId: string
   ) {
-    for (const step of getConnectionActionDispatchSteps(actionId)) {
-      if (step === "closeMenu") {
-        setOpenMenuConnectionId(null);
-      } else if (step === "connect") {
-        await connectConnection(connectionId);
-      } else if (step === "cancelConnect") {
-        await cancelConnectionAttempt(connectionId);
-      } else if (step === "disconnect") {
-        await disconnectConnection(connectionId);
-      } else if (step === "edit") {
-        await openEditModal(connectionId);
-      } else if (step === "remove") {
-        await handleRemoveConnection(connectionId);
+    await executeConnectionActionDispatch({
+      steps: getConnectionActionDispatchSteps(actionId),
+      handlers: {
+        closeMenu: () => setOpenMenuConnectionId(null),
+        connect: () => connectConnection(connectionId),
+        cancelConnect: () => cancelConnectionAttempt(connectionId),
+        disconnect: () => disconnectConnection(connectionId),
+        edit: () => openEditModal(connectionId),
+        remove: () => handleRemoveConnection(connectionId)
       }
-    }
+    });
   }
 
   async function handleDefaultConnectionAction(connectionId: string) {
     const indicator = connectionIndicators[connectionId] ?? { status: "disconnected" };
-    const nextStep = getDefaultConnectionActionStep({ status: indicator.status });
-
-    if (nextStep === "edit") {
-      await openEditModal(connectionId);
-    } else if (nextStep === "connect") {
-      await connectConnection(connectionId);
-    }
+    await executeDefaultConnectionAction({
+      step: getDefaultConnectionActionStep({ status: indicator.status }),
+      handlers: {
+        connect: () => connectConnection(connectionId),
+        edit: () => openEditModal(connectionId)
+      }
+    });
   }
 
   return (
