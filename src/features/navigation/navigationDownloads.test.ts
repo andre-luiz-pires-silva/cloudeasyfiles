@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { buildFileIdentity } from "./navigationGuards";
 import {
+  buildBatchDownloadPlan,
   applyDownloadedFileState,
   reconcileDownloadedFilePathsForContext,
   resolveDownloadState,
@@ -9,6 +10,22 @@ import {
 } from "./navigationDownloads";
 
 describe("navigationDownloads", () => {
+  it("builds a batch download plan only when batch download is enabled", () => {
+    const items: NavigationDownloadableItem[] = [
+      { id: "d1", kind: "directory", path: "docs" },
+      {
+        id: "f1",
+        kind: "file",
+        path: "docs/report.txt",
+        availabilityStatus: "available",
+        downloadState: "available_to_download"
+      }
+    ];
+
+    expect(buildBatchDownloadPlan({ items, canBatchDownload: false })).toEqual([]);
+    expect(buildBatchDownloadPlan({ items, canBatchDownload: true })).toEqual([items[1]!]);
+  });
+
   it("resolves download state from availability and cache context", () => {
     const availableFile: NavigationDownloadableItem = {
       id: "f1",

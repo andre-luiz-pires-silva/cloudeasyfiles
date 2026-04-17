@@ -93,7 +93,7 @@ Use the checklist below as the next execution guide for the coverage-expansion b
 - [x] Step F1. Extract visible-selection and batch-selection state transitions from `ConnectionNavigator.tsx`
 - [x] Step F2. Extract restore-modal open-state orchestration from `ConnectionNavigator.tsx`
 - [x] Step F3. Extract change-tier modal open-state orchestration from `ConnectionNavigator.tsx`
-- [ ] Step F4. Extract batch-download orchestration planning from `ConnectionNavigator.tsx`
+- [x] Step F4. Extract batch-download orchestration planning from `ConnectionNavigator.tsx`
 - [ ] Step F5. Extract delete success/error state transitions from `ConnectionNavigator.tsx`
 - [ ] Step F6. Finish cache-directory picker and local file-input orchestration cleanup
 - [ ] Step F7. Revisit remaining content filter/counter glue still embedded in `ConnectionNavigator.tsx`
@@ -389,6 +389,15 @@ Use the checklist below as the next execution guide for the coverage-expansion b
     - completed roadmap Step `F3`
     - expanded `src/features/navigation/navigationWorkflows.ts` to cover change-tier modal open-state helpers
     - reduced change-tier modal opening branching inside `ConnectionNavigator.tsx`
+- After frontend batch-download planning extraction:
+  - Frontend line coverage: `28.72%`
+  - Frontend statements: `28.72%`
+  - Frontend branches: `88.20%`
+  - Frontend functions: `80.47%`
+  - Delivered:
+    - completed roadmap Step `F4`
+    - expanded `src/features/navigation/navigationDownloads.ts` to cover batch-download planning
+    - reduced batch-download branching inside `ConnectionNavigator.tsx`
   - Rust regions: `31.02%`
   - Rust functions: `26.11%`
   - `aws_connection_service.rs` line coverage: `24.64%`

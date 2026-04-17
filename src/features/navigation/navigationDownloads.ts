@@ -10,6 +10,17 @@ export type NavigationDownloadableItem = NavigationContentItem & {
   downloadState?: NavigationDownloadState;
 };
 
+export function buildBatchDownloadPlan<T extends NavigationDownloadableItem>(params: {
+  items: T[];
+  canBatchDownload: boolean;
+}): T[] {
+  if (!params.canBatchDownload) {
+    return [];
+  }
+
+  return params.items.filter((item): item is T => item.kind === "file");
+}
+
 export function resolveDownloadState<T extends NavigationDownloadableItem>(
   item: T,
   downloadedPaths: Set<string>,

@@ -149,6 +149,7 @@ import {
   type NavigationRestoreRequestState as RestoreRequestState
 } from "./navigationWorkflows";
 import {
+  buildBatchDownloadPlan,
   applyDownloadedFileState,
   reconcileDownloadedFilePathsForContext,
   resolveDownloadState
@@ -1641,11 +1642,10 @@ export function ConnectionNavigator({
   }
 
   function handleBatchDownloadSelection() {
-    if (!batchSelectionActions.canBatchDownload) {
-      return;
-    }
-
-    batchSelectionActions.downloadableItems.forEach((item) => {
+    buildBatchDownloadPlan({
+      items: batchSelectionActions.downloadableItems,
+      canBatchDownload: batchSelectionActions.canBatchDownload
+    }).forEach((item) => {
       if (item.kind === "file") {
         startTrackedDownloadForItem(item);
       }
