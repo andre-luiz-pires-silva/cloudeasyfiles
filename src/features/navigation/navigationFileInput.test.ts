@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { collectDroppedFiles, resolveSingleDirectoryPickResult } from "./navigationFileInput";
+import {
+  collectDroppedFiles,
+  resolveDirectoryPickerDefaultPath,
+  resolveMultiFilePickResult,
+  resolveSingleDirectoryPickResult
+} from "./navigationFileInput";
 
 describe("navigationFileInput", () => {
   it("prefers file items from drag-and-drop data transfer entries", () => {
@@ -34,5 +39,17 @@ describe("navigationFileInput", () => {
     expect(resolveSingleDirectoryPickResult(null)).toBeNull();
     expect(resolveSingleDirectoryPickResult(["/tmp/a", "/tmp/b"])).toBeNull();
     expect(resolveSingleDirectoryPickResult("/tmp/cache")).toBe("/tmp/cache");
+  });
+
+  it("normalizes directory picker default path and multi-file pick results", () => {
+    expect(resolveDirectoryPickerDefaultPath("   ")).toBeUndefined();
+    expect(resolveDirectoryPickerDefaultPath(" /tmp/cache ")).toBe("/tmp/cache");
+
+    expect(resolveMultiFilePickResult(null)).toEqual([]);
+    expect(resolveMultiFilePickResult("/tmp/a.txt")).toEqual(["/tmp/a.txt"]);
+    expect(resolveMultiFilePickResult(["/tmp/a.txt", "/tmp/b.txt"])).toEqual([
+      "/tmp/a.txt",
+      "/tmp/b.txt"
+    ]);
   });
 });

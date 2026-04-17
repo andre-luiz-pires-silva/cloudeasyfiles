@@ -299,6 +299,8 @@ import {
 } from "./navigationUploadExecution";
 import {
   collectDroppedFiles,
+  resolveDirectoryPickerDefaultPath,
+  resolveMultiFilePickResult,
   resolveSingleDirectoryPickResult
 } from "./navigationFileInput";
 import {
@@ -972,7 +974,7 @@ export function ConnectionNavigator({
         const selectedPath = await open({
           directory: true,
           multiple: false,
-          defaultPath: globalLocalCacheDirectory.trim() || undefined
+          defaultPath: resolveDirectoryPickerDefaultPath(globalLocalCacheDirectory)
         });
 
         const normalizedSelectedPath = resolveSingleDirectoryPickResult(selectedPath);
@@ -1322,12 +1324,13 @@ export function ConnectionNavigator({
           directory: false,
           multiple: true
         });
+        const normalizedSelectedPaths = resolveMultiFilePickResult(selectedPath);
 
-        if (!selectedPath) {
+        if (normalizedSelectedPaths.length === 0) {
           return;
         }
 
-        runSimpleAwsUploads(Array.isArray(selectedPath) ? selectedPath : [selectedPath]);
+        runSimpleAwsUploads(normalizedSelectedPaths);
       } catch (error) {
         showTransferErrorToast(
           extractErrorMessage(error) ?? t("content.transfer.upload_picker_failed")

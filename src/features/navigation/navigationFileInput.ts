@@ -28,3 +28,20 @@ export function resolveSingleDirectoryPickResult(
 
   return selectedPath;
 }
+
+export function resolveDirectoryPickerDefaultPath(
+  currentDirectory: string | null | undefined
+): string | undefined {
+  const normalizedDirectory = currentDirectory?.trim();
+  return normalizedDirectory ? normalizedDirectory : undefined;
+}
+
+export function resolveMultiFilePickResult(
+  selectedPath: string | string[] | null
+): string[] {
+  if (!selectedPath) {
+    return [];
+  }
+
+  return Array.isArray(selectedPath) ? selectedPath : [selectedPath];
+}

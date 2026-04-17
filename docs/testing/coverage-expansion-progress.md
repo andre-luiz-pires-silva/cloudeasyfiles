@@ -95,7 +95,7 @@ Use the checklist below as the next execution guide for the coverage-expansion b
 - [x] Step F3. Extract change-tier modal open-state orchestration from `ConnectionNavigator.tsx`
 - [x] Step F4. Extract batch-download orchestration planning from `ConnectionNavigator.tsx`
 - [x] Step F5. Extract delete success/error state transitions from `ConnectionNavigator.tsx`
-- [ ] Step F6. Finish cache-directory picker and local file-input orchestration cleanup
+- [x] Step F6. Finish cache-directory picker and local file-input orchestration cleanup
 - [ ] Step F7. Revisit remaining content filter/counter glue still embedded in `ConnectionNavigator.tsx`
 
 ### Near-Term Rust Steps
@@ -407,6 +407,15 @@ Use the checklist below as the next execution guide for the coverage-expansion b
     - completed roadmap Step `F5`
     - expanded `src/features/navigation/navigationSecondaryModalState.ts` to cover delete success/error state transitions
     - reduced delete success/error branching inside `ConnectionNavigator.tsx`
+- After frontend file-input cleanup completion:
+  - Frontend line coverage: `28.95%`
+  - Frontend statements: `28.95%`
+  - Frontend branches: `88.35%`
+  - Frontend functions: `80.74%`
+  - Delivered:
+    - completed roadmap Step `F6`
+    - expanded `src/features/navigation/navigationFileInput.ts` to cover directory-picker default path and multi-file picker normalization
+    - reduced remaining picker normalization branching inside `ConnectionNavigator.tsx`
   - Rust regions: `31.02%`
   - Rust functions: `26.11%`
   - `aws_connection_service.rs` line coverage: `24.64%`
