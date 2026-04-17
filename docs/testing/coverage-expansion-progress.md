@@ -100,7 +100,7 @@ Use the checklist below as the next execution guide for the coverage-expansion b
 
 ### Near-Term Rust Steps
 
-- [ ] Step R1. Expand `presentation/commands.rs` coverage for higher-level `Window`-driven command flows
+- [x] Step R1. Expand `presentation/commands.rs` coverage for higher-level `Window`-driven command flows
 - [ ] Step R2. Expand `presentation/commands.rs` coverage for upload/download command-service handoff flows
 
 ### Review Step
@@ -109,10 +109,10 @@ Use the checklist below as the next execution guide for the coverage-expansion b
 
 ## Estimated Remaining Work
 
-- Estimated steps to reach Milestone C (`35%` frontend, `40%` Rust): `7-9`
+- Estimated steps to reach Milestone C (`35%` frontend, `40%` Rust): `4-6`
 - Likely composition:
-  - `4-6` frontend-heavy steps
-  - `2` Rust command-layer steps
+  - `3-5` frontend-heavy steps
+  - `0-1` Rust command-layer steps
   - `1` review/replanning step
 
 ## Current Risks
@@ -457,3 +457,12 @@ Use the checklist below as the next execution guide for the coverage-expansion b
   - Rust regions: `42.06%`
   - Rust functions: `37.16%`
   - `presentation/commands.rs` line coverage: `47.37%`
+- After roadmap Step R1:
+  - Rust line coverage: `44.83%`
+  - Rust regions: `43.66%`
+  - Rust functions: `37.59%`
+  - `presentation/commands.rs` line coverage: `53.05%`
+  - Delivered:
+    - completed roadmap Step `R1`
+    - extracted terminal-outcome orchestration helpers in `src-tauri/src/presentation/commands.rs` for cache downloads, direct downloads, and uploads
+    - expanded command-layer tests to cover success, failure, and cancellation state mapping for AWS and Azure `Window`-driven flows

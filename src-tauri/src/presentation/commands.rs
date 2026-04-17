@@ -1,19 +1,19 @@
-use crate::application::services::azure_connection_secret_service::AzureConnectionSecretService;
-use crate::application::services::azure_connection_service::{
-    AzureConnectionService, AZURE_DOWNLOAD_CANCELLED_ERROR, AZURE_UPLOAD_CANCELLED_ERROR,
-};
 use crate::application::services::aws_connection_secret_service::AwsConnectionSecretService;
 use crate::application::services::aws_connection_service::{
     AwsConnectionService, DOWNLOAD_CANCELLED_ERROR, UPLOAD_CANCELLED_ERROR,
 };
-use crate::application::services::greeting_service::GreetingService;
-use crate::domain::azure_connection::{
-    AzureCacheDownloadResult, AzureConnectionTestInput, AzureConnectionTestResult,
-    AzureContainerItemsResult, AzureContainerSummary, AzureDeleteResult,
+use crate::application::services::azure_connection_secret_service::AzureConnectionSecretService;
+use crate::application::services::azure_connection_service::{
+    AzureConnectionService, AZURE_DOWNLOAD_CANCELLED_ERROR, AZURE_UPLOAD_CANCELLED_ERROR,
 };
+use crate::application::services::greeting_service::GreetingService;
 use crate::domain::aws_connection::{
     AwsBucketItemsResult, AwsBucketSummary, AwsConnectionTestInput, AwsConnectionTestResult,
     AwsDeleteResult,
+};
+use crate::domain::azure_connection::{
+    AzureConnectionTestInput, AzureConnectionTestResult, AzureContainerItemsResult,
+    AzureContainerSummary, AzureDeleteResult,
 };
 use crate::domain::connection_secrets::{
     AwsConnectionSecretsInput, AwsConnectionSecretsOutput, AzureConnectionSecretsInput,
@@ -520,6 +520,140 @@ fn build_azure_upload_terminal_event(
         state,
         error,
     )
+}
+
+fn resolve_cache_download_outcome<Event, BuildEvent>(
+    result: Result<(String, i64), String>,
+    operation_id: String,
+    connection_id: String,
+    bucket_name: String,
+    object_key: String,
+    is_cancelled_error: fn(&str) -> bool,
+    build_event: BuildEvent,
+) -> (Result<String, String>, Event)
+where
+    BuildEvent:
+        FnOnce(String, String, String, String, Option<String>, i64, &str, Option<String>) -> Event,
+{
+    match result {
+        Ok((local_path, bytes_written)) => {
+            let event = build_event(
+                operation_id.clone(),
+                connection_id,
+                bucket_name,
+                object_key,
+                Some(local_path),
+                bytes_written,
+                "completed",
+                None,
+            );
+
+            (Ok(operation_id), event)
+        }
+        Err(error) => {
+            let state = download_terminal_state(&error, is_cancelled_error);
+            let event = build_event(
+                operation_id.clone(),
+                connection_id,
+                bucket_name,
+                object_key,
+                None,
+                0,
+                &state,
+                Some(error.clone()),
+            );
+
+            (Err(error), event)
+        }
+    }
+}
+
+fn resolve_direct_download_outcome<Event, BuildEvent>(
+    result: Result<String, String>,
+    operation_id: String,
+    connection_id: String,
+    bucket_name: String,
+    object_key: String,
+    is_cancelled_error: fn(&str) -> bool,
+    build_event: BuildEvent,
+) -> (Result<String, String>, Event)
+where
+    BuildEvent:
+        FnOnce(String, String, String, String, Option<String>, &str, Option<String>) -> Event,
+{
+    match result {
+        Ok(target_path) => {
+            let event = build_event(
+                operation_id,
+                connection_id,
+                bucket_name,
+                object_key,
+                Some(target_path.clone()),
+                "completed",
+                None,
+            );
+
+            (Ok(target_path), event)
+        }
+        Err(error) => {
+            let state = download_terminal_state(&error, is_cancelled_error);
+            let event = build_event(
+                operation_id,
+                connection_id,
+                bucket_name,
+                object_key,
+                None,
+                &state,
+                Some(error.clone()),
+            );
+
+            (Err(error), event)
+        }
+    }
+}
+
+fn resolve_upload_outcome<Event, BuildEvent>(
+    result: Result<String, String>,
+    operation_id: String,
+    connection_id: String,
+    bucket_name: String,
+    object_key: String,
+    local_file_path: String,
+    is_cancelled_error: fn(&str) -> bool,
+    build_event: BuildEvent,
+) -> (Result<String, String>, Event)
+where
+    BuildEvent: FnOnce(String, String, String, String, String, &str, Option<String>) -> Event,
+{
+    match result {
+        Ok(returned_path) => {
+            let event = build_event(
+                operation_id,
+                connection_id,
+                bucket_name,
+                object_key,
+                returned_path.clone(),
+                "completed",
+                None,
+            );
+
+            (Ok(returned_path), event)
+        }
+        Err(error) => {
+            let state = upload_terminal_state(&error, is_cancelled_error);
+            let event = build_event(
+                operation_id,
+                connection_id,
+                bucket_name,
+                object_key,
+                local_file_path,
+                &state,
+                Some(error.clone()),
+            );
+
+            (Err(error), event)
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -1207,43 +1341,25 @@ pub async fn start_aws_cache_download(
     )
     .await;
 
-    match result {
-        Ok(download_result) => {
-            emit_event(build_aws_cache_download_terminal_event(
-                operation_id.clone(),
-                connection_id.clone(),
-                bucket_name,
-                object_key,
-                Some(download_result.local_path),
-                download_result.bytes_written,
-                "completed",
-                None,
-            ))?;
+    let (command_result, terminal_event) = resolve_cache_download_outcome(
+        result.map(|download_result| (download_result.local_path, download_result.bytes_written)),
+        operation_id.clone(),
+        connection_id,
+        bucket_name,
+        object_key,
+        is_cancelled_download_error,
+        build_aws_cache_download_terminal_event,
+    );
 
-            Ok(operation_id)
-        }
-        Err(error) => {
-            eprintln!(
-                "[commands] start_aws_cache_download failed for operation_id={} error={}",
-                operation_id, error
-            );
-
-            let state = download_terminal_state(&error, is_cancelled_download_error);
-
-            emit_event(build_aws_cache_download_terminal_event(
-                operation_id.clone(),
-                connection_id,
-                bucket_name,
-                object_key,
-                None,
-                0,
-                &state,
-                Some(error.clone()),
-            ))?;
-
-            Err(error)
-        }
+    if let Err(error) = &command_result {
+        eprintln!(
+            "[commands] start_aws_cache_download failed for operation_id={} error={}",
+            operation_id, error
+        );
     }
+
+    emit_event(terminal_event)?;
+    command_result
 }
 
 #[tauri::command]
@@ -1300,41 +1416,25 @@ pub async fn download_aws_object_to_path(
     )
     .await;
 
-    match result {
-        Ok(target_path) => {
-            emit_event(build_aws_direct_download_terminal_event(
-                operation_id,
-                connection_id,
-                bucket_name,
-                object_key,
-                Some(target_path.clone()),
-                "completed",
-                None,
-            ))?;
+    let (command_result, terminal_event) = resolve_direct_download_outcome(
+        result,
+        operation_id,
+        connection_id,
+        bucket_name,
+        object_key,
+        is_cancelled_download_error,
+        build_aws_direct_download_terminal_event,
+    );
 
-            Ok(target_path)
-        }
-        Err(error) => {
-            eprintln!(
-                "[commands] download_aws_object_to_path failed with error={}",
-                error
-            );
-
-            let state = download_terminal_state(&error, is_cancelled_download_error);
-
-            emit_event(build_aws_direct_download_terminal_event(
-                operation_id,
-                connection_id,
-                bucket_name,
-                object_key,
-                None,
-                &state,
-                Some(error.clone()),
-            ))?;
-
-            Err(error)
-        }
+    if let Err(error) = &command_result {
+        eprintln!(
+            "[commands] download_aws_object_to_path failed with error={}",
+            error
+        );
     }
+
+    emit_event(terminal_event)?;
+    command_result
 }
 
 #[tauri::command]
@@ -1385,41 +1485,18 @@ pub async fn start_azure_cache_download(
     )
     .await;
 
-    match result {
-        Ok(AzureCacheDownloadResult {
-            local_path,
-            bytes_written,
-        }) => {
-            emit_event(build_azure_cache_download_terminal_event(
-                operation_id.clone(),
-                connection_id,
-                container_name,
-                blob_name,
-                Some(local_path),
-                bytes_written,
-                "completed",
-                None,
-            ))?;
+    let (command_result, terminal_event) = resolve_cache_download_outcome(
+        result.map(|download_result| (download_result.local_path, download_result.bytes_written)),
+        operation_id,
+        connection_id,
+        container_name,
+        blob_name,
+        is_cancelled_azure_download_error,
+        build_azure_cache_download_terminal_event,
+    );
 
-            Ok(operation_id)
-        }
-        Err(error) => {
-            let state = download_terminal_state(&error, is_cancelled_azure_download_error);
-
-            emit_event(build_azure_cache_download_terminal_event(
-                operation_id.clone(),
-                connection_id,
-                container_name,
-                blob_name,
-                None,
-                0,
-                &state,
-                Some(error.clone()),
-            ))?;
-
-            Err(error)
-        }
-    }
+    emit_event(terminal_event)?;
+    command_result
 }
 
 #[tauri::command]
@@ -1467,36 +1544,18 @@ pub async fn download_azure_blob_to_path(
     )
     .await;
 
-    match result {
-        Ok(target_path) => {
-            emit_event(build_azure_direct_download_terminal_event(
-                operation_id,
-                connection_id,
-                container_name,
-                blob_name,
-                Some(target_path.clone()),
-                "completed",
-                None,
-            ))?;
+    let (command_result, terminal_event) = resolve_direct_download_outcome(
+        result,
+        operation_id,
+        connection_id,
+        container_name,
+        blob_name,
+        is_cancelled_azure_download_error,
+        build_azure_direct_download_terminal_event,
+    );
 
-            Ok(target_path)
-        }
-        Err(error) => {
-            let state = download_terminal_state(&error, is_cancelled_azure_download_error);
-
-            emit_event(build_azure_direct_download_terminal_event(
-                operation_id,
-                connection_id,
-                container_name,
-                blob_name,
-                None,
-                &state,
-                Some(error.clone()),
-            ))?;
-
-            Err(error)
-        }
-    }
+    emit_event(terminal_event)?;
+    command_result
 }
 
 #[tauri::command]
@@ -1556,36 +1615,19 @@ pub async fn start_aws_upload(
     )
     .await;
 
-    match result {
-        Ok(local_file_path) => {
-            emit_event(build_aws_upload_terminal_event(
-                operation_id,
-                connection_id,
-                bucket_name,
-                object_key,
-                local_file_path.clone(),
-                "completed",
-                None,
-            ))?;
+    let (command_result, terminal_event) = resolve_upload_outcome(
+        result,
+        operation_id,
+        connection_id,
+        bucket_name,
+        object_key,
+        local_file_path,
+        is_cancelled_upload_error,
+        build_aws_upload_terminal_event,
+    );
 
-            Ok(local_file_path)
-        }
-        Err(error) => {
-            let state = upload_terminal_state(&error, is_cancelled_upload_error);
-
-            emit_event(build_aws_upload_terminal_event(
-                operation_id,
-                connection_id,
-                bucket_name,
-                object_key,
-                local_file_path,
-                &state,
-                Some(error.clone()),
-            ))?;
-
-            Err(error)
-        }
-    }
+    emit_event(terminal_event)?;
+    command_result
 }
 
 #[tauri::command]
@@ -1647,36 +1689,19 @@ pub async fn start_aws_upload_bytes(
     )
     .await;
 
-    match result {
-        Ok(returned_file_name) => {
-            emit_event(build_aws_upload_terminal_event(
-                operation_id,
-                connection_id,
-                bucket_name,
-                object_key,
-                returned_file_name.clone(),
-                "completed",
-                None,
-            ))?;
+    let (command_result, terminal_event) = resolve_upload_outcome(
+        result,
+        operation_id,
+        connection_id,
+        bucket_name,
+        object_key,
+        file_name,
+        is_cancelled_upload_error,
+        build_aws_upload_terminal_event,
+    );
 
-            Ok(returned_file_name)
-        }
-        Err(error) => {
-            let state = upload_terminal_state(&error, is_cancelled_upload_error);
-
-            emit_event(build_aws_upload_terminal_event(
-                operation_id,
-                connection_id,
-                bucket_name,
-                object_key,
-                file_name,
-                &state,
-                Some(error.clone()),
-            ))?;
-
-            Err(error)
-        }
-    }
+    emit_event(terminal_event)?;
+    command_result
 }
 
 #[tauri::command]
@@ -1727,36 +1752,19 @@ pub async fn start_azure_upload(
     )
     .await;
 
-    match result {
-        Ok(local_file_path) => {
-            emit_event(build_azure_upload_terminal_event(
-                operation_id,
-                connection_id,
-                container_name,
-                blob_name,
-                local_file_path.clone(),
-                "completed",
-                None,
-            ))?;
+    let (command_result, terminal_event) = resolve_upload_outcome(
+        result,
+        operation_id,
+        connection_id,
+        container_name,
+        blob_name,
+        local_file_path,
+        is_cancelled_azure_upload_error,
+        build_azure_upload_terminal_event,
+    );
 
-            Ok(local_file_path)
-        }
-        Err(error) => {
-            let state = upload_terminal_state(&error, is_cancelled_azure_upload_error);
-
-            emit_event(build_azure_upload_terminal_event(
-                operation_id,
-                connection_id,
-                container_name,
-                blob_name,
-                local_file_path,
-                &state,
-                Some(error.clone()),
-            ))?;
-
-            Err(error)
-        }
-    }
+    emit_event(terminal_event)?;
+    command_result
 }
 
 #[tauri::command]
@@ -1809,36 +1817,19 @@ pub async fn start_azure_upload_bytes(
     )
     .await;
 
-    match result {
-        Ok(returned_file_name) => {
-            emit_event(build_azure_upload_terminal_event(
-                operation_id,
-                connection_id,
-                container_name,
-                blob_name,
-                returned_file_name.clone(),
-                "completed",
-                None,
-            ))?;
+    let (command_result, terminal_event) = resolve_upload_outcome(
+        result,
+        operation_id,
+        connection_id,
+        container_name,
+        blob_name,
+        file_name,
+        is_cancelled_azure_upload_error,
+        build_azure_upload_terminal_event,
+    );
 
-            Ok(returned_file_name)
-        }
-        Err(error) => {
-            let state = upload_terminal_state(&error, is_cancelled_azure_upload_error);
-
-            emit_event(build_azure_upload_terminal_event(
-                operation_id,
-                connection_id,
-                container_name,
-                blob_name,
-                file_name,
-                &state,
-                Some(error.clone()),
-            ))?;
-
-            Err(error)
-        }
-    }
+    emit_event(terminal_event)?;
+    command_result
 }
 
 #[tauri::command]
@@ -1983,18 +1974,20 @@ mod tests {
         build_aws_cache_download_progress_event, build_aws_cache_download_terminal_event,
         build_aws_direct_download_progress_event, build_aws_direct_download_terminal_event,
         build_aws_download_event, build_aws_upload_event, build_aws_upload_progress_event,
-        build_aws_upload_terminal_event, cancel_aws_download, cancel_aws_upload,
-        cancel_azure_download, cancel_azure_upload, find_aws_cached_objects,
-        find_azure_cached_objects, open_aws_cached_object, open_aws_cached_object_parent,
-        open_azure_cached_object, open_azure_cached_object_parent, open_external_url,
-        build_azure_cache_download_progress_event, build_azure_cache_download_terminal_event,
-        build_azure_direct_download_progress_event, build_azure_direct_download_terminal_event,
-        build_azure_download_event, build_azure_upload_event, build_azure_upload_progress_event,
-        build_azure_upload_terminal_event, calculate_progress_percent, download_terminal_state,
-        get_greeting, is_cancelled_azure_download_error, is_cancelled_azure_upload_error,
-        is_cancelled_download_error, is_cancelled_upload_error, upload_terminal_state,
-        validate_local_mapping_directory, AZURE_DOWNLOAD_CANCELLED_ERROR,
-        AZURE_UPLOAD_CANCELLED_ERROR, DOWNLOAD_CANCELLED_ERROR, UPLOAD_CANCELLED_ERROR,
+        build_aws_upload_terminal_event, build_azure_cache_download_progress_event,
+        build_azure_cache_download_terminal_event, build_azure_direct_download_progress_event,
+        build_azure_direct_download_terminal_event, build_azure_download_event,
+        build_azure_upload_event, build_azure_upload_progress_event,
+        build_azure_upload_terminal_event, calculate_progress_percent, cancel_aws_download,
+        cancel_aws_upload, cancel_azure_download, cancel_azure_upload, download_terminal_state,
+        find_aws_cached_objects, find_azure_cached_objects, get_greeting,
+        is_cancelled_azure_download_error, is_cancelled_azure_upload_error,
+        is_cancelled_download_error, is_cancelled_upload_error, open_aws_cached_object,
+        open_aws_cached_object_parent, open_azure_cached_object, open_azure_cached_object_parent,
+        open_external_url, resolve_cache_download_outcome, resolve_direct_download_outcome,
+        resolve_upload_outcome, upload_terminal_state, validate_local_mapping_directory,
+        AZURE_DOWNLOAD_CANCELLED_ERROR, AZURE_UPLOAD_CANCELLED_ERROR, DOWNLOAD_CANCELLED_ERROR,
+        UPLOAD_CANCELLED_ERROR,
     };
     use std::fs::{self, File};
     use std::path::PathBuf;
@@ -2006,7 +1999,9 @@ mod tests {
             .expect("system clock should be after unix epoch")
             .as_nanos();
 
-        std::env::temp_dir().join(format!("cloudeasyfiles-commands-tests-{timestamp}-{suffix}"))
+        std::env::temp_dir().join(format!(
+            "cloudeasyfiles-commands-tests-{timestamp}-{suffix}"
+        ))
     }
 
     #[test]
@@ -2022,11 +2017,17 @@ mod tests {
 
     #[test]
     fn classifies_azure_cancellation_errors_exactly() {
-        assert!(is_cancelled_azure_download_error(AZURE_DOWNLOAD_CANCELLED_ERROR));
-        assert!(!is_cancelled_azure_download_error("azure_download_cancelled"));
+        assert!(is_cancelled_azure_download_error(
+            AZURE_DOWNLOAD_CANCELLED_ERROR
+        ));
+        assert!(!is_cancelled_azure_download_error(
+            "azure_download_cancelled"
+        ));
         assert!(!is_cancelled_azure_download_error("network error"));
 
-        assert!(is_cancelled_azure_upload_error(AZURE_UPLOAD_CANCELLED_ERROR));
+        assert!(is_cancelled_azure_upload_error(
+            AZURE_UPLOAD_CANCELLED_ERROR
+        ));
         assert!(!is_cancelled_azure_upload_error("azure_upload_cancelled"));
         assert!(!is_cancelled_azure_upload_error("timeout"));
     }
@@ -2134,7 +2135,10 @@ mod tests {
         );
         assert_eq!(aws_completed.progress_percent, 100.0);
         assert_eq!(aws_completed.state, "completed");
-        assert_eq!(aws_completed.target_path.as_deref(), Some("/tmp/report.txt"));
+        assert_eq!(
+            aws_completed.target_path.as_deref(),
+            Some("/tmp/report.txt")
+        );
 
         let aws_failed = build_aws_direct_download_terminal_event(
             "op-aws-failed".to_string(),
@@ -2159,7 +2163,10 @@ mod tests {
             300,
         );
         assert_eq!(azure_progress.transfer_kind, "direct");
-        assert_eq!(azure_progress.target_path.as_deref(), Some("/tmp/archive.zip"));
+        assert_eq!(
+            azure_progress.target_path.as_deref(),
+            Some("/tmp/archive.zip")
+        );
         assert_eq!(azure_progress.progress_percent, 25.0);
         assert_eq!(azure_progress.state, "progress");
 
@@ -2237,7 +2244,10 @@ mod tests {
             300,
         );
         assert_eq!(azure_progress.transfer_kind, "cache");
-        assert_eq!(azure_progress.target_path.as_deref(), Some("/tmp/archive.zip"));
+        assert_eq!(
+            azure_progress.target_path.as_deref(),
+            Some("/tmp/archive.zip")
+        );
         assert_eq!(azure_progress.progress_percent, 25.0);
         assert_eq!(azure_progress.state, "progress");
 
@@ -2377,6 +2387,123 @@ mod tests {
         assert_eq!(azure_failed.error.as_deref(), Some("network error"));
     }
 
+    #[test]
+    fn resolves_cache_download_outcomes_into_terminal_events() {
+        let (aws_success_result, aws_success_event) = resolve_cache_download_outcome(
+            Ok(("/tmp/report.txt".to_string(), 640)),
+            "op-aws-cache".to_string(),
+            "conn-1".to_string(),
+            "bucket-a".to_string(),
+            "docs/report.txt".to_string(),
+            is_cancelled_download_error,
+            build_aws_cache_download_terminal_event,
+        );
+        assert_eq!(aws_success_result, Ok("op-aws-cache".to_string()));
+        assert_eq!(aws_success_event.state, "completed");
+        assert_eq!(
+            aws_success_event.target_path.as_deref(),
+            Some("/tmp/report.txt")
+        );
+        assert_eq!(aws_success_event.bytes_received, 640);
+        assert_eq!(aws_success_event.total_bytes, 640);
+
+        let (azure_cancelled_result, azure_cancelled_event) = resolve_cache_download_outcome(
+            Err(AZURE_DOWNLOAD_CANCELLED_ERROR.to_string()),
+            "op-az-cache".to_string(),
+            "conn-2".to_string(),
+            "container-a".to_string(),
+            "archive.zip".to_string(),
+            is_cancelled_azure_download_error,
+            build_azure_cache_download_terminal_event,
+        );
+        assert_eq!(
+            azure_cancelled_result,
+            Err(AZURE_DOWNLOAD_CANCELLED_ERROR.to_string())
+        );
+        assert_eq!(azure_cancelled_event.state, "cancelled");
+        assert_eq!(azure_cancelled_event.target_path, None);
+        assert_eq!(azure_cancelled_event.bytes_received, 0);
+        assert_eq!(
+            azure_cancelled_event.error.as_deref(),
+            Some(AZURE_DOWNLOAD_CANCELLED_ERROR)
+        );
+    }
+
+    #[test]
+    fn resolves_direct_download_outcomes_into_terminal_events() {
+        let (aws_success_result, aws_success_event) = resolve_direct_download_outcome(
+            Ok("/tmp/report.txt".to_string()),
+            "op-aws-direct".to_string(),
+            "conn-1".to_string(),
+            "bucket-a".to_string(),
+            "docs/report.txt".to_string(),
+            is_cancelled_download_error,
+            build_aws_direct_download_terminal_event,
+        );
+        assert_eq!(aws_success_result, Ok("/tmp/report.txt".to_string()));
+        assert_eq!(aws_success_event.state, "completed");
+        assert_eq!(aws_success_event.progress_percent, 100.0);
+        assert_eq!(
+            aws_success_event.target_path.as_deref(),
+            Some("/tmp/report.txt")
+        );
+
+        let (azure_failed_result, azure_failed_event) = resolve_direct_download_outcome(
+            Err("network error".to_string()),
+            "op-az-direct".to_string(),
+            "conn-2".to_string(),
+            "container-a".to_string(),
+            "archive.zip".to_string(),
+            is_cancelled_azure_download_error,
+            build_azure_direct_download_terminal_event,
+        );
+        assert_eq!(azure_failed_result, Err("network error".to_string()));
+        assert_eq!(azure_failed_event.state, "failed");
+        assert_eq!(azure_failed_event.progress_percent, 0.0);
+        assert_eq!(azure_failed_event.target_path, None);
+        assert_eq!(azure_failed_event.error.as_deref(), Some("network error"));
+    }
+
+    #[test]
+    fn resolves_upload_outcomes_into_terminal_events() {
+        let (aws_success_result, aws_success_event) = resolve_upload_outcome(
+            Ok("/tmp/report.txt".to_string()),
+            "op-aws-upload".to_string(),
+            "conn-1".to_string(),
+            "bucket-a".to_string(),
+            "docs/report.txt".to_string(),
+            "/tmp/fallback.txt".to_string(),
+            is_cancelled_upload_error,
+            build_aws_upload_terminal_event,
+        );
+        assert_eq!(aws_success_result, Ok("/tmp/report.txt".to_string()));
+        assert_eq!(aws_success_event.state, "completed");
+        assert_eq!(aws_success_event.progress_percent, 100.0);
+        assert_eq!(aws_success_event.local_file_path, "/tmp/report.txt");
+
+        let (azure_cancelled_result, azure_cancelled_event) = resolve_upload_outcome(
+            Err(AZURE_UPLOAD_CANCELLED_ERROR.to_string()),
+            "op-az-upload".to_string(),
+            "conn-2".to_string(),
+            "container-a".to_string(),
+            "archive.zip".to_string(),
+            "archive.zip".to_string(),
+            is_cancelled_azure_upload_error,
+            build_azure_upload_terminal_event,
+        );
+        assert_eq!(
+            azure_cancelled_result,
+            Err(AZURE_UPLOAD_CANCELLED_ERROR.to_string())
+        );
+        assert_eq!(azure_cancelled_event.state, "cancelled");
+        assert_eq!(azure_cancelled_event.progress_percent, 0.0);
+        assert_eq!(azure_cancelled_event.local_file_path, "archive.zip");
+        assert_eq!(
+            azure_cancelled_event.error.as_deref(),
+            Some(AZURE_UPLOAD_CANCELLED_ERROR)
+        );
+    }
+
     #[tokio::test]
     async fn validates_local_mapping_directory_inputs() {
         let temp_dir = unique_temp_path("dir");
@@ -2390,11 +2517,9 @@ mod tests {
                 .await
                 .expect("directory validation should succeed")
         );
-        assert!(
-            !validate_local_mapping_directory("   ".to_string())
-                .await
-                .expect("empty path should return false")
-        );
+        assert!(!validate_local_mapping_directory("   ".to_string())
+            .await
+            .expect("empty path should return false"));
         assert!(
             !validate_local_mapping_directory(temp_file.to_string_lossy().into_owned())
                 .await
@@ -2451,7 +2576,10 @@ mod tests {
             "Primary Connection".to_string(),
             "bucket-a".to_string(),
             temp_root.to_string_lossy().into_owned(),
-            vec!["docs/report.txt".to_string(), "docs/missing.txt".to_string()],
+            vec![
+                "docs/report.txt".to_string(),
+                "docs/missing.txt".to_string(),
+            ],
         )
         .await
         .expect("aws cached lookup should succeed");
@@ -2462,7 +2590,10 @@ mod tests {
             "Primary Connection".to_string(),
             "container-a".to_string(),
             temp_root.to_string_lossy().into_owned(),
-            vec!["docs/report.txt".to_string(), "docs/missing.txt".to_string()],
+            vec![
+                "docs/report.txt".to_string(),
+                "docs/missing.txt".to_string(),
+            ],
         )
         .await
         .expect("azure cached lookup should succeed");
