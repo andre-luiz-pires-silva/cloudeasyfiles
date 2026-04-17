@@ -16,6 +16,13 @@ export type NavigationUploadSettingsModalState = {
   isSavingUploadSettings: boolean;
 };
 
+export type NavigationCompletionToastState = {
+  id: string;
+  title: string;
+  description: string;
+  tone?: "success" | "error";
+};
+
 export function buildOpenedUploadSettingsModalState(
   selectedConnection: SavedConnectionSummary | null,
   currentState: Pick<
@@ -67,4 +74,37 @@ export function buildConnectionDeleteErrorMessage(
   t: (key: string) => string
 ): string {
   return error instanceof Error ? error.message : t("navigation.connections.delete_error");
+}
+
+export function buildDeleteContentSuccessState(params: {
+  toastId: string;
+  itemCount: number;
+  fileCount: number;
+  directoryCount: number;
+  t: (key: string) => string;
+}) {
+  return {
+    completionToast: {
+      id: params.toastId,
+      title: params.t("content.delete.success_title"),
+      description: params.t("content.delete.success_description")
+        .replace("{count}", String(params.itemCount))
+        .replace("{files}", String(params.fileCount))
+        .replace("{folders}", String(params.directoryCount)),
+      tone: "success" as const
+    },
+    deleteContentError: null as string | null,
+    isDeletingContent: false
+  };
+}
+
+export function buildDeleteContentFailureState(params: {
+  error: unknown;
+  t: (key: string) => string;
+}) {
+  return {
+    deleteContentError:
+      params.error instanceof Error ? params.error.message : params.t("content.delete.failed"),
+    isDeletingContent: false
+  };
 }

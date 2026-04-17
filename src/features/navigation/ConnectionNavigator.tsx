@@ -263,6 +263,8 @@ import {
   shouldOpenContentAreaContextMenu
 } from "./navigationModalGuards";
 import {
+  buildDeleteContentFailureState,
+  buildDeleteContentSuccessState,
   buildClosedUploadSettingsModalState,
   buildConnectionDeleteErrorMessage,
   buildOpenedUploadSettingsModalState,
@@ -1447,26 +1449,29 @@ export function ConnectionNavigator({
         }
       }
 
-      setCompletionToast({
-        id:
+      const nextDeleteSuccessState = buildDeleteContentSuccessState({
+        toastId:
           typeof globalThis.crypto !== "undefined" && "randomUUID" in globalThis.crypto
             ? globalThis.crypto.randomUUID()
             : `toast-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
-        title: t("content.delete.success_title"),
-        description: t("content.delete.success_description")
-          .replace("{count}", String(pendingContentDelete.items.length))
-          .replace("{files}", String(pendingContentDelete.fileCount))
-          .replace("{folders}", String(pendingContentDelete.directoryCount)),
-        tone: "success"
+        itemCount: pendingContentDelete.items.length,
+        fileCount: pendingContentDelete.fileCount,
+        directoryCount: pendingContentDelete.directoryCount,
+        t
       });
+
+      setCompletionToast(nextDeleteSuccessState.completionToast);
+      setDeleteContentError(nextDeleteSuccessState.deleteContentError);
+      setIsDeletingContent(nextDeleteSuccessState.isDeletingContent);
 
       clearContentSelection();
       closeDeleteContentModal(true);
       await handleRefreshCurrentView();
     } catch (error) {
       await handleRefreshCurrentView();
-      setDeleteContentError(extractErrorMessage(error) ?? t("content.delete.failed"));
-      setIsDeletingContent(false);
+      const nextDeleteFailureState = buildDeleteContentFailureState({ error, t });
+      setDeleteContentError(nextDeleteFailureState.deleteContentError);
+      setIsDeletingContent(nextDeleteFailureState.isDeletingContent);
     }
   }
 

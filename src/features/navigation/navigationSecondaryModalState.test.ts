@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  buildDeleteContentFailureState,
+  buildDeleteContentSuccessState,
   buildClosedUploadSettingsModalState,
   buildConnectionDeleteErrorMessage,
   buildOpenedUploadSettingsModalState,
@@ -82,5 +84,41 @@ describe("navigationSecondaryModalState", () => {
     expect(buildConnectionDeleteErrorMessage({}, t)).toBe(
       "navigation.connections.delete_error"
     );
+  });
+
+  it("builds delete success and failure state transitions", () => {
+    const t = (key: string) => key;
+
+    expect(
+      buildDeleteContentSuccessState({
+        toastId: "toast-1",
+        itemCount: 3,
+        fileCount: 2,
+        directoryCount: 1,
+        t
+      })
+    ).toEqual({
+      completionToast: {
+        id: "toast-1",
+        title: "content.delete.success_title",
+        description: "content.delete.success_description"
+          .replace("{count}", "3")
+          .replace("{files}", "2")
+          .replace("{folders}", "1"),
+        tone: "success"
+      },
+      deleteContentError: null,
+      isDeletingContent: false
+    });
+
+    expect(buildDeleteContentFailureState({ error: new Error("boom"), t })).toEqual({
+      deleteContentError: "boom",
+      isDeletingContent: false
+    });
+
+    expect(buildDeleteContentFailureState({ error: {}, t })).toEqual({
+      deleteContentError: "content.delete.failed",
+      isDeletingContent: false
+    });
   });
 });
