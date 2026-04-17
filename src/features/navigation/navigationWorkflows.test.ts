@@ -4,6 +4,7 @@ import {
   buildClosedChangeStorageClassModalState,
   buildClosedRestoreRequestModalState,
   buildChangeStorageClassRequestState,
+  buildOpenedChangeStorageClassModalState,
   buildOpenedRestoreRequestModalState,
   buildRestoreRequestState,
   getBatchChangeTierTooltip,
@@ -480,6 +481,53 @@ describe("navigationWorkflows", () => {
     ).toEqual({
       changeStorageClassRequest: null,
       changeStorageClassSubmitError: null
+    });
+  });
+
+  it("opens the change-tier modal only when a valid change-tier request exists", () => {
+    const changeRequest = buildChangeStorageClassRequestState({
+      items: [
+        {
+          kind: "file",
+          name: "report.csv",
+          path: "report.csv",
+          size: 12,
+          storageClass: "STANDARD"
+        }
+      ],
+      provider: "aws",
+      connectionId: "conn-1",
+      bucketName: "bucket-a",
+      bucketRegion: null,
+      bucketRegionPlaceholder: "...",
+      formatBytes,
+      getMultipleCurrentClassesLabel: () => "mixed"
+    });
+
+    expect(
+      buildOpenedChangeStorageClassModalState({
+        nextRequest: changeRequest,
+        openContentMenuItemId: "file:report.csv",
+        contentMenuAnchor: { itemId: "file:report.csv", x: 10, y: 20 }
+      })
+    ).toEqual({
+      openContentMenuItemId: null,
+      contentMenuAnchor: null,
+      changeStorageClassSubmitError: null,
+      changeStorageClassRequest: changeRequest
+    });
+
+    expect(
+      buildOpenedChangeStorageClassModalState({
+        nextRequest: null,
+        openContentMenuItemId: "file:report.csv",
+        contentMenuAnchor: { itemId: "file:report.csv", x: 10, y: 20 }
+      })
+    ).toEqual({
+      openContentMenuItemId: "file:report.csv",
+      contentMenuAnchor: { itemId: "file:report.csv", x: 10, y: 20 },
+      changeStorageClassSubmitError: null,
+      changeStorageClassRequest: null
     });
   });
 });

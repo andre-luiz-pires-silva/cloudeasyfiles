@@ -237,3 +237,25 @@ export function buildClosedChangeStorageClassModalState(params: {
     changeStorageClassSubmitError: null
   };
 }
+
+export function buildOpenedChangeStorageClassModalState(params: {
+  nextRequest: NavigationChangeStorageClassRequestState | null;
+  openContentMenuItemId: string | null;
+  contentMenuAnchor: { itemId: string; x: number; y: number } | null;
+}) {
+  if (!params.nextRequest) {
+    return {
+      openContentMenuItemId: params.openContentMenuItemId,
+      contentMenuAnchor: params.contentMenuAnchor,
+      changeStorageClassSubmitError: null as string | null,
+      changeStorageClassRequest: null as NavigationChangeStorageClassRequestState | null
+    };
+  }
+
+  return {
+    openContentMenuItemId: null,
+    contentMenuAnchor: null,
+    changeStorageClassSubmitError: null,
+    changeStorageClassRequest: params.nextRequest
+  };
+}

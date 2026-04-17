@@ -141,6 +141,7 @@ import {
   buildClosedChangeStorageClassModalState,
   buildClosedRestoreRequestModalState,
   buildChangeStorageClassRequestState,
+  buildOpenedChangeStorageClassModalState,
   buildOpenedRestoreRequestModalState,
   buildRestoreRequestState,
   getBatchChangeTierTooltip,
@@ -1522,15 +1523,15 @@ export function ConnectionNavigator({
       getMultipleCurrentClassesLabel: () =>
         t("content.storage_class_change.multiple_current_classes")
     });
-
-    if (!nextRequest) {
-      return;
-    }
-
-    setOpenContentMenuItemId(null);
-    setContentMenuAnchor(null);
-    setChangeStorageClassSubmitError(null);
-    setChangeStorageClassRequest(nextRequest);
+    const nextState = buildOpenedChangeStorageClassModalState({
+      nextRequest,
+      openContentMenuItemId,
+      contentMenuAnchor
+    });
+    setOpenContentMenuItemId(nextState.openContentMenuItemId);
+    setContentMenuAnchor(nextState.contentMenuAnchor);
+    setChangeStorageClassSubmitError(nextState.changeStorageClassSubmitError);
+    setChangeStorageClassRequest(nextState.changeStorageClassRequest);
   }
 
   function handleBatchChangeTierSelection() {
