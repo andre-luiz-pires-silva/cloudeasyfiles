@@ -2628,6 +2628,60 @@ mod tests {
         fs::remove_dir_all(&temp_root).await.unwrap();
     }
 
+    #[tokio::test]
+    async fn rejects_open_cached_object_requests_when_cache_is_unavailable() {
+        let blank_cache_dir_error = AzureConnectionService::open_cached_object_parent(
+            "connection-123".to_string(),
+            "Primary Connection".to_string(),
+            "container-a".to_string(),
+            "   ".to_string(),
+            "docs/report.txt".to_string(),
+        )
+        .await
+        .unwrap_err();
+        assert!(
+            blank_cache_dir_error.contains("not available in the local cache")
+                || blank_cache_dir_error.contains("Local cache directory is not configured"),
+            "unexpected error: {blank_cache_dir_error}"
+        );
+
+        let temp_root = std::env::temp_dir().join(format!(
+            "cloudeasyfiles-azure-open-cache-test-{}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&temp_root).await.unwrap();
+
+        let missing_open_error = AzureConnectionService::open_cached_object(
+            "connection-123".to_string(),
+            "Primary Connection".to_string(),
+            "container-a".to_string(),
+            temp_root.to_string_lossy().to_string(),
+            "docs/missing.txt".to_string(),
+        )
+        .await
+        .unwrap_err();
+        assert!(
+            missing_open_error.contains("not available in the local cache"),
+            "unexpected error: {missing_open_error}"
+        );
+
+        let missing_parent_error = AzureConnectionService::open_cached_object_parent(
+            "connection-123".to_string(),
+            "Primary Connection".to_string(),
+            "container-a".to_string(),
+            temp_root.to_string_lossy().to_string(),
+            "docs/missing.txt".to_string(),
+        )
+        .await
+        .unwrap_err();
+        assert!(
+            missing_parent_error.contains("not available in the local cache"),
+            "unexpected error: {missing_parent_error}"
+        );
+
+        fs::remove_dir_all(&temp_root).await.unwrap();
+    }
+
     #[test]
     fn registers_and_cancels_transfers() {
         let download_operation_id = format!("download-{}", std::process::id());
