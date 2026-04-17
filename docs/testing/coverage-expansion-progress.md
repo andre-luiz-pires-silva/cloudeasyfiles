@@ -285,6 +285,15 @@ Increase automated test coverage toward the agreed long-term target of `75%` lin
     - extracted and covered `src/features/navigation/navigationCacheState.ts`
     - expanded `src/features/navigation/navigationTransfers.ts` coverage for cancellation routing
     - expanded `src/features/navigation/navigationUploadPreparation.ts` coverage for issue messaging and provider preflight existence checks
+- After frontend upload-execution extraction:
+  - Frontend line coverage: `27.72%`
+  - Frontend statements: `27.72%`
+  - Frontend branches: `88.00%`
+  - Frontend functions: `79.42%`
+  - Delivered:
+    - extracted and covered `src/features/navigation/navigationUploadExecution.ts`
+    - reduced provider-aware upload branching inside `ConnectionNavigator.tsx`
+    - covered file-path versus byte-upload source selection for dropped files
   - Rust regions: `31.02%`
   - Rust functions: `26.11%`
   - `aws_connection_service.rs` line coverage: `24.64%`

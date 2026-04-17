@@ -284,6 +284,10 @@ import {
   prepareUploadBatchCandidates
 } from "./navigationUploadPreparation";
 import {
+  resolveBrowserFileUploadSource,
+  startSimpleUploadForProvider
+} from "./navigationUploadExecution";
+import {
   buildContentStatusSummaryItems,
   countLoadedItemsByStatus,
   filterConnectionBuckets,
@@ -1200,36 +1204,25 @@ export function ConnectionNavigator({
         fileName: getFileNameFromPath(normalizedFilePath),
         localFilePath: normalizedFilePath,
         startUpload: async (draft, operationId, objectKey) => {
-          if (selectedBucketProvider === "aws" && "accessKeyId" in draft) {
-            await startAwsUpload(
-              operationId,
-              draft.accessKeyId.trim(),
-              draft.secretAccessKey.trim(),
-              selectedBucketConnectionId!,
-              selectedBucketName!,
-              objectKey,
-              normalizedFilePath,
-              draft.defaultUploadStorageClass,
-              selectedBucketRegion && selectedBucketRegion !== BUCKET_REGION_PLACEHOLDER
-                ? selectedBucketRegion
-                : undefined,
-              draft.restrictedBucketName
-            );
-            return;
-          }
-
-          if ("storageAccountName" in draft) {
-            await startAzureUpload(
-              operationId,
-              draft.storageAccountName,
-              draft.accountKey.trim(),
-              selectedBucketConnectionId!,
-              selectedBucketName!,
-              objectKey,
-              normalizedFilePath,
-              draft.defaultUploadTier
-            );
-          }
+          await startSimpleUploadForProvider({
+            provider: selectedBucketProvider!,
+            draft,
+            connectionId: selectedBucketConnectionId!,
+            bucketName: selectedBucketName!,
+            objectKey,
+            bucketRegion: selectedBucketRegion,
+            bucketRegionPlaceholder: BUCKET_REGION_PLACEHOLDER,
+            source: {
+              kind: "path",
+              fileName: getFileNameFromPath(normalizedFilePath),
+              localFilePath: normalizedFilePath
+            },
+            operationId,
+            startAwsUpload,
+            startAzureUpload,
+            startAwsUploadFromBytes,
+            startAzureUploadFromBytes
+          });
         }
       }
     ]);
@@ -1243,36 +1236,25 @@ export function ConnectionNavigator({
         fileName: getFileNameFromPath(localFilePath),
         localFilePath,
         startUpload: async (draft, operationId, objectKey) => {
-          if (selectedBucketProvider === "aws" && "accessKeyId" in draft) {
-            await startAwsUpload(
-              operationId,
-              draft.accessKeyId.trim(),
-              draft.secretAccessKey.trim(),
-              selectedBucketConnectionId!,
-              selectedBucketName!,
-              objectKey,
-              localFilePath,
-              draft.defaultUploadStorageClass,
-              selectedBucketRegion && selectedBucketRegion !== BUCKET_REGION_PLACEHOLDER
-                ? selectedBucketRegion
-                : undefined,
-              draft.restrictedBucketName
-            );
-            return;
-          }
-
-          if ("storageAccountName" in draft) {
-            await startAzureUpload(
-              operationId,
-              draft.storageAccountName,
-              draft.accountKey.trim(),
-              selectedBucketConnectionId!,
-              selectedBucketName!,
-              objectKey,
-              localFilePath,
-              draft.defaultUploadTier
-            );
-          }
+          await startSimpleUploadForProvider({
+            provider: selectedBucketProvider!,
+            draft,
+            connectionId: selectedBucketConnectionId!,
+            bucketName: selectedBucketName!,
+            objectKey,
+            bucketRegion: selectedBucketRegion,
+            bucketRegionPlaceholder: BUCKET_REGION_PLACEHOLDER,
+            source: {
+              kind: "path",
+              fileName: getFileNameFromPath(localFilePath),
+              localFilePath
+            },
+            operationId,
+            startAwsUpload,
+            startAzureUpload,
+            startAwsUploadFromBytes,
+            startAzureUploadFromBytes
+          });
         }
       }))
     );
@@ -1284,79 +1266,25 @@ export function ConnectionNavigator({
         fileName: file.name,
         localFilePath: file.name,
         startUpload: async (draft, operationId, objectKey) => {
-          const candidateFile = file as File & {
-            path?: string;
-            webkitRelativePath?: string;
-          };
-          const candidatePath =
-            candidateFile.path?.trim() || candidateFile.webkitRelativePath?.trim();
+          const source = await resolveBrowserFileUploadSource(
+            file as File & { path?: string; webkitRelativePath?: string }
+          );
 
-          if (candidatePath) {
-            if (selectedBucketProvider === "aws" && "accessKeyId" in draft) {
-              await startAwsUpload(
-                operationId,
-                draft.accessKeyId.trim(),
-                draft.secretAccessKey.trim(),
-                selectedBucketConnectionId!,
-                selectedBucketName!,
-                objectKey,
-                candidatePath,
-                draft.defaultUploadStorageClass,
-                selectedBucketRegion && selectedBucketRegion !== BUCKET_REGION_PLACEHOLDER
-                  ? selectedBucketRegion
-                  : undefined,
-                draft.restrictedBucketName
-              );
-            } else if ("storageAccountName" in draft) {
-              await startAzureUpload(
-                operationId,
-                draft.storageAccountName,
-                draft.accountKey.trim(),
-                selectedBucketConnectionId!,
-                selectedBucketName!,
-                objectKey,
-                candidatePath,
-                draft.defaultUploadTier
-              );
-            }
-
-            return;
-          }
-
-          const fileBytes = new Uint8Array(await file.arrayBuffer());
-
-          if (selectedBucketProvider === "aws" && "accessKeyId" in draft) {
-            await startAwsUploadFromBytes(
-              operationId,
-              draft.accessKeyId.trim(),
-              draft.secretAccessKey.trim(),
-              selectedBucketConnectionId!,
-              selectedBucketName!,
-              objectKey,
-              file.name,
-              fileBytes,
-              draft.defaultUploadStorageClass,
-              selectedBucketRegion && selectedBucketRegion !== BUCKET_REGION_PLACEHOLDER
-                ? selectedBucketRegion
-                : undefined,
-              draft.restrictedBucketName
-            );
-            return;
-          }
-
-          if ("storageAccountName" in draft) {
-            await startAzureUploadFromBytes(
-              operationId,
-              draft.storageAccountName,
-              draft.accountKey.trim(),
-              selectedBucketConnectionId!,
-              selectedBucketName!,
-              objectKey,
-              file.name,
-              fileBytes,
-              draft.defaultUploadTier
-            );
-          }
+          await startSimpleUploadForProvider({
+            provider: selectedBucketProvider!,
+            draft,
+            connectionId: selectedBucketConnectionId!,
+            bucketName: selectedBucketName!,
+            objectKey,
+            bucketRegion: selectedBucketRegion,
+            bucketRegionPlaceholder: BUCKET_REGION_PLACEHOLDER,
+            source,
+            operationId,
+            startAwsUpload,
+            startAzureUpload,
+            startAwsUploadFromBytes,
+            startAzureUploadFromBytes
+          });
         }
       }))
     );
