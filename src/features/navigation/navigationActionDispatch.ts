@@ -61,6 +61,21 @@ export function getContentAreaActionDispatchStep(
   return actionId === "createFolder" ? "openCreateFolder" : "refresh";
 }
 
+export async function executeContentAreaActionDispatch(params: {
+  step: NavigationContentAreaDispatchStep;
+  handlers: {
+    openCreateFolder: () => void;
+    refresh: () => Promise<void>;
+  };
+}): Promise<void> {
+  if (params.step === "openCreateFolder") {
+    params.handlers.openCreateFolder();
+    return;
+  }
+
+  await params.handlers.refresh();
+}
+
 export async function executeConnectionActionDispatch(params: {
   steps: NavigationConnectionDispatchStep[];
   handlers: {

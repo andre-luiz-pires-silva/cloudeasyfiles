@@ -242,6 +242,7 @@ import {
 } from "./navigationModalState";
 import {
   executeConnectionActionDispatch,
+  executeContentAreaActionDispatch,
   executeDefaultConnectionAction,
   getConnectionActionDispatchSteps,
   getContentAreaActionDispatchStep,
@@ -3494,13 +3495,13 @@ export function ConnectionNavigator({
 
   async function handleContentAreaMenuAction(actionId: "createFolder" | "refresh") {
     setContentAreaMenuAnchor(null);
-
-    if (getContentAreaActionDispatchStep(actionId) === "openCreateFolder") {
-      openCreateFolderModal();
-      return;
-    }
-
-    await handleRefreshCurrentView();
+    await executeContentAreaActionDispatch({
+      step: getContentAreaActionDispatchStep(actionId),
+      handlers: {
+        openCreateFolder: openCreateFolderModal,
+        refresh: handleRefreshCurrentView
+      }
+    });
   }
 
   function handleSelectHome() {

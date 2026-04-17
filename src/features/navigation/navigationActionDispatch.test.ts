@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   executeConnectionActionDispatch,
+  executeContentAreaActionDispatch,
   executeDefaultConnectionAction,
   getConnectionActionDispatchSteps,
   getContentAreaActionDispatchStep,
@@ -82,5 +83,22 @@ describe("navigationActionDispatch", () => {
 
     expect(connect).toHaveBeenCalledTimes(1);
     expect(edit).toHaveBeenCalledTimes(1);
+  });
+
+  it("executes the content area action dispatch", async () => {
+    const openCreateFolder = vi.fn();
+    const refresh = vi.fn(async () => {});
+
+    await executeContentAreaActionDispatch({
+      step: "openCreateFolder",
+      handlers: { openCreateFolder, refresh }
+    });
+    await executeContentAreaActionDispatch({
+      step: "refresh",
+      handlers: { openCreateFolder, refresh }
+    });
+
+    expect(openCreateFolder).toHaveBeenCalledTimes(1);
+    expect(refresh).toHaveBeenCalledTimes(1);
   });
 });

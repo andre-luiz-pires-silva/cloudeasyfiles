@@ -302,6 +302,14 @@ Increase automated test coverage toward the agreed long-term target of `75%` lin
   - Delivered:
     - expanded `src/features/navigation/navigationActionDispatch.ts` to cover ordered execution helpers
     - reduced connection-action execution branching inside `ConnectionNavigator.tsx`
+- After frontend content-area action execution extraction:
+  - Frontend line coverage: `27.93%`
+  - Frontend statements: `27.93%`
+  - Frontend branches: `87.98%`
+  - Frontend functions: `79.64%`
+  - Delivered:
+    - expanded `src/features/navigation/navigationActionDispatch.ts` to cover content-area action execution
+    - reduced content-area menu branching inside `ConnectionNavigator.tsx`
   - Rust regions: `31.02%`
   - Rust functions: `26.11%`
   - `aws_connection_service.rs` line coverage: `24.64%`
