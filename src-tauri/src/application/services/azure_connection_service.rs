@@ -2566,6 +2566,68 @@ mod tests {
         fs::remove_dir_all(&temp_root).await.unwrap();
     }
 
+    #[tokio::test]
+    async fn finds_cached_objects_from_available_candidates() {
+        let temp_root = std::env::temp_dir().join(format!(
+            "cloudeasyfiles-azure-find-cache-test-{}",
+            std::process::id()
+        ));
+        let existing_primary = AzureConnectionService::build_primary_cache_object_path(
+            temp_root.to_str().unwrap(),
+            "Primary Connection",
+            "container-a",
+            "docs/report.txt",
+        )
+        .unwrap();
+        let existing_legacy = AzureConnectionService::build_legacy_raw_cache_object_path(
+            temp_root.to_str().unwrap(),
+            "connection-123",
+            "container-a",
+            "docs/archive.zip",
+        )
+        .unwrap();
+
+        fs::create_dir_all(existing_primary.parent().unwrap())
+            .await
+            .unwrap();
+        fs::create_dir_all(existing_legacy.parent().unwrap())
+            .await
+            .unwrap();
+        fs::write(&existing_primary, b"cached-primary").await.unwrap();
+        fs::write(&existing_legacy, b"cached-legacy").await.unwrap();
+
+        let cached = AzureConnectionService::find_cached_objects(
+            "connection-123".to_string(),
+            "Primary Connection".to_string(),
+            "container-a".to_string(),
+            temp_root.to_string_lossy().to_string(),
+            vec![
+                " docs/report.txt ".to_string(),
+                "docs/archive.zip".to_string(),
+                "".to_string(),
+                "docs/missing.txt".to_string(),
+            ],
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(cached, vec!["docs/report.txt", "docs/archive.zip"]);
+        assert!(
+            AzureConnectionService::find_cached_objects(
+                "connection-123".to_string(),
+                "Primary Connection".to_string(),
+                "container-a".to_string(),
+                "   ".to_string(),
+                vec!["docs/report.txt".to_string()],
+            )
+            .await
+            .unwrap()
+            .is_empty()
+        );
+
+        fs::remove_dir_all(&temp_root).await.unwrap();
+    }
+
     #[test]
     fn registers_and_cancels_transfers() {
         let download_operation_id = format!("download-{}", std::process::id());

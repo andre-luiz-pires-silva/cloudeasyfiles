@@ -268,3 +268,9 @@ Increase automated test coverage toward the agreed long-term target of `75%` lin
   - Rust functions: `30.44%`
   - `aws_connection_service.rs` line coverage: `31.41%`
   - `azure_connection_service.rs` line coverage: `43.25%`
+- After Phase 3 substep 6:
+  - Rust line coverage: `37.78%`
+  - Rust regions: `38.07%`
+  - Rust functions: `31.68%`
+  - `aws_connection_service.rs` line coverage: `34.96%`
+  - `azure_connection_service.rs` line coverage: `46.43%`
