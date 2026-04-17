@@ -4,6 +4,7 @@ import {
   buildClosedChangeStorageClassModalState,
   buildClosedRestoreRequestModalState,
   buildChangeStorageClassRequestState,
+  buildOpenedRestoreRequestModalState,
   buildRestoreRequestState,
   getBatchChangeTierTooltip,
   type NavigationWorkflowItem
@@ -384,6 +385,53 @@ describe("navigationWorkflows", () => {
     ).toEqual({
       restoreRequest: null,
       restoreSubmitError: null
+    });
+  });
+
+  it("opens the restore modal only when a valid restore request exists", () => {
+    const restoreRequest = buildRestoreRequestState({
+      items: [
+        {
+          kind: "file",
+          name: "archive.zip",
+          path: "archive.zip",
+          size: 12,
+          storageClass: "GLACIER"
+        }
+      ],
+      provider: "aws",
+      connectionId: "conn-1",
+      bucketName: "bucket-a",
+      bucketRegion: null,
+      bucketRegionPlaceholder: "...",
+      formatBytes,
+      getMixedStorageClassesLabel: () => "mixed"
+    });
+
+    expect(
+      buildOpenedRestoreRequestModalState({
+        nextRequest: restoreRequest,
+        openContentMenuItemId: "file:archive.zip",
+        contentMenuAnchor: { itemId: "file:archive.zip", x: 10, y: 20 }
+      })
+    ).toEqual({
+      openContentMenuItemId: null,
+      contentMenuAnchor: null,
+      restoreSubmitError: null,
+      restoreRequest
+    });
+
+    expect(
+      buildOpenedRestoreRequestModalState({
+        nextRequest: null,
+        openContentMenuItemId: "file:archive.zip",
+        contentMenuAnchor: { itemId: "file:archive.zip", x: 10, y: 20 }
+      })
+    ).toEqual({
+      openContentMenuItemId: "file:archive.zip",
+      contentMenuAnchor: { itemId: "file:archive.zip", x: 10, y: 20 },
+      restoreSubmitError: null,
+      restoreRequest: null
     });
   });
 

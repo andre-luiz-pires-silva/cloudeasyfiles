@@ -198,6 +198,28 @@ export function buildClosedRestoreRequestModalState(params: {
   };
 }
 
+export function buildOpenedRestoreRequestModalState(params: {
+  nextRequest: NavigationRestoreRequestState | null;
+  openContentMenuItemId: string | null;
+  contentMenuAnchor: { itemId: string; x: number; y: number } | null;
+}) {
+  if (!params.nextRequest) {
+    return {
+      openContentMenuItemId: params.openContentMenuItemId,
+      contentMenuAnchor: params.contentMenuAnchor,
+      restoreSubmitError: null as string | null,
+      restoreRequest: null as NavigationRestoreRequestState | null
+    };
+  }
+
+  return {
+    openContentMenuItemId: null,
+    contentMenuAnchor: null,
+    restoreSubmitError: null,
+    restoreRequest: params.nextRequest
+  };
+}
+
 export function buildClosedChangeStorageClassModalState(params: {
   isSubmittingStorageClassChange: boolean;
   changeStorageClassRequest: NavigationChangeStorageClassRequestState | null;

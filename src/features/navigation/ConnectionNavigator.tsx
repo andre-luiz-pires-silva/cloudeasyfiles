@@ -141,6 +141,7 @@ import {
   buildClosedChangeStorageClassModalState,
   buildClosedRestoreRequestModalState,
   buildChangeStorageClassRequestState,
+  buildOpenedRestoreRequestModalState,
   buildRestoreRequestState,
   getBatchChangeTierTooltip,
   type NavigationChangeStorageClassRequestState as ChangeStorageClassRequestState,
@@ -1498,15 +1499,15 @@ export function ConnectionNavigator({
       formatBytes: (size) => formatBytes(size, locale),
       getMixedStorageClassesLabel: () => t("restore.modal.batch.mixed_storage_classes")
     });
-
-    if (!nextRequest) {
-      return;
-    }
-
-    setOpenContentMenuItemId(null);
-    setContentMenuAnchor(null);
-    setRestoreSubmitError(null);
-    setRestoreRequest(nextRequest);
+    const nextState = buildOpenedRestoreRequestModalState({
+      nextRequest,
+      openContentMenuItemId,
+      contentMenuAnchor
+    });
+    setOpenContentMenuItemId(nextState.openContentMenuItemId);
+    setContentMenuAnchor(nextState.contentMenuAnchor);
+    setRestoreSubmitError(nextState.restoreSubmitError);
+    setRestoreRequest(nextState.restoreRequest);
   }
 
   function openChangeStorageClassModal(items: ContentExplorerItem[]) {
