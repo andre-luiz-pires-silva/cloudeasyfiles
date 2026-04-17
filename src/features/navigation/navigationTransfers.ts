@@ -26,6 +26,15 @@ export type NavigationCompletionToast = {
   tone?: "success" | "error";
 };
 
+export type NavigationTransferProvider = "aws" | "azure";
+export type NavigationTransferKind = "cache" | "direct" | "upload";
+
+export type NavigationTransferCancellationTarget =
+  | "cancelAwsDownload"
+  | "cancelAzureDownload"
+  | "cancelAwsUpload"
+  | "cancelAzureUpload";
+
 type NavigationDownloadEventPayload = {
   operationId: string;
   connectionId: string;
@@ -182,4 +191,22 @@ export function buildTransferErrorToast(
     description,
     tone: "error"
   };
+}
+
+export function getTransferCancellationTarget(params: {
+  transferKind: NavigationTransferKind;
+  provider: NavigationTransferProvider | null | undefined;
+}): NavigationTransferCancellationTarget {
+  if (params.transferKind === "upload") {
+    return params.provider === "azure" ? "cancelAzureUpload" : "cancelAwsUpload";
+  }
+
+  return params.provider === "azure" ? "cancelAzureDownload" : "cancelAwsDownload";
+}
+
+export function resolveTransferCancellationErrorMessage(
+  errorMessage: string | null,
+  fallbackMessage: string
+): string {
+  return errorMessage ?? fallbackMessage;
 }

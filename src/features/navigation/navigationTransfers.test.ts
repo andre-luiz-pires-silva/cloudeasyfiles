@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import type { NavigationContentExplorerItem } from "./navigationContent";
 import {
   buildDownloadCompletionToast,
+  getTransferCancellationTarget,
+  resolveTransferCancellationErrorMessage,
   buildTransferErrorToast,
   buildUploadCompletionToast,
   reconcileContentItemsFromDownloadEvent,
@@ -196,5 +198,165 @@ describe("navigationTransfers", () => {
       description: "boom",
       tone: "error"
     });
+  });
+
+  it("returns unchanged transfers when operation id is not found", () => {
+    const noopPayload = {
+      operationId: "unknown",
+      connectionId: "conn-1",
+      bucketName: "bucket-a",
+      objectKey: "file.txt",
+      transferKind: "cache" as const,
+      progressPercent: 50,
+      bytesReceived: 5,
+      totalBytes: 10,
+      state: "progress" as const,
+      error: null
+    };
+
+    expect(updateTransfersFromDownloadEvent(currentTransfers, noopPayload)).toBe(currentTransfers);
+    expect(
+      updateTransfersFromUploadEvent(currentTransfers, {
+        ...noopPayload,
+        bytesTransferred: 5,
+        localFilePath: "/tmp/file.txt"
+      })
+    ).toBe(currentTransfers);
+  });
+
+  it("returns unchanged paths/items for non-cache or non-completed download events", () => {
+    const directCompleted = {
+      operationId: "op1",
+      connectionId: "conn-1",
+      bucketName: "bucket-a",
+      objectKey: "file.txt",
+      transferKind: "direct" as const,
+      progressPercent: 100,
+      bytesReceived: 10,
+      totalBytes: 10,
+      state: "completed" as const,
+      error: null
+    };
+    const cacheInProgress = { ...directCompleted, transferKind: "cache" as const, state: "progress" as const };
+    const paths: string[] = [];
+    const items: NavigationContentExplorerItem[] = [];
+
+    expect(reconcileDownloadedFilePathsFromDownloadEvent(paths, directCompleted)).toBe(paths);
+    expect(reconcileDownloadedFilePathsFromDownloadEvent(paths, cacheInProgress)).toBe(paths);
+    expect(reconcileContentItemsFromDownloadEvent(items, directCompleted)).toBe(items);
+    expect(reconcileContentItemsFromDownloadEvent(items, cacheInProgress)).toBe(items);
+  });
+
+  it("does not duplicate an already-tracked file identity in downloaded paths", () => {
+    const existing = "conn-1:bucket-a:file.txt";
+    const payload = {
+      operationId: "op1",
+      connectionId: "conn-1",
+      bucketName: "bucket-a",
+      objectKey: "file.txt",
+      transferKind: "cache" as const,
+      progressPercent: 100,
+      bytesReceived: 10,
+      totalBytes: 10,
+      state: "completed" as const,
+      error: null
+    };
+
+    const result = reconcileDownloadedFilePathsFromDownloadEvent([existing], payload);
+
+    expect(result).toEqual([existing]);
+    expect(result).toHaveLength(1);
+  });
+
+  it("returns null from toast builders for non-qualifying events", () => {
+    const t = (key: string) => key;
+    const cachePayload = {
+      operationId: "op1",
+      connectionId: "conn-1",
+      bucketName: "bucket-a",
+      objectKey: "file.txt",
+      transferKind: "cache" as const,
+      progressPercent: 100,
+      bytesReceived: 10,
+      totalBytes: 10,
+      state: "completed" as const,
+      error: null
+    };
+    const progressPayload = {
+      ...cachePayload,
+      transferKind: "direct" as const,
+      state: "progress" as const
+    };
+
+    expect(buildDownloadCompletionToast(cachePayload, t)).toBeNull();
+    expect(buildDownloadCompletionToast(progressPayload, t)).toBeNull();
+
+    expect(
+      buildUploadCompletionToast(
+        {
+          operationId: "op1",
+          connectionId: "conn-1",
+          bucketName: "bucket-a",
+          objectKey: "file.txt",
+          progressPercent: 50,
+          bytesTransferred: 5,
+          totalBytes: 10,
+          state: "progress",
+          localFilePath: "/tmp/file.txt",
+          error: null
+        },
+        t
+      )
+    ).toBeNull();
+  });
+
+  it("uses fallback description when targetPath is null in download toast", () => {
+    const t = (key: string) => key;
+
+    const result = buildDownloadCompletionToast(
+      {
+        operationId: "op1",
+        connectionId: "conn-1",
+        bucketName: "bucket-a",
+        objectKey: "file.txt",
+        transferKind: "direct",
+        progressPercent: 100,
+        bytesReceived: 10,
+        totalBytes: 10,
+        state: "completed",
+        targetPath: null,
+        error: null
+      },
+      t
+    );
+
+    expect(result).not.toBeNull();
+    expect(result!.description).toBe("content.transfer.download_as_completed_fallback");
+  });
+
+  it("returns false from shouldShowTransferError when error is absent", () => {
+    expect(shouldShowTransferError({ state: "failed", error: null })).toBe(false);
+    expect(shouldShowTransferError({ state: "failed", error: undefined })).toBe(false);
+    expect(shouldShowTransferError({ state: "failed" })).toBe(false);
+  });
+
+  it("selects the right cancellation command for provider and transfer kind", () => {
+    expect(
+      getTransferCancellationTarget({ transferKind: "upload", provider: "azure" })
+    ).toBe("cancelAzureUpload");
+    expect(getTransferCancellationTarget({ transferKind: "upload", provider: "aws" })).toBe(
+      "cancelAwsUpload"
+    );
+    expect(getTransferCancellationTarget({ transferKind: "direct", provider: "azure" })).toBe(
+      "cancelAzureDownload"
+    );
+    expect(getTransferCancellationTarget({ transferKind: "cache", provider: undefined })).toBe(
+      "cancelAwsDownload"
+    );
+  });
+
+  it("uses fallback transfer cancellation message when extraction yields null", () => {
+    expect(resolveTransferCancellationErrorMessage("boom", "fallback")).toBe("boom");
+    expect(resolveTransferCancellationErrorMessage(null, "fallback")).toBe("fallback");
   });
 });

@@ -23,7 +23,7 @@ Increase automated test coverage toward the agreed long-term target of `75%` lin
 ## Milestones
 
 - [x] Milestone A: Frontend `10%`, Rust `15%`
-- [ ] Milestone B: Frontend `20%`, Rust `25%`
+- [x] Milestone B: Frontend `20%`, Rust `25%`
 - [ ] Milestone C: Frontend `35%`, Rust `40%`
 - [ ] Final target: Frontend `75%`, Rust `75%`
 
@@ -76,20 +76,20 @@ Increase automated test coverage toward the agreed long-term target of `75%` lin
 ## Current Priorities
 
 1. `ConnectionNavigator.tsx`
-2. `presentation/commands.rs`
-3. remaining high-risk AWS/Azure service flows
+2. remaining upload orchestration still embedded in `ConnectionNavigator.tsx`
+3. higher-level `Window`-driven flows in `presentation/commands.rs`
 
 ## Current Risks
 
 - `ConnectionNavigator.tsx` remains the largest uncovered frontend orchestration surface
+- upload and transfer orchestration still has meaningful behavior split between extracted helpers and component-local async flows
 - higher-level `Window`-driven command flows in `presentation/commands.rs` are still only partially covered
-- current overall coverage is still too low to justify a hard or soft coverage gate
 
 ## Policy Decision
 
 - Coverage remains `monitor-only` in CI for now.
-- Reason: Rust coverage has crossed the first backend milestone threshold, but frontend coverage is still well below Milestone A and the remaining work is concentrated in high-risk orchestration code rather than broad low-value files.
-- Revisit coverage gating after the next frontend-heavy iteration.
+- Reason: frontend and Rust have both crossed Milestone B, but the remaining uncovered surface is still concentrated in high-risk orchestration code rather than broad low-value files, especially `ConnectionNavigator.tsx` and `presentation/commands.rs`.
+- Revisit coverage gating after the next orchestration-focused frontend and command-layer iteration.
 
 ## Notes
 
@@ -258,6 +258,33 @@ Increase automated test coverage toward the agreed long-term target of `75%` lin
   - `presentation/commands.rs` line coverage: `36.75%`
 - After Phase 3 substep 4:
   - Rust line coverage: `31.21%`
+- After frontend wrapper-contract expansion:
+  - Frontend line coverage: `25.71%`
+  - Frontend statements: `25.71%`
+  - Frontend branches: `87.30%`
+  - Frontend functions: `78.49%`
+  - Delivered:
+    - `src/lib/tauri/awsConnections.ts` line coverage: `100%`
+    - `src/lib/tauri/azureConnections.ts` line coverage: `100%`
+    - `src/lib/tauri/commands.ts` line coverage: `100%`
+    - `src/lib/tauri/connectionSecrets.ts` line coverage: `100%`
+- After frontend derived-state extraction:
+  - Frontend line coverage: `26.33%`
+  - Frontend statements: `26.33%`
+  - Frontend branches: `87.67%`
+  - Frontend functions: `78.81%`
+  - Delivered:
+    - extracted and covered `src/features/navigation/navigationDerivedState.ts`
+    - reduced inline filtering/counting logic inside `ConnectionNavigator.tsx`
+- After frontend transfer/cache/upload-preflight extraction:
+  - Frontend line coverage: `26.61%`
+  - Frontend statements: `26.61%`
+  - Frontend branches: `87.74%`
+  - Frontend functions: `79.12%`
+  - Delivered:
+    - extracted and covered `src/features/navigation/navigationCacheState.ts`
+    - expanded `src/features/navigation/navigationTransfers.ts` coverage for cancellation routing
+    - expanded `src/features/navigation/navigationUploadPreparation.ts` coverage for issue messaging and provider preflight existence checks
   - Rust regions: `31.02%`
   - Rust functions: `26.11%`
   - `aws_connection_service.rs` line coverage: `24.64%`

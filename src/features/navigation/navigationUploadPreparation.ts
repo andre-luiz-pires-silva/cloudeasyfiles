@@ -18,6 +18,12 @@ export type NavigationUploadPreparationIssue =
   | { kind: "duplicate_batch"; fileName: string }
   | { kind: "duplicate_active" };
 
+export type NavigationPreparedUploadBatchItem<
+  TInput extends NavigationSimpleUploadInput = NavigationSimpleUploadInput
+> = NavigationPreparedUploadCandidate<TInput> & {
+  objectAlreadyExists: boolean;
+};
+
 export function normalizeUploadBatchPaths(localFilePaths: string[]): string[] {
   return localFilePaths
     .map((localFilePath) => localFilePath.trim())
@@ -101,4 +107,96 @@ export function buildUploadTransferEntry(params: {
     objectKey: params.input.objectKey,
     localFilePath: params.input.localFilePath ?? params.input.fileName
   };
+}
+
+export function buildUploadPreparationIssueMessages(
+  issues: NavigationUploadPreparationIssue[],
+  t: (key: string) => string
+): string[] {
+  return issues.map((issue) => {
+    if (issue.kind === "invalid_path") {
+      return t("content.transfer.upload_invalid_path");
+    }
+
+    if (issue.kind === "duplicate_batch") {
+      return t("content.transfer.upload_duplicate_batch").replace("{name}", issue.fileName);
+    }
+
+    return t("content.transfer.upload_duplicate_active");
+  });
+}
+
+export async function hydratePreparedUploadBatchItems<
+  TInput extends NavigationSimpleUploadInput
+>(params: {
+  provider: "aws" | "azure";
+  draft:
+    | {
+        accessKeyId: string;
+        secretAccessKey: string;
+        restrictedBucketName?: string;
+      }
+    | {
+        storageAccountName: string;
+        accountKey: string;
+      };
+  selectedBucketName: string;
+  selectedBucketRegion?: string | null;
+  bucketRegionPlaceholder: string;
+  candidateItems: NavigationPreparedUploadCandidate<TInput>[];
+  isUploadExistsPreflightPermissionError: (error: unknown) => boolean;
+  awsObjectExists: (
+    accessKeyId: string,
+    secretAccessKey: string,
+    bucketName: string,
+    objectKey: string,
+    bucketRegion?: string,
+    restrictedBucketName?: string
+  ) => Promise<boolean>;
+  azureBlobExists: (
+    storageAccountName: string,
+    accountKey: string,
+    containerName: string,
+    blobName: string
+  ) => Promise<boolean>;
+}): Promise<NavigationPreparedUploadBatchItem<TInput>[]> {
+  const preparedItems: NavigationPreparedUploadBatchItem<TInput>[] = [];
+
+  for (const item of params.candidateItems) {
+    let objectAlreadyExists = false;
+
+    try {
+      if (params.provider === "aws" && "accessKeyId" in params.draft) {
+        objectAlreadyExists = await params.awsObjectExists(
+          params.draft.accessKeyId.trim(),
+          params.draft.secretAccessKey.trim(),
+          params.selectedBucketName,
+          item.objectKey,
+          params.selectedBucketRegion &&
+            params.selectedBucketRegion !== params.bucketRegionPlaceholder
+            ? params.selectedBucketRegion
+            : undefined,
+          params.draft.restrictedBucketName
+        );
+      } else if ("storageAccountName" in params.draft) {
+        objectAlreadyExists = await params.azureBlobExists(
+          params.draft.storageAccountName,
+          params.draft.accountKey.trim(),
+          params.selectedBucketName,
+          item.objectKey
+        );
+      }
+    } catch (error) {
+      if (!params.isUploadExistsPreflightPermissionError(error)) {
+        throw error;
+      }
+    }
+
+    preparedItems.push({
+      ...item,
+      objectAlreadyExists
+    });
+  }
+
+  return preparedItems;
 }

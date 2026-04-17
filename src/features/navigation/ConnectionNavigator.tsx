@@ -227,7 +227,6 @@ import {
   updateConnectionIndicatorMap
 } from "./navigationConnectionState";
 import {
-  parseLegacyGlobalCacheDirectoryCandidate,
   resolveInitialContentListingPageSize,
   resolveInitialContentViewMode,
   resolveInitialGlobalCacheDirectory,
@@ -262,7 +261,13 @@ import {
   buildPendingRemoveConnectionState
 } from "./navigationSecondaryModalState";
 import {
+  loadLegacyGlobalCacheDirectoryCandidateFromStorage,
+  resolveCachedFileIdentities
+} from "./navigationCacheState";
+import {
   buildDownloadCompletionToast,
+  getTransferCancellationTarget,
+  resolveTransferCancellationErrorMessage,
   buildTransferErrorToast,
   buildUploadCompletionToast,
   reconcileContentItemsFromDownloadEvent,
@@ -272,10 +277,18 @@ import {
   updateTransfersFromUploadEvent
 } from "./navigationTransfers";
 import {
+  buildUploadPreparationIssueMessages,
   buildUploadTransferEntry,
+  hydratePreparedUploadBatchItems,
   normalizeUploadBatchPaths,
   prepareUploadBatchCandidates
 } from "./navigationUploadPreparation";
+import {
+  buildContentStatusSummaryItems,
+  countLoadedItemsByStatus,
+  filterConnectionBuckets,
+  filterContentItems
+} from "./navigationDerivedState";
 
 function Globe2Icon() {
   return (
@@ -404,54 +417,11 @@ type ExplorerTreeNode = {
   children?: ExplorerTreeNode[];
 };
 
-async function resolveCachedFileIdentities(
-  provider: ConnectionProvider,
-  connectionId: string,
-  connectionName: string,
-  bucketName: string,
-  globalLocalCacheDirectory: string | undefined,
-  items: ContentExplorerItem[]
-): Promise<Set<string>> {
-  if (!globalLocalCacheDirectory) {
-    return new Set();
-  }
-
-  const objectKeys = items
-    .filter((item) => item.kind === "file")
-    .map((item) => item.path);
-
-  if (objectKeys.length === 0) {
-    return new Set();
-  }
-
-  const cachedObjectKeys =
-    provider === "aws"
-      ? await findAwsCachedObjects(
-          connectionId,
-          connectionName,
-          bucketName,
-          globalLocalCacheDirectory,
-          objectKeys
-        )
-      : await findAzureCachedObjects(
-          connectionId,
-          connectionName,
-          bucketName,
-          globalLocalCacheDirectory,
-          objectKeys
-        );
-
-  return new Set(
-    cachedObjectKeys.map((objectKey) => buildFileIdentity(connectionId, bucketName, objectKey))
-  );
-}
-
-
 function loadLegacyGlobalCacheDirectoryCandidate(): string | undefined {
   if (typeof window === "undefined") {
     return undefined;
   }
-  return parseLegacyGlobalCacheDirectoryCandidate(
+  return loadLegacyGlobalCacheDirectoryCandidateFromStorage(
     window.localStorage.getItem(CONNECTION_METADATA_STORAGE_KEY)
   );
 }
@@ -737,14 +707,7 @@ export function ConnectionNavigator({
   const filteredConnectionBuckets = useMemo(() => {
     const bucketNodes =
       selectedNode?.kind === "connection" ? (connectionBuckets[selectedNode.id] ?? []) : [];
-
-    if (!normalizedContentFilter) {
-      return bucketNodes;
-    }
-
-    return bucketNodes.filter((bucketNode) =>
-      matchesFilter([bucketNode.name, bucketNode.region, bucketNode.bucketName], normalizedContentFilter)
-    );
+    return filterConnectionBuckets(bucketNodes, normalizedContentFilter);
   }, [connectionBuckets, normalizedContentFilter, selectedNode]);
   const isStatusFilterInactive =
     contentStatusFilters.length === 0 ||
@@ -755,25 +718,13 @@ export function ConnectionNavigator({
   );
   const filteredContentItems = useMemo(
     () =>
-      contentItems.filter((item) => {
-        const matchesTextFilter = matchesFilter(
-          [item.name, item.path, item.storageClass, item.kind],
-          normalizedContentFilter
-        );
-
-        if (!matchesTextFilter) {
-          return false;
-        }
-
-        const itemStatuses = getSummaryContentStatuses(item);
-
-        if (isStatusFilterInactive) {
-          return true;
-        }
-
-        return itemStatuses.some((status) => contentStatusFilters.includes(status));
+      filterContentItems({
+        items: contentItems,
+        normalizedFilter: normalizedContentFilter,
+        contentStatusFilters,
+        allContentStatusFilters: ALL_CONTENT_STATUS_FILTERS
       }),
-    [contentItems, normalizedContentFilter, contentStatusFilters, isStatusFilterInactive]
+    [contentItems, normalizedContentFilter, contentStatusFilters]
   );
   const isContentFilterActive = normalizedContentFilter.length > 0 || !isStatusFilterInactive;
   const loadedFileItems = useMemo(
@@ -882,59 +833,38 @@ export function ConnectionNavigator({
       ? "settings.download_directory_notice_missing"
       : null;
   const loadedDownloadedCount = useMemo(
-    () => loadedFileItems.filter((item) => getSummaryContentStatuses(item).includes("downloaded")).length,
+    () => countLoadedItemsByStatus(loadedFileItems, "downloaded"),
     [loadedFileItems]
   );
   const loadedAvailableCount = useMemo(
-    () => loadedFileItems.filter((item) => getSummaryContentStatuses(item).includes("available")).length,
+    () => countLoadedItemsByStatus(loadedFileItems, "available"),
     [loadedFileItems]
   );
   const loadedRestoringCount = useMemo(
-    () => loadedFileItems.filter((item) => getSummaryContentStatuses(item).includes("restoring")).length,
+    () => countLoadedItemsByStatus(loadedFileItems, "restoring"),
     [loadedFileItems]
   );
   const loadedArchivedCount = useMemo(
-    () => loadedFileItems.filter((item) => getSummaryContentStatuses(item).includes("archived")).length,
+    () => countLoadedItemsByStatus(loadedFileItems, "archived"),
     [loadedFileItems]
   );
   const contentStatusSummaryItems = useMemo(
     () =>
-      selectedNode?.kind === "bucket"
-        ? [
-            {
-              key: "directory" as const,
-              label: t("content.filter.status.directory"),
-              count: loadedDirectoryCount
-            },
-            {
-              key: "downloaded" as const,
-              label: t("content.download_state.downloaded"),
-              count: loadedDownloadedCount
-            },
-            {
-              key: "available" as const,
-              label: t("content.availability.available"),
-              count: loadedAvailableCount
-            },
-            {
-              key: "restoring" as const,
-              label: t("content.availability.restoring"),
-              count: loadedRestoringCount
-            },
-            {
-              key: "archived" as const,
-              label: t("content.availability.archived"),
-              count: loadedArchivedCount
-            }
-          ]
-        : [],
+      buildContentStatusSummaryItems({
+        isBucketSelected: selectedNode?.kind === "bucket",
+        loadedDirectoryCount,
+        loadedDownloadedCount,
+        loadedAvailableCount,
+        loadedRestoringCount,
+        loadedArchivedCount,
+        t
+      }),
     [
       loadedArchivedCount,
       loadedAvailableCount,
       loadedDirectoryCount,
       loadedDownloadedCount,
       loadedRestoringCount,
-      selectedNode,
       t
     ]
   );
@@ -1046,8 +976,12 @@ export function ConnectionNavigator({
     void (async () => {
       try {
         const activeTransfer = activeTransfers[operationId];
+        const cancellationTarget = getTransferCancellationTarget({
+          transferKind: "direct",
+          provider: activeTransfer?.provider
+        });
 
-        if (activeTransfer?.provider === "azure") {
+        if (cancellationTarget === "cancelAzureDownload") {
           await cancelAzureDownload(operationId);
         } else {
           await cancelAwsDownload(operationId);
@@ -1057,7 +991,12 @@ export function ConnectionNavigator({
           return;
         }
 
-        showTransferErrorToast(extractErrorMessage(error) ?? t("content.transfer.cancel_failed"));
+        showTransferErrorToast(
+          resolveTransferCancellationErrorMessage(
+            extractErrorMessage(error),
+            t("content.transfer.cancel_failed")
+          )
+        );
       }
     })();
   }
@@ -1067,8 +1006,12 @@ export function ConnectionNavigator({
       void (async () => {
         try {
           const activeTransfer = activeTransfers[operationId];
+          const cancellationTarget = getTransferCancellationTarget({
+            transferKind,
+            provider: activeTransfer?.provider
+          });
 
-          if (activeTransfer?.provider === "azure") {
+          if (cancellationTarget === "cancelAzureUpload") {
             await cancelAzureUpload(operationId);
           } else {
             await cancelAwsUpload(operationId);
@@ -1079,7 +1022,10 @@ export function ConnectionNavigator({
           }
 
           showTransferErrorToast(
-            extractErrorMessage(error) ?? t("content.transfer.cancel_failed")
+            resolveTransferCancellationErrorMessage(
+              extractErrorMessage(error),
+              t("content.transfer.cancel_failed")
+            )
           );
         }
       })();
@@ -1189,59 +1135,25 @@ export function ConnectionNavigator({
       selectedBucketPath,
       activeTransferIdentityMap
     });
-    const preparedItems: PreparedSimpleUploadBatchItem[] = [];
-
-    for (const issue of issues) {
-      if (issue.kind === "invalid_path") {
-        showTransferErrorToast(t("content.transfer.upload_invalid_path"));
-      } else if (issue.kind === "duplicate_batch") {
-        showTransferErrorToast(
-          t("content.transfer.upload_duplicate_batch").replace("{name}", issue.fileName)
-        );
-      } else if (issue.kind === "duplicate_active") {
-        showTransferErrorToast(t("content.transfer.upload_duplicate_active"));
-      }
+    for (const message of buildUploadPreparationIssueMessages(issues, t)) {
+      showTransferErrorToast(message);
     }
 
-    for (const item of candidateItems) {
-      let objectAlreadyExists = false;
-
-      try {
-        if (selectedBucketProvider === "aws" && "accessKeyId" in draft) {
-          objectAlreadyExists = await awsObjectExists(
-            draft.accessKeyId.trim(),
-            draft.secretAccessKey.trim(),
-            selectedBucketName,
-            item.objectKey,
-            selectedBucketRegion && selectedBucketRegion !== BUCKET_REGION_PLACEHOLDER
-              ? selectedBucketRegion
-              : undefined,
-            draft.restrictedBucketName
-          );
-        } else if ("storageAccountName" in draft) {
-          objectAlreadyExists = await azureBlobExists(
-            draft.storageAccountName,
-            draft.accountKey.trim(),
-            selectedBucketName,
-            item.objectKey
-          );
-        }
-      } catch (error) {
-        if (!isUploadExistsPreflightPermissionError(error)) {
-          throw error;
-        }
-      }
-
-      preparedItems.push({
-        ...item,
-        startUpload: item.startUpload,
-        objectAlreadyExists
-      });
-    }
+    const preparedItems = await hydratePreparedUploadBatchItems({
+      provider: selectedBucketProvider,
+      draft,
+      selectedBucketName,
+      selectedBucketRegion,
+      bucketRegionPlaceholder: BUCKET_REGION_PLACEHOLDER,
+      candidateItems,
+      isUploadExistsPreflightPermissionError,
+      awsObjectExists,
+      azureBlobExists
+    });
 
     return {
       draft,
-      preparedItems
+      preparedItems: preparedItems as PreparedSimpleUploadBatchItem[]
     };
   }
 
@@ -2580,14 +2492,16 @@ export function ConnectionNavigator({
 
     void (async () => {
       try {
-        const cachedFileIdentities = await resolveCachedFileIdentities(
-          selectedBucketProvider,
-          selectedBucketConnectionId,
-          selectedConnection.name,
-          selectedBucketName,
+        const cachedFileIdentities = await resolveCachedFileIdentities({
+          provider: selectedBucketProvider,
+          connectionId: selectedBucketConnectionId,
+          connectionName: selectedConnection.name,
+          bucketName: selectedBucketName,
           globalLocalCacheDirectory,
-          contentItems
-        );
+          items: contentItems,
+          findAwsCachedObjects,
+          findAzureCachedObjects
+        });
 
         if (!isActive) {
           return;
