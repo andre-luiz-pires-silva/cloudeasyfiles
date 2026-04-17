@@ -138,6 +138,8 @@ import {
   validateNewFolderNameInput
 } from "./navigationGuards";
 import {
+  buildClosedChangeStorageClassModalState,
+  buildClosedRestoreRequestModalState,
   buildChangeStorageClassRequestState,
   buildRestoreRequestState,
   getBatchChangeTierTooltip,
@@ -1464,21 +1466,23 @@ export function ConnectionNavigator({
   }
 
   function closeRestoreRequestModal() {
-    if (isSubmittingRestoreRequest) {
-      return;
-    }
-
-    setRestoreRequest(null);
-    setRestoreSubmitError(null);
+    const nextState = buildClosedRestoreRequestModalState({
+      isSubmittingRestoreRequest,
+      restoreRequest,
+      restoreSubmitError
+    });
+    setRestoreRequest(nextState.restoreRequest);
+    setRestoreSubmitError(nextState.restoreSubmitError);
   }
 
   function closeChangeStorageClassModal() {
-    if (isSubmittingStorageClassChange) {
-      return;
-    }
-
-    setChangeStorageClassRequest(null);
-    setChangeStorageClassSubmitError(null);
+    const nextState = buildClosedChangeStorageClassModalState({
+      isSubmittingStorageClassChange,
+      changeStorageClassRequest,
+      changeStorageClassSubmitError
+    });
+    setChangeStorageClassRequest(nextState.changeStorageClassRequest);
+    setChangeStorageClassSubmitError(nextState.changeStorageClassSubmitError);
   }
 
   function openRestoreRequestModal(items: ContentExplorerItem[]) {

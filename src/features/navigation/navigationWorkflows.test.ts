@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  buildClosedChangeStorageClassModalState,
+  buildClosedRestoreRequestModalState,
   buildChangeStorageClassRequestState,
   buildRestoreRequestState,
   getBatchChangeTierTooltip,
@@ -335,5 +337,101 @@ describe("navigationWorkflows", () => {
         getMixedStorageClassesLabel: () => "mixed"
       })
     ).toBeNull();
+  });
+
+  it("closes the restore modal only when submission is not in progress", () => {
+    expect(
+      buildClosedRestoreRequestModalState({
+        isSubmittingRestoreRequest: true,
+        restoreRequest: {
+          provider: "aws",
+          request: {
+            provider: "aws",
+            fileName: "a.zip",
+            fileSizeLabel: "1 bytes",
+            storageClass: "GLACIER"
+          },
+          connectionId: "conn-1",
+          bucketName: "bucket-a",
+          bucketRegion: null,
+          targets: [{ objectKey: "a.zip", storageClass: "GLACIER" }]
+        },
+        restoreSubmitError: "boom"
+      })
+    ).toEqual({
+      restoreRequest: {
+        provider: "aws",
+        request: {
+          provider: "aws",
+          fileName: "a.zip",
+          fileSizeLabel: "1 bytes",
+          storageClass: "GLACIER"
+        },
+        connectionId: "conn-1",
+        bucketName: "bucket-a",
+        bucketRegion: null,
+        targets: [{ objectKey: "a.zip", storageClass: "GLACIER" }]
+      },
+      restoreSubmitError: "boom"
+    });
+
+    expect(
+      buildClosedRestoreRequestModalState({
+        isSubmittingRestoreRequest: false,
+        restoreRequest: null,
+        restoreSubmitError: "boom"
+      })
+    ).toEqual({
+      restoreRequest: null,
+      restoreSubmitError: null
+    });
+  });
+
+  it("closes the change-tier modal only when submission is not in progress", () => {
+    expect(
+      buildClosedChangeStorageClassModalState({
+        isSubmittingStorageClassChange: true,
+        changeStorageClassRequest: {
+          provider: "azure",
+          request: {
+            fileCount: 1,
+            totalSizeLabel: "1 bytes",
+            currentStorageClassLabel: "Cool"
+          },
+          connectionId: "conn-1",
+          bucketName: "bucket-a",
+          bucketRegion: null,
+          targets: [{ objectKey: "a.zip", currentStorageClass: "Cool" }],
+          currentStorageClass: "Cool"
+        },
+        changeStorageClassSubmitError: "boom"
+      })
+    ).toEqual({
+      changeStorageClassRequest: {
+        provider: "azure",
+        request: {
+          fileCount: 1,
+          totalSizeLabel: "1 bytes",
+          currentStorageClassLabel: "Cool"
+        },
+        connectionId: "conn-1",
+        bucketName: "bucket-a",
+        bucketRegion: null,
+        targets: [{ objectKey: "a.zip", currentStorageClass: "Cool" }],
+        currentStorageClass: "Cool"
+      },
+      changeStorageClassSubmitError: "boom"
+    });
+
+    expect(
+      buildClosedChangeStorageClassModalState({
+        isSubmittingStorageClassChange: false,
+        changeStorageClassRequest: null,
+        changeStorageClassSubmitError: "boom"
+      })
+    ).toEqual({
+      changeStorageClassRequest: null,
+      changeStorageClassSubmitError: null
+    });
   });
 });

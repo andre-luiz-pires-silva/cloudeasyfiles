@@ -179,3 +179,39 @@ export function getBatchChangeTierTooltip(params: {
 
   return params.t("navigation.menu.change_tier");
 }
+
+export function buildClosedRestoreRequestModalState(params: {
+  isSubmittingRestoreRequest: boolean;
+  restoreRequest: NavigationRestoreRequestState | null;
+  restoreSubmitError: string | null;
+}) {
+  if (params.isSubmittingRestoreRequest) {
+    return {
+      restoreRequest: params.restoreRequest,
+      restoreSubmitError: params.restoreSubmitError
+    };
+  }
+
+  return {
+    restoreRequest: null,
+    restoreSubmitError: null
+  };
+}
+
+export function buildClosedChangeStorageClassModalState(params: {
+  isSubmittingStorageClassChange: boolean;
+  changeStorageClassRequest: NavigationChangeStorageClassRequestState | null;
+  changeStorageClassSubmitError: string | null;
+}) {
+  if (params.isSubmittingStorageClassChange) {
+    return {
+      changeStorageClassRequest: params.changeStorageClassRequest,
+      changeStorageClassSubmitError: params.changeStorageClassSubmitError
+    };
+  }
+
+  return {
+    changeStorageClassRequest: null,
+    changeStorageClassSubmitError: null
+  };
+}

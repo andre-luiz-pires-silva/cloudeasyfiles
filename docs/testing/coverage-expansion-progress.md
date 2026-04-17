@@ -310,6 +310,14 @@ Increase automated test coverage toward the agreed long-term target of `75%` lin
   - Delivered:
     - expanded `src/features/navigation/navigationActionDispatch.ts` to cover content-area action execution
     - reduced content-area menu branching inside `ConnectionNavigator.tsx`
+- After frontend workflow-modal close-state extraction:
+  - Frontend line coverage: `28.09%`
+  - Frontend statements: `28.09%`
+  - Frontend branches: `88.03%`
+  - Frontend functions: `79.78%`
+  - Delivered:
+    - expanded `src/features/navigation/navigationWorkflows.ts` to cover restore/change-tier modal close-state helpers
+    - reduced restore/change-tier modal lifecycle branching inside `ConnectionNavigator.tsx`
   - Rust regions: `31.02%`
   - Rust functions: `26.11%`
   - `aws_connection_service.rs` line coverage: `24.64%`
