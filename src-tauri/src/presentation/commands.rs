@@ -1986,7 +1986,7 @@ mod tests {
         build_aws_upload_terminal_event, cancel_aws_download, cancel_aws_upload,
         cancel_azure_download, cancel_azure_upload, find_aws_cached_objects,
         find_azure_cached_objects, open_aws_cached_object, open_aws_cached_object_parent,
-        open_azure_cached_object, open_azure_cached_object_parent,
+        open_azure_cached_object, open_azure_cached_object_parent, open_external_url,
         build_azure_cache_download_progress_event, build_azure_cache_download_terminal_event,
         build_azure_direct_download_progress_event, build_azure_direct_download_terminal_event,
         build_azure_download_event, build_azure_upload_event, build_azure_upload_progress_event,
@@ -2537,5 +2537,60 @@ mod tests {
         cancel_azure_upload("missing-azure-upload".to_string())
             .await
             .expect("missing azure upload should still succeed");
+    }
+
+    #[tokio::test]
+    async fn surfaces_non_http_url_and_blank_cache_errors_from_command_wrappers() {
+        let invalid_url_error = open_external_url("ftp://example.com/file.txt".to_string())
+            .await
+            .expect_err("non-http url should fail");
+        assert!(invalid_url_error.contains("Only HTTP and HTTPS URLs are supported"));
+
+        let aws_blank_cache = find_aws_cached_objects(
+            "connection-123".to_string(),
+            "Primary Connection".to_string(),
+            "bucket-a".to_string(),
+            "   ".to_string(),
+            vec!["docs/report.txt".to_string()],
+        )
+        .await
+        .expect("blank aws cache directory should yield empty result");
+        assert!(aws_blank_cache.is_empty());
+
+        let azure_blank_cache = find_azure_cached_objects(
+            "connection-123".to_string(),
+            "Primary Connection".to_string(),
+            "container-a".to_string(),
+            "   ".to_string(),
+            vec!["docs/report.txt".to_string()],
+        )
+        .await
+        .expect("blank azure cache directory should yield empty result");
+        assert!(azure_blank_cache.is_empty());
+
+        let aws_open_error = open_aws_cached_object_parent(
+            "connection-123".to_string(),
+            "Primary Connection".to_string(),
+            "bucket-a".to_string(),
+            "   ".to_string(),
+            "docs/report.txt".to_string(),
+        )
+        .await
+        .expect_err("blank aws cache dir should fail");
+        assert!(aws_open_error.contains("Local cache directory is not configured"));
+
+        let azure_open_error = open_azure_cached_object_parent(
+            "connection-123".to_string(),
+            "Primary Connection".to_string(),
+            "container-a".to_string(),
+            "   ".to_string(),
+            "docs/report.txt".to_string(),
+        )
+        .await
+        .expect_err("blank azure cache dir should fail");
+        assert!(
+            azure_open_error.contains("not available in the local cache")
+                || azure_open_error.contains("Local cache directory is not configured")
+        );
     }
 }
