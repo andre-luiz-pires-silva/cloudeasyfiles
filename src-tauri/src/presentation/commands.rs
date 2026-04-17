@@ -1983,7 +1983,10 @@ mod tests {
         build_aws_cache_download_progress_event, build_aws_cache_download_terminal_event,
         build_aws_direct_download_progress_event, build_aws_direct_download_terminal_event,
         build_aws_download_event, build_aws_upload_event, build_aws_upload_progress_event,
-        build_aws_upload_terminal_event,
+        build_aws_upload_terminal_event, cancel_aws_download, cancel_aws_upload,
+        cancel_azure_download, cancel_azure_upload, find_aws_cached_objects,
+        find_azure_cached_objects, open_aws_cached_object, open_aws_cached_object_parent,
+        open_azure_cached_object, open_azure_cached_object_parent,
         build_azure_cache_download_progress_event, build_azure_cache_download_terminal_event,
         build_azure_direct_download_progress_event, build_azure_direct_download_terminal_event,
         build_azure_download_event, build_azure_upload_event, build_azure_upload_progress_event,
@@ -2421,5 +2424,118 @@ mod tests {
             !default_greeting.trim().is_empty(),
             "startup greeting should not be empty"
         );
+    }
+
+    #[tokio::test]
+    async fn delegates_cached_object_queries_to_provider_services() {
+        let temp_root = unique_temp_path("cache-wrapper");
+        let aws_object_path = temp_root
+            .join("Primary Connection")
+            .join("bucket-a")
+            .join("docs")
+            .join("report.txt");
+        let azure_blob_path = temp_root
+            .join("Primary Connection")
+            .join("container-a")
+            .join("docs")
+            .join("report.txt");
+
+        fs::create_dir_all(aws_object_path.parent().unwrap()).expect("aws cache dir should exist");
+        fs::create_dir_all(azure_blob_path.parent().unwrap())
+            .expect("azure cache dir should exist");
+        fs::write(&aws_object_path, b"aws-cached").expect("aws cache file should exist");
+        fs::write(&azure_blob_path, b"azure-cached").expect("azure cache file should exist");
+
+        let aws_cached = find_aws_cached_objects(
+            "connection-123".to_string(),
+            "Primary Connection".to_string(),
+            "bucket-a".to_string(),
+            temp_root.to_string_lossy().into_owned(),
+            vec!["docs/report.txt".to_string(), "docs/missing.txt".to_string()],
+        )
+        .await
+        .expect("aws cached lookup should succeed");
+        assert_eq!(aws_cached, vec!["docs/report.txt"]);
+
+        let azure_cached = find_azure_cached_objects(
+            "connection-123".to_string(),
+            "Primary Connection".to_string(),
+            "container-a".to_string(),
+            temp_root.to_string_lossy().into_owned(),
+            vec!["docs/report.txt".to_string(), "docs/missing.txt".to_string()],
+        )
+        .await
+        .expect("azure cached lookup should succeed");
+        assert_eq!(azure_cached, vec!["docs/report.txt"]);
+
+        fs::remove_dir_all(&temp_root).expect("temp root should be removed");
+    }
+
+    #[tokio::test]
+    async fn surfaces_cached_object_open_failures_from_provider_services() {
+        let temp_root = unique_temp_path("open-wrapper");
+        fs::create_dir_all(&temp_root).expect("temp root should exist");
+
+        let aws_open_error = open_aws_cached_object(
+            "connection-123".to_string(),
+            "Primary Connection".to_string(),
+            "bucket-a".to_string(),
+            temp_root.to_string_lossy().into_owned(),
+            "docs/missing.txt".to_string(),
+        )
+        .await
+        .expect_err("aws open should fail for missing cache");
+        assert!(aws_open_error.contains("not available in the local cache"));
+
+        let aws_parent_error = open_aws_cached_object_parent(
+            "connection-123".to_string(),
+            "Primary Connection".to_string(),
+            "bucket-a".to_string(),
+            temp_root.to_string_lossy().into_owned(),
+            "docs/missing.txt".to_string(),
+        )
+        .await
+        .expect_err("aws parent open should fail for missing cache");
+        assert!(aws_parent_error.contains("not available in the local cache"));
+
+        let azure_open_error = open_azure_cached_object(
+            "connection-123".to_string(),
+            "Primary Connection".to_string(),
+            "container-a".to_string(),
+            temp_root.to_string_lossy().into_owned(),
+            "docs/missing.txt".to_string(),
+        )
+        .await
+        .expect_err("azure open should fail for missing cache");
+        assert!(azure_open_error.contains("not available in the local cache"));
+
+        let azure_parent_error = open_azure_cached_object_parent(
+            "connection-123".to_string(),
+            "Primary Connection".to_string(),
+            "container-a".to_string(),
+            temp_root.to_string_lossy().into_owned(),
+            "docs/missing.txt".to_string(),
+        )
+        .await
+        .expect_err("azure parent open should fail for missing cache");
+        assert!(azure_parent_error.contains("not available in the local cache"));
+
+        fs::remove_dir_all(&temp_root).expect("temp root should be removed");
+    }
+
+    #[tokio::test]
+    async fn cancel_commands_are_idempotent_for_missing_operations() {
+        cancel_aws_download("missing-aws-download".to_string())
+            .await
+            .expect("missing aws download should still succeed");
+        cancel_azure_download("missing-azure-download".to_string())
+            .await
+            .expect("missing azure download should still succeed");
+        cancel_aws_upload("missing-aws-upload".to_string())
+            .await
+            .expect("missing aws upload should still succeed");
+        cancel_azure_upload("missing-azure-upload".to_string())
+            .await
+            .expect("missing azure upload should still succeed");
     }
 }

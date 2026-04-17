@@ -82,7 +82,7 @@ Increase automated test coverage toward the agreed long-term target of `75%` lin
 ## Current Risks
 
 - `ConnectionNavigator.tsx` remains the largest uncovered frontend orchestration surface
-- upload command/event paths in `presentation/commands.rs` are still only partially covered
+- higher-level `Window`-driven command flows in `presentation/commands.rs` are still only partially covered
 - current overall coverage is still too low to justify a hard or soft coverage gate
 
 ## Policy Decision
@@ -280,3 +280,8 @@ Increase automated test coverage toward the agreed long-term target of `75%` lin
   - Rust functions: `33.24%`
   - `aws_connection_service.rs` line coverage: `37.53%`
   - `azure_connection_service.rs` line coverage: `48.95%`
+- After Phase 2 substep 7:
+  - Rust line coverage: `42.16%`
+  - Rust regions: `41.42%`
+  - Rust functions: `36.69%`
+  - `presentation/commands.rs` line coverage: `45.68%`
