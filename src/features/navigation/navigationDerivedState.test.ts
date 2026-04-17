@@ -2,10 +2,13 @@ import { describe, expect, it } from "vitest";
 
 import type { NavigationContentExplorerItem } from "./navigationContent";
 import {
+  buildContentCounts,
   buildContentStatusSummaryItems,
   countLoadedItemsByStatus,
   filterConnectionBuckets,
-  filterContentItems
+  filterContentItems,
+  isContentFilterActive,
+  isContentStatusFilterInactive
 } from "./navigationDerivedState";
 
 describe("navigationDerivedState", () => {
@@ -135,5 +138,61 @@ describe("navigationDerivedState", () => {
       { key: "restoring", label: "content.availability.restoring", count: 4 },
       { key: "archived", label: "content.availability.archived", count: 5 }
     ]);
+  });
+
+  it("derives content filter activity and loaded/displayed counts", () => {
+    expect(
+      isContentStatusFilterInactive({
+        contentStatusFilters: [],
+        allContentStatusFilters: ["directory", "downloaded", "available", "restoring", "archived"]
+      })
+    ).toBe(true);
+
+    expect(
+      isContentStatusFilterInactive({
+        contentStatusFilters: ["directory", "downloaded", "available", "restoring", "archived"],
+        allContentStatusFilters: ["directory", "downloaded", "available", "restoring", "archived"]
+      })
+    ).toBe(true);
+
+    expect(
+      isContentFilterActive({
+        normalizedContentFilter: "",
+        isStatusFilterInactive: true
+      })
+    ).toBe(false);
+
+    expect(
+      isContentFilterActive({
+        normalizedContentFilter: "docs",
+        isStatusFilterInactive: true
+      })
+    ).toBe(true);
+
+    expect(
+      buildContentCounts({
+        selectedNodeKind: "connection",
+        connectionBucketCount: 3,
+        contentItemCount: 10,
+        filteredConnectionBucketCount: 2,
+        filteredContentItemCount: 4
+      })
+    ).toEqual({
+      loadedContentCount: 3,
+      displayedContentCount: 2
+    });
+
+    expect(
+      buildContentCounts({
+        selectedNodeKind: "bucket",
+        connectionBucketCount: 3,
+        contentItemCount: 10,
+        filteredConnectionBucketCount: 2,
+        filteredContentItemCount: 4
+      })
+    ).toEqual({
+      loadedContentCount: 10,
+      displayedContentCount: 4
+    });
   });
 });

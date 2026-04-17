@@ -310,10 +310,13 @@ import {
   toggleContentSelectionItem
 } from "./navigationSelectionState";
 import {
+  buildContentCounts,
   buildContentStatusSummaryItems,
   countLoadedItemsByStatus,
   filterConnectionBuckets,
-  filterContentItems
+  filterContentItems,
+  isContentFilterActive as deriveIsContentFilterActive,
+  isContentStatusFilterInactive
 } from "./navigationDerivedState";
 
 function Globe2Icon() {
@@ -735,9 +738,10 @@ export function ConnectionNavigator({
       selectedNode?.kind === "connection" ? (connectionBuckets[selectedNode.id] ?? []) : [];
     return filterConnectionBuckets(bucketNodes, normalizedContentFilter);
   }, [connectionBuckets, normalizedContentFilter, selectedNode]);
-  const isStatusFilterInactive =
-    contentStatusFilters.length === 0 ||
-    contentStatusFilters.length === ALL_CONTENT_STATUS_FILTERS.length;
+  const isStatusFilterInactive = isContentStatusFilterInactive({
+    contentStatusFilters,
+    allContentStatusFilters: ALL_CONTENT_STATUS_FILTERS
+  });
   const filteredContentItems = useMemo(
     () =>
       filterContentItems({
@@ -748,7 +752,10 @@ export function ConnectionNavigator({
       }),
     [contentItems, normalizedContentFilter, contentStatusFilters]
   );
-  const isContentFilterActive = normalizedContentFilter.length > 0 || !isStatusFilterInactive;
+  const isContentFilterActive = deriveIsContentFilterActive({
+    normalizedContentFilter,
+    isStatusFilterInactive
+  });
   const loadedFileItems = useMemo(
     () => contentItems.filter((item) => item.kind === "file"),
     [contentItems]
@@ -772,18 +779,14 @@ export function ConnectionNavigator({
   const isContentSelectionActive = contentSelectionState.isSelectionActive;
   const visibleContentItemIds = contentSelectionState.visibleItemIds;
   const allVisibleContentItemsSelected = contentSelectionState.allVisibleItemsSelected;
-  const loadedContentCount =
-    selectedNode?.kind === "connection"
-      ? (connectionBuckets[selectedNode.id] ?? []).length
-      : selectedNode?.kind === "bucket"
-      ? contentItems.length
-      : 0;
-  const displayedContentCount =
-    selectedNode?.kind === "connection"
-      ? filteredConnectionBuckets.length
-      : selectedNode?.kind === "bucket"
-      ? filteredContentItems.length
-      : 0;
+  const { loadedContentCount, displayedContentCount } = buildContentCounts({
+    selectedNodeKind: selectedNode?.kind,
+    connectionBucketCount:
+      selectedNode?.kind === "connection" ? (connectionBuckets[selectedNode.id] ?? []).length : 0,
+    contentItemCount: contentItems.length,
+    filteredConnectionBucketCount: filteredConnectionBuckets.length,
+    filteredContentItemCount: filteredContentItems.length
+  });
   const contentCounterLabel = buildContentCounterLabel(
     t,
     isContentFilterActive,
