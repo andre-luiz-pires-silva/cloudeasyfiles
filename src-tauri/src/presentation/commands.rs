@@ -656,6 +656,150 @@ where
     }
 }
 
+fn dispatch_aws_cache_download_progress<F>(
+    emit_event: &F,
+    operation_id: &str,
+    connection_id: &str,
+    bucket_name: &str,
+    object_key: &str,
+    bytes_received: i64,
+    total_bytes: i64,
+    local_path: &str,
+) -> Result<(), String>
+where
+    F: Fn(AwsDownloadEvent) -> Result<(), String>,
+{
+    emit_event(build_aws_cache_download_progress_event(
+        operation_id.to_string(),
+        connection_id.to_string(),
+        bucket_name.to_string(),
+        object_key.to_string(),
+        local_path.to_string(),
+        bytes_received,
+        total_bytes,
+    ))
+}
+
+fn dispatch_aws_direct_download_progress<F>(
+    emit_event: &F,
+    operation_id: &str,
+    connection_id: &str,
+    bucket_name: &str,
+    object_key: &str,
+    bytes_received: i64,
+    total_bytes: i64,
+    target_path: &str,
+) -> Result<(), String>
+where
+    F: Fn(AwsDownloadEvent) -> Result<(), String>,
+{
+    emit_event(build_aws_direct_download_progress_event(
+        operation_id.to_string(),
+        connection_id.to_string(),
+        bucket_name.to_string(),
+        object_key.to_string(),
+        target_path.to_string(),
+        bytes_received,
+        total_bytes,
+    ))
+}
+
+fn dispatch_aws_upload_progress<F>(
+    emit_event: &F,
+    operation_id: &str,
+    connection_id: &str,
+    bucket_name: &str,
+    object_key: &str,
+    local_file_path: &str,
+    bytes_transferred: i64,
+    total_bytes: i64,
+) -> Result<(), String>
+where
+    F: Fn(AwsUploadEvent) -> Result<(), String>,
+{
+    emit_event(build_aws_upload_progress_event(
+        operation_id.to_string(),
+        connection_id.to_string(),
+        bucket_name.to_string(),
+        object_key.to_string(),
+        local_file_path.to_string(),
+        bytes_transferred,
+        total_bytes,
+    ))
+}
+
+fn dispatch_azure_cache_download_progress<F>(
+    emit_event: &F,
+    operation_id: &str,
+    connection_id: &str,
+    container_name: &str,
+    blob_name: &str,
+    bytes_received: i64,
+    total_bytes: i64,
+    local_path: &str,
+) -> Result<(), String>
+where
+    F: Fn(AzureDownloadEvent) -> Result<(), String>,
+{
+    emit_event(build_azure_cache_download_progress_event(
+        operation_id.to_string(),
+        connection_id.to_string(),
+        container_name.to_string(),
+        blob_name.to_string(),
+        local_path.to_string(),
+        bytes_received,
+        total_bytes,
+    ))
+}
+
+fn dispatch_azure_direct_download_progress<F>(
+    emit_event: &F,
+    operation_id: &str,
+    connection_id: &str,
+    container_name: &str,
+    blob_name: &str,
+    bytes_received: i64,
+    total_bytes: i64,
+    target_path: &str,
+) -> Result<(), String>
+where
+    F: Fn(AzureDownloadEvent) -> Result<(), String>,
+{
+    emit_event(build_azure_direct_download_progress_event(
+        operation_id.to_string(),
+        connection_id.to_string(),
+        container_name.to_string(),
+        blob_name.to_string(),
+        target_path.to_string(),
+        bytes_received,
+        total_bytes,
+    ))
+}
+
+fn dispatch_azure_upload_progress<F>(
+    emit_event: &F,
+    operation_id: &str,
+    connection_id: &str,
+    container_name: &str,
+    blob_name: &str,
+    local_file_path: &str,
+    bytes_transferred: i64,
+    total_bytes: i64,
+) -> Result<(), String>
+where
+    F: Fn(AzureUploadEvent) -> Result<(), String>,
+{
+    emit_event(build_azure_upload_progress_event(
+        operation_id.to_string(),
+        connection_id.to_string(),
+        container_name.to_string(),
+        blob_name.to_string(),
+        local_file_path.to_string(),
+        bytes_transferred,
+        total_bytes,
+    ))
+}
+
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct AzureDownloadEvent {
@@ -1328,15 +1472,16 @@ pub async fn start_aws_cache_download(
         bucket_region,
         global_local_cache_directory,
         |bytes_received, total_bytes, local_path| {
-            emit_event(build_aws_cache_download_progress_event(
-                operation_id_for_progress.clone(),
-                connection_id_for_progress.clone(),
-                bucket_name_for_progress.clone(),
-                object_key_for_progress.clone(),
-                local_path.to_string(),
+            dispatch_aws_cache_download_progress(
+                &emit_event,
+                &operation_id_for_progress,
+                &connection_id_for_progress,
+                &bucket_name_for_progress,
+                &object_key_for_progress,
                 bytes_received,
                 total_bytes,
-            ))
+                local_path,
+            )
         },
     )
     .await;
@@ -1403,15 +1548,16 @@ pub async fn download_aws_object_to_path(
         bucket_region,
         destination_path,
         |bytes_received, total_bytes, target_path| {
-            emit_event(build_aws_direct_download_progress_event(
-                operation_id_for_progress.clone(),
-                connection_id_for_progress.clone(),
-                bucket_name_for_progress.clone(),
-                object_key_for_progress.clone(),
-                target_path.to_string(),
+            dispatch_aws_direct_download_progress(
+                &emit_event,
+                &operation_id_for_progress,
+                &connection_id_for_progress,
+                &bucket_name_for_progress,
+                &object_key_for_progress,
                 bytes_received,
                 total_bytes,
-            ))
+                target_path,
+            )
         },
     )
     .await;
@@ -1472,15 +1618,16 @@ pub async fn start_azure_cache_download(
         blob_name.clone(),
         global_local_cache_directory,
         |bytes_received, total_bytes, local_path| {
-            emit_event(build_azure_cache_download_progress_event(
-                operation_id_for_progress.clone(),
-                connection_id_for_progress.clone(),
-                container_name_for_progress.clone(),
-                blob_name_for_progress.clone(),
-                local_path.to_string(),
+            dispatch_azure_cache_download_progress(
+                &emit_event,
+                &operation_id_for_progress,
+                &connection_id_for_progress,
+                &container_name_for_progress,
+                &blob_name_for_progress,
                 bytes_received,
                 total_bytes,
-            ))
+                local_path,
+            )
         },
     )
     .await;
@@ -1531,15 +1678,16 @@ pub async fn download_azure_blob_to_path(
         blob_name.clone(),
         destination_path,
         |bytes_received, total_bytes, target_path| {
-            emit_event(build_azure_direct_download_progress_event(
-                operation_id_for_progress.clone(),
-                connection_id_for_progress.clone(),
-                container_name_for_progress.clone(),
-                blob_name_for_progress.clone(),
-                target_path.to_string(),
+            dispatch_azure_direct_download_progress(
+                &emit_event,
+                &operation_id_for_progress,
+                &connection_id_for_progress,
+                &container_name_for_progress,
+                &blob_name_for_progress,
                 bytes_received,
                 total_bytes,
-            ))
+                target_path,
+            )
         },
     )
     .await;
@@ -1602,15 +1750,16 @@ pub async fn start_aws_upload(
         storage_class,
         bucket_region,
         |bytes_transferred, total_bytes| {
-            emit_event(build_aws_upload_progress_event(
-                operation_id_for_progress.clone(),
-                connection_id_for_progress.clone(),
-                bucket_name_for_progress.clone(),
-                object_key_for_progress.clone(),
-                local_file_path_for_progress.clone(),
+            dispatch_aws_upload_progress(
+                &emit_event,
+                &operation_id_for_progress,
+                &connection_id_for_progress,
+                &bucket_name_for_progress,
+                &object_key_for_progress,
+                &local_file_path_for_progress,
                 bytes_transferred,
                 total_bytes,
-            ))
+            )
         },
     )
     .await;
@@ -1676,15 +1825,16 @@ pub async fn start_aws_upload_bytes(
         storage_class,
         bucket_region,
         |bytes_transferred, total_bytes| {
-            emit_event(build_aws_upload_progress_event(
-                operation_id_for_progress.clone(),
-                connection_id_for_progress.clone(),
-                bucket_name_for_progress.clone(),
-                object_key_for_progress.clone(),
-                file_name_for_progress.clone(),
+            dispatch_aws_upload_progress(
+                &emit_event,
+                &operation_id_for_progress,
+                &connection_id_for_progress,
+                &bucket_name_for_progress,
+                &object_key_for_progress,
+                &file_name_for_progress,
                 bytes_transferred,
                 total_bytes,
-            ))
+            )
         },
     )
     .await;
@@ -1739,15 +1889,16 @@ pub async fn start_azure_upload(
         local_file_path.clone(),
         access_tier,
         |bytes_transferred, total_bytes| {
-            emit_event(build_azure_upload_progress_event(
-                operation_id_for_progress.clone(),
-                connection_id_for_progress.clone(),
-                container_name_for_progress.clone(),
-                blob_name_for_progress.clone(),
-                local_file_path_for_progress.clone(),
+            dispatch_azure_upload_progress(
+                &emit_event,
+                &operation_id_for_progress,
+                &connection_id_for_progress,
+                &container_name_for_progress,
+                &blob_name_for_progress,
+                &local_file_path_for_progress,
                 bytes_transferred,
                 total_bytes,
-            ))
+            )
         },
     )
     .await;
@@ -1804,15 +1955,16 @@ pub async fn start_azure_upload_bytes(
         file_bytes,
         access_tier,
         |bytes_transferred, total_bytes| {
-            emit_event(build_azure_upload_progress_event(
-                operation_id_for_progress.clone(),
-                connection_id_for_progress.clone(),
-                container_name_for_progress.clone(),
-                blob_name_for_progress.clone(),
-                file_name_for_progress.clone(),
+            dispatch_azure_upload_progress(
+                &emit_event,
+                &operation_id_for_progress,
+                &connection_id_for_progress,
+                &container_name_for_progress,
+                &blob_name_for_progress,
+                &file_name_for_progress,
                 bytes_transferred,
                 total_bytes,
-            ))
+            )
         },
     )
     .await;
@@ -1979,8 +2131,11 @@ mod tests {
         build_azure_direct_download_terminal_event, build_azure_download_event,
         build_azure_upload_event, build_azure_upload_progress_event,
         build_azure_upload_terminal_event, calculate_progress_percent, cancel_aws_download,
-        cancel_aws_upload, cancel_azure_download, cancel_azure_upload, download_terminal_state,
-        find_aws_cached_objects, find_azure_cached_objects, get_greeting,
+        cancel_aws_upload, cancel_azure_download, cancel_azure_upload,
+        dispatch_aws_cache_download_progress, dispatch_aws_direct_download_progress,
+        dispatch_aws_upload_progress, dispatch_azure_cache_download_progress,
+        dispatch_azure_direct_download_progress, dispatch_azure_upload_progress,
+        download_terminal_state, find_aws_cached_objects, find_azure_cached_objects, get_greeting,
         is_cancelled_azure_download_error, is_cancelled_azure_upload_error,
         is_cancelled_download_error, is_cancelled_upload_error, open_aws_cached_object,
         open_aws_cached_object_parent, open_azure_cached_object, open_azure_cached_object_parent,
@@ -2723,5 +2878,234 @@ mod tests {
             azure_open_error.contains("not available in the local cache")
                 || azure_open_error.contains("Local cache directory is not configured")
         );
+    }
+
+    #[test]
+    fn dispatch_progress_helpers_emit_correct_events_for_all_providers() {
+        use std::cell::RefCell;
+
+        let emitted: RefCell<Vec<_>> = RefCell::new(Vec::new());
+        {
+            let emit = |event| {
+                emitted.borrow_mut().push(event);
+                Ok(())
+            };
+            dispatch_aws_cache_download_progress(
+                &emit,
+                "op-aws-cache",
+                "conn-1",
+                "bucket-a",
+                "docs/report.txt",
+                50,
+                200,
+                "/tmp/report.txt",
+            )
+            .expect("aws cache dispatch should succeed");
+        }
+        let events = emitted.into_inner();
+        assert_eq!(events[0].state, "progress");
+        assert_eq!(events[0].transfer_kind, "cache");
+        assert_eq!(events[0].progress_percent, 25.0);
+        assert_eq!(events[0].target_path.as_deref(), Some("/tmp/report.txt"));
+        assert_eq!(events[0].operation_id, "op-aws-cache");
+
+        let emitted: RefCell<Vec<_>> = RefCell::new(Vec::new());
+        {
+            let emit = |event| {
+                emitted.borrow_mut().push(event);
+                Ok(())
+            };
+            dispatch_aws_direct_download_progress(
+                &emit,
+                "op-aws-direct",
+                "conn-2",
+                "bucket-b",
+                "archive.zip",
+                100,
+                400,
+                "/home/user/archive.zip",
+            )
+            .expect("aws direct dispatch should succeed");
+        }
+        let events = emitted.into_inner();
+        assert_eq!(events[0].state, "progress");
+        assert_eq!(events[0].transfer_kind, "direct");
+        assert_eq!(events[0].progress_percent, 25.0);
+        assert_eq!(
+            events[0].target_path.as_deref(),
+            Some("/home/user/archive.zip")
+        );
+
+        let emitted: RefCell<Vec<_>> = RefCell::new(Vec::new());
+        {
+            let emit = |event| {
+                emitted.borrow_mut().push(event);
+                Ok(())
+            };
+            dispatch_azure_cache_download_progress(
+                &emit,
+                "op-azure-cache",
+                "conn-3",
+                "container-a",
+                "blob.zip",
+                75,
+                300,
+                "/tmp/blob.zip",
+            )
+            .expect("azure cache dispatch should succeed");
+        }
+        let events = emitted.into_inner();
+        assert_eq!(events[0].state, "progress");
+        assert_eq!(events[0].transfer_kind, "cache");
+        assert_eq!(events[0].progress_percent, 25.0);
+        assert_eq!(events[0].target_path.as_deref(), Some("/tmp/blob.zip"));
+
+        let emitted: RefCell<Vec<_>> = RefCell::new(Vec::new());
+        {
+            let emit = |event| {
+                emitted.borrow_mut().push(event);
+                Ok(())
+            };
+            dispatch_azure_direct_download_progress(
+                &emit,
+                "op-azure-direct",
+                "conn-4",
+                "container-b",
+                "archive.tar",
+                10,
+                100,
+                "/home/user/archive.tar",
+            )
+            .expect("azure direct dispatch should succeed");
+        }
+        let events = emitted.into_inner();
+        assert_eq!(events[0].state, "progress");
+        assert_eq!(events[0].transfer_kind, "direct");
+        assert_eq!(events[0].progress_percent, 10.0);
+        assert_eq!(
+            events[0].target_path.as_deref(),
+            Some("/home/user/archive.tar")
+        );
+
+        let emitted: RefCell<Vec<_>> = RefCell::new(Vec::new());
+        {
+            let emit = |event| {
+                emitted.borrow_mut().push(event);
+                Ok(())
+            };
+            dispatch_aws_upload_progress(
+                &emit,
+                "op-aws-upload",
+                "conn-5",
+                "bucket-c",
+                "upload.txt",
+                "/local/upload.txt",
+                200,
+                800,
+            )
+            .expect("aws upload dispatch should succeed");
+        }
+        let events = emitted.into_inner();
+        assert_eq!(events[0].state, "progress");
+        assert_eq!(events[0].progress_percent, 25.0);
+        assert_eq!(events[0].local_file_path, "/local/upload.txt");
+
+        let emitted: RefCell<Vec<_>> = RefCell::new(Vec::new());
+        {
+            let emit = |event| {
+                emitted.borrow_mut().push(event);
+                Ok(())
+            };
+            dispatch_azure_upload_progress(
+                &emit,
+                "op-azure-upload",
+                "conn-6",
+                "container-c",
+                "upload.bin",
+                "/local/upload.bin",
+                50,
+                50,
+            )
+            .expect("azure upload dispatch should succeed");
+        }
+        let events = emitted.into_inner();
+        assert_eq!(events[0].state, "progress");
+        assert_eq!(events[0].progress_percent, 100.0);
+        assert_eq!(events[0].local_file_path, "/local/upload.bin");
+    }
+
+    #[test]
+    fn dispatch_progress_helpers_propagate_emit_errors() {
+        let result = dispatch_aws_cache_download_progress(
+            &|_| Err("window unavailable".to_string()),
+            "op-1",
+            "conn-1",
+            "bucket-a",
+            "file.txt",
+            0,
+            0,
+            "/tmp/file.txt",
+        );
+        assert_eq!(result, Err("window unavailable".to_string()));
+
+        let result = dispatch_aws_direct_download_progress(
+            &|_| Err("emit failed".to_string()),
+            "op-2",
+            "conn-2",
+            "bucket-b",
+            "file.txt",
+            0,
+            0,
+            "/tmp/file.txt",
+        );
+        assert_eq!(result, Err("emit failed".to_string()));
+
+        let result = dispatch_azure_cache_download_progress(
+            &|_| Err("window unavailable".to_string()),
+            "op-3",
+            "conn-3",
+            "container-a",
+            "blob.txt",
+            0,
+            0,
+            "/tmp/blob.txt",
+        );
+        assert_eq!(result, Err("window unavailable".to_string()));
+
+        let result = dispatch_azure_direct_download_progress(
+            &|_| Err("emit failed".to_string()),
+            "op-4",
+            "conn-4",
+            "container-b",
+            "blob.txt",
+            0,
+            0,
+            "/tmp/blob.txt",
+        );
+        assert_eq!(result, Err("emit failed".to_string()));
+
+        let result = dispatch_aws_upload_progress(
+            &|_| Err("window unavailable".to_string()),
+            "op-5",
+            "conn-5",
+            "bucket-c",
+            "upload.txt",
+            "/local/upload.txt",
+            0,
+            0,
+        );
+        assert_eq!(result, Err("window unavailable".to_string()));
+
+        let result = dispatch_azure_upload_progress(
+            &|_| Err("emit failed".to_string()),
+            "op-6",
+            "conn-6",
+            "container-c",
+            "upload.bin",
+            "/local/upload.bin",
+            0,
+            0,
+        );
+        assert_eq!(result, Err("emit failed".to_string()));
     }
 }

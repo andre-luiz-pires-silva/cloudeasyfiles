@@ -24,7 +24,8 @@ Increase automated test coverage toward the agreed long-term target of `75%` lin
 
 - [x] Milestone A: Frontend `10%`, Rust `15%`
 - [x] Milestone B: Frontend `20%`, Rust `25%`
-- [ ] Milestone C: Frontend `35%`, Rust `40%`
+- [x] Milestone C (Rust): Rust `40%` reached — `46.83%` measured after Step R2
+- [ ] Milestone C (Frontend): Frontend `35%` — currently at `~29.5%` after awsProviderContent + azureProviderContent tests
 - [ ] Final target: Frontend `75%`, Rust `75%`
 
 ## Phases
@@ -46,7 +47,7 @@ Increase automated test coverage toward the agreed long-term target of `75%` lin
 
 ### Phase 2. Rust command-layer coverage
 
-- [-] Expand coverage around `presentation/commands.rs`
+- [x] Expand coverage around `presentation/commands.rs`
 - [x] Test cancellation classification helpers
 - [x] Test event payload mapping helpers
 - [x] Test command-layer input validation helpers
@@ -75,9 +76,10 @@ Increase automated test coverage toward the agreed long-term target of `75%` lin
 
 ## Current Priorities
 
-1. `ConnectionNavigator.tsx`
-2. remaining upload orchestration still embedded in `ConnectionNavigator.tsx`
-3. higher-level `Window`-driven flows in `presentation/commands.rs`
+1. Step V1 — re-measure frontend after new provider-content tests to confirm new baseline
+2. Close the ~5.5 pp gap to Milestone C frontend `35%` target (~550 additional covered lines needed)
+3. Quick wins remaining: `navigationPresentation.ts` (~28 uncovered lines), `navigationCacheState.ts` (~12 uncovered lines)
+4. Larger extraction work: `ConnectionNavigator.tsx` — still 5,060 lines at 0%, primary remaining surface
 
 ## Operational Roadmap
 
@@ -101,7 +103,7 @@ Use the checklist below as the next execution guide for the coverage-expansion b
 ### Near-Term Rust Steps
 
 - [x] Step R1. Expand `presentation/commands.rs` coverage for higher-level `Window`-driven command flows
-- [ ] Step R2. Expand `presentation/commands.rs` coverage for upload/download command-service handoff flows
+- [x] Step R2. Expand `presentation/commands.rs` coverage for upload/download command-service handoff flows
 
 ### Review Step
 
@@ -466,3 +468,32 @@ Use the checklist below as the next execution guide for the coverage-expansion b
     - completed roadmap Step `R1`
     - extracted terminal-outcome orchestration helpers in `src-tauri/src/presentation/commands.rs` for cache downloads, direct downloads, and uploads
     - expanded command-layer tests to cover success, failure, and cancellation state mapping for AWS and Azure `Window`-driven flows
+- After roadmap Step R2:
+  - Rust line coverage: `46.83%`
+  - Rust regions: `45.84%`
+  - Rust functions: `39.36%`
+  - `presentation/commands.rs` line coverage: `58.47%`
+  - Delivered:
+    - completed roadmap Step `R2`
+    - extracted 6 progress-dispatch helpers (`dispatch_aws_cache_download_progress`, `dispatch_aws_direct_download_progress`, `dispatch_aws_upload_progress`, `dispatch_azure_cache_download_progress`, `dispatch_azure_direct_download_progress`, `dispatch_azure_upload_progress`) from the 8 upload/download command functions
+    - simplified all 8 command progress callbacks to delegate to the dispatch helpers
+    - added 2 new test functions covering correct event field mapping and emit error propagation for all 6 helpers
+- After provider-content tests (awsProviderContent + azureProviderContent):
+  - Frontend line coverage: `~29.5%` (estimate — run `npm run coverage` to confirm exact number)
+  - Delivered:
+    - created `src/features/aws/awsProviderContent.test.ts` — 14 tests covering all 3 pure functions (`getAwsUploadTierContent`, `getAwsRestoreTierContent`, `getAwsChangeTierContent`), URL constants, option array shape, and translator wiring
+    - created `src/features/azure/azureProviderContent.test.ts` — 6 tests covering `getAzureUploadTierContent`, URL constants, option array shape, and translator wiring
+    - both files were at 0% coverage before this step
+
+## Next Steps to Reach Milestone C Frontend 35%
+
+Gap to close: ~5.5 pp from current ~29.5% → 35% (roughly 550 additional covered lines).
+
+Ordered by effort/impact:
+
+1. **Step V1 (re-measure)** — Run `npm run coverage` to confirm actual new baseline after provider-content tests.
+2. **Extend `navigationPresentation.test.ts`** — ~28 uncovered lines remain in `navigationPresentation.ts` (was 90.31%). Extend existing test file to eliminate remaining gaps.
+3. **Extend `navigationCacheState.test.ts`** — ~12 uncovered lines remain in `navigationCacheState.ts` (was 67.56%). Extend existing test file.
+4. **Extract routing logic from `ConnectionNavigator.tsx`** — `handlePreviewFileAction` and similar routing handlers (~100+ lines extractable). Largest remaining extraction opportunity.
+5. **Additional ConnectionNavigator extractions** — After initial routing extraction, identify next highest-line-count untested behaviors for further extraction rounds.
+6. **Step V1 close** — Re-measure and mark Milestone C Frontend complete once 35% is confirmed.
