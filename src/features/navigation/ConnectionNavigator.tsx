@@ -4,6 +4,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { isTauri } from "@tauri-apps/api/core";
 import { useNavigationPreferencesState } from "./hooks/useNavigationPreferencesState";
+import { useTransferState } from "./hooks/useTransferState";
 import {
   AlertCircle,
   ChevronRight,
@@ -268,13 +269,15 @@ import {
   buildDownloadCompletionToast,
   getTransferCancellationTarget,
   resolveTransferCancellationErrorMessage,
-  buildTransferErrorToast,
   buildUploadCompletionToast,
   reconcileContentItemsFromDownloadEvent,
   reconcileDownloadedFilePathsFromDownloadEvent,
   shouldShowTransferError,
   updateTransfersFromDownloadEvent,
-  updateTransfersFromUploadEvent
+  updateTransfersFromUploadEvent,
+  type NavigationActiveTransfer as ActiveTransfer,
+  type NavigationCompletionToast as CompletionToast,
+  type NavigationTransferKind as TransferKind
 } from "./navigationTransfers";
 import {
   buildUploadPreparationIssueMessages,
@@ -354,8 +357,6 @@ type ConnectionIndicator = {
 type FileAvailabilityStatus = "available" | "archived" | "restoring";
 type FileDownloadState = "not_downloaded" | "restoring" | "available_to_download" | "downloaded";
 type ContentStatusFilter = (typeof ALL_CONTENT_STATUS_FILTERS)[number];
-type DownloadTransferState = "progress" | "completed" | "failed" | "cancelled";
-type TransferKind = "cache" | "direct" | "upload";
 type ContentMenuAnchor = {
   itemId: string;
   x: number;
@@ -425,31 +426,6 @@ type ExplorerTreeNode = {
   bucketName?: string;
   path?: string;
   children?: ExplorerTreeNode[];
-};
-
-type ActiveTransfer = {
-  operationId: string;
-  itemId: string;
-  fileIdentity: string;
-  fileName: string;
-  bucketName: string;
-  provider: ConnectionProvider;
-  transferKind: TransferKind;
-  progressPercent: number;
-  bytesTransferred: number;
-  totalBytes: number;
-  state: DownloadTransferState;
-  objectKey?: string;
-  localFilePath?: string;
-  targetPath?: string | null;
-  error?: string | null;
-};
-
-type CompletionToast = {
-  id: string;
-  title: string;
-  description: string;
-  tone?: "success" | "error";
 };
 
 type SimpleUploadBatchInput = {
@@ -566,19 +542,31 @@ export function ConnectionNavigator({
   const [contentFilterText, setContentFilterText] = useState("");
   const [contentStatusFilters, setContentStatusFilters] = useState<ContentStatusFilter[]>([]);
   const [selectedContentItemIds, setSelectedContentItemIds] = useState<string[]>([]);
-  const [downloadedFilePaths, setDownloadedFilePaths] = useState<string[]>([]);
-  const [activeTransfers, setActiveTransfers] = useState<Record<string, ActiveTransfer>>({});
-  const [activeDirectDownloadItemIds, setActiveDirectDownloadItemIds] = useState<string[]>([]);
-  const [completionToast, setCompletionToast] = useState<CompletionToast | null>(null);
-  const [uploadConflictPrompt, setUploadConflictPrompt] =
-    useState<UploadConflictPromptState | null>(null);
+  const {
+    downloadedFilePaths,
+    activeTransfers,
+    activeDirectDownloadItemIds,
+    completionToast,
+    uploadConflictPrompt,
+    isTransferModalOpen,
+    isUploadDropTargetActive,
+    uploadConflictResolverRef,
+    activeTransferList,
+    downloadedFilePathSet,
+    setDownloadedFilePaths,
+    setActiveTransfers,
+    setActiveDirectDownloadItemIds,
+    setCompletionToast,
+    setUploadConflictPrompt,
+    setIsTransferModalOpen,
+    setIsUploadDropTargetActive,
+    showTransferErrorToast
+  } = useTransferState();
   const [openContentMenuItemId, setOpenContentMenuItemId] = useState<string | null>(null);
   const [contentMenuAnchor, setContentMenuAnchor] = useState<ContentMenuAnchor | null>(null);
   const [contentAreaMenuAnchor, setContentAreaMenuAnchor] = useState<ContentAreaMenuAnchor | null>(
     null
   );
-  const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
-  const [isUploadDropTargetActive, setIsUploadDropTargetActive] = useState(false);
   const [isCreateFolderModalOpen, setIsCreateFolderModalOpen] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
   const [createFolderError, setCreateFolderError] = useState<string | null>(null);
@@ -600,9 +588,6 @@ export function ConnectionNavigator({
   const contentDropZoneRef = useRef<HTMLElement | null>(null);
   const hasProcessedStartupAutoConnectRef = useRef(false);
   const nativeDragDropPathsRef = useRef<string[]>([]);
-  const uploadConflictResolverRef = useRef<((decision: UploadConflictDecision) => void) | null>(
-    null
-  );
   const connectionTestRequestIdRef = useRef(0);
   const connectionRequestIdsRef = useRef<Record<string, number>>({});
   const contentRequestIdRef = useRef(0);
@@ -738,9 +723,6 @@ export function ConnectionNavigator({
     loadedContentCount
   );
   const shouldRenderListHeaders = contentViewMode === "list";
-  const activeTransferList = Object.values(activeTransfers).filter(
-    (transfer) => transfer.state === "progress"
-  );
   const activeTrackedDownloadList = useMemo(
     () => activeTransferList.filter((transfer) => transfer.transferKind === "cache"),
     [activeTransferList]
@@ -786,10 +768,6 @@ export function ConnectionNavigator({
   const activeUploadPreviewCount = activeUploadList.length;
   const isDownloadTransferActive = activeDownloadPreviewCount > 0;
   const isUploadTransferActive = activeUploadPreviewCount > 0;
-  const downloadedFilePathSet = useMemo(
-    () => new Set(downloadedFilePaths),
-    [downloadedFilePaths]
-  );
   const batchSelectionActions = useMemo<BatchSelectionActionsState>(() => {
     return getBatchSelectionActions(
       selectedContentItems,
@@ -2345,30 +2323,6 @@ export function ConnectionNavigator({
     activeTransferIdentityMap,
     t
   ]);
-
-  useEffect(() => {
-    if (!completionToast) {
-      return undefined;
-    }
-
-    const timeoutId = window.setTimeout(() => {
-      setCompletionToast((currentToast) =>
-        currentToast?.id === completionToast.id ? null : currentToast
-      );
-    }, 4200);
-
-    return () => {
-      window.clearTimeout(timeoutId);
-    };
-  }, [completionToast]);
-
-  function showTransferErrorToast(description: string) {
-    const toastId =
-      typeof globalThis.crypto !== "undefined" && "randomUUID" in globalThis.crypto
-        ? globalThis.crypto.randomUUID()
-        : `toast-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-    setCompletionToast(buildTransferErrorToast(toastId, description, t));
-  }
 
   useEffect(() => {
     if (
