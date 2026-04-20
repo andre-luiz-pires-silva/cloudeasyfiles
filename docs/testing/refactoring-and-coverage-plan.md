@@ -168,8 +168,12 @@ cobertura de componentes restantes (formulários de conexão, `main.tsx`, etc.).
 
 ### Etapas imediatas (próxima sessão)
 
-- [ ] **Step RF1** — Split de `navigationPresentation.ts` em 4 arquivos focados
-- [ ] **Step RF2** — Split de `navigationGuards.ts` em 4 arquivos focados
+- [x] **Step RF1** — Split de `navigationPresentation.ts` em 4 arquivos focados
+  - `navigationFormatting.ts`, `navigationErrorUtils.ts`, `navigationTreeUtils.ts`, `navigationStatusUtils.ts`
+  - `navigationPresentation.ts` → barrel de 44 linhas
+- [x] **Step RF2** — Split de `navigationGuards.ts` em 4 arquivos focados
+  - `navigationTypes.ts`, `navigationOperationBuilders.ts`, `navigationItemGuards.ts`, `navigationSelectionGuards.ts`
+  - `navigationGuards.ts` → barrel de re-exports
 - [ ] **Step V2** — Re-medir cobertura após splits
 
 ### CN-1: Hooks de Estado
