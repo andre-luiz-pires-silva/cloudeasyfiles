@@ -187,7 +187,11 @@ cobertura de componentes restantes (formulários de conexão, `main.tsx`, etc.).
   - Hook em `src/features/navigation/hooks/useTransferState.ts`
   - 7 testes em `useTransferState.test.ts`
   - Build e 280 testes passando
-- [ ] **Step CN-1c** — Extrair `useModalOrchestrationState`
+- [x] **Step CN-1c** — Extrair `useModalOrchestrationState`
+  - Hook em `src/features/navigation/hooks/useModalOrchestrationState.ts`
+  - 7 testes em `useModalOrchestrationState.test.ts`
+  - Adicionado `name?: string` a `NavigationContentItem`
+  - Build e 287 testes passando
 - [ ] **Step CN-1d** — Extrair `useContentListingState`
 - [ ] **Step CN-1e** — Extrair `useConnectionFormState`
 - [ ] **Step V3** — Re-medir após hooks + escrever testes dos hooks
@@ -236,3 +240,4 @@ cobertura de componentes restantes (formulários de conexão, `main.tsx`, etc.).
 - Baseline Milestone C: Frontend `36.39%`, Rust `46.83%`
 - Post CN-1a: 38 test files, 273 tests passing (7 novos do hook)
 - Post CN-1b: 39 test files, 280 tests passing (7 novos do hook)
+- Post CN-1c: 40 test files, 287 tests passing (7 novos do hook)

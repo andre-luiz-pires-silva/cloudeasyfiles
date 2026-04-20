@@ -5,6 +5,7 @@ import { open, save } from "@tauri-apps/plugin-dialog";
 import { isTauri } from "@tauri-apps/api/core";
 import { useNavigationPreferencesState } from "./hooks/useNavigationPreferencesState";
 import { useTransferState } from "./hooks/useTransferState";
+import { useModalOrchestrationState } from "./hooks/useModalOrchestrationState";
 import {
   AlertCircle,
   ChevronRight,
@@ -368,18 +369,6 @@ type ContentAreaMenuAnchor = {
   y: number;
 };
 
-type ContentDeletePlan = {
-  fileKeys: string[];
-  directoryPrefixes: string[];
-};
-
-type PendingContentDeleteState = {
-  items: ContentExplorerItem[];
-  fileCount: number;
-  directoryCount: number;
-  plan: ContentDeletePlan;
-};
-
 type FileActionAvailabilityContext = {
   provider: ConnectionProvider | null | undefined;
   connectionId: string | null;
@@ -529,15 +518,46 @@ export function ConnectionNavigator({
   const [contentError, setContentError] = useState<string | null>(null);
   const [loadMoreContentError, setLoadMoreContentError] = useState<string | null>(null);
   const [contentActionError, setContentActionError] = useState<string | null>(null);
-  const [restoreRequest, setRestoreRequest] = useState<RestoreRequestState | null>(null);
-  const [restoreSubmitError, setRestoreSubmitError] = useState<string | null>(null);
-  const [isSubmittingRestoreRequest, setIsSubmittingRestoreRequest] = useState(false);
-  const [changeStorageClassRequest, setChangeStorageClassRequest] =
-    useState<ChangeStorageClassRequestState | null>(null);
-  const [changeStorageClassSubmitError, setChangeStorageClassSubmitError] = useState<string | null>(
-    null
-  );
-  const [isSubmittingStorageClassChange, setIsSubmittingStorageClassChange] = useState(false);
+  const {
+    restoreRequest,
+    restoreSubmitError,
+    isSubmittingRestoreRequest,
+    changeStorageClassRequest,
+    changeStorageClassSubmitError,
+    isSubmittingStorageClassChange,
+    isCreateFolderModalOpen,
+    newFolderName,
+    createFolderError,
+    isCreatingFolder,
+    pendingContentDelete,
+    deleteConfirmationValue,
+    deleteContentError,
+    isDeletingContent,
+    isUploadSettingsModalOpen,
+    uploadSettingsStorageClass,
+    uploadSettingsAzureTier,
+    uploadSettingsSubmitError,
+    isSavingUploadSettings,
+    setRestoreRequest,
+    setRestoreSubmitError,
+    setIsSubmittingRestoreRequest,
+    setChangeStorageClassRequest,
+    setChangeStorageClassSubmitError,
+    setIsSubmittingStorageClassChange,
+    setIsCreateFolderModalOpen,
+    setNewFolderName,
+    setCreateFolderError,
+    setIsCreatingFolder,
+    setPendingContentDelete,
+    setDeleteConfirmationValue,
+    setDeleteContentError,
+    setIsDeletingContent,
+    setIsUploadSettingsModalOpen,
+    setUploadSettingsStorageClass,
+    setUploadSettingsAzureTier,
+    setUploadSettingsSubmitError,
+    setIsSavingUploadSettings
+  } = useModalOrchestrationState();
   const [sidebarFilterText, setSidebarFilterText] = useState("");
   const [contentFilterText, setContentFilterText] = useState("");
   const [contentStatusFilters, setContentStatusFilters] = useState<ContentStatusFilter[]>([]);
@@ -567,23 +587,6 @@ export function ConnectionNavigator({
   const [contentAreaMenuAnchor, setContentAreaMenuAnchor] = useState<ContentAreaMenuAnchor | null>(
     null
   );
-  const [isCreateFolderModalOpen, setIsCreateFolderModalOpen] = useState(false);
-  const [newFolderName, setNewFolderName] = useState("");
-  const [createFolderError, setCreateFolderError] = useState<string | null>(null);
-  const [isCreatingFolder, setIsCreatingFolder] = useState(false);
-  const [pendingContentDelete, setPendingContentDelete] = useState<PendingContentDeleteState | null>(
-    null
-  );
-  const [deleteConfirmationValue, setDeleteConfirmationValue] = useState("");
-  const [deleteContentError, setDeleteContentError] = useState<string | null>(null);
-  const [isDeletingContent, setIsDeletingContent] = useState(false);
-  const [isUploadSettingsModalOpen, setIsUploadSettingsModalOpen] = useState(false);
-  const [uploadSettingsStorageClass, setUploadSettingsStorageClass] =
-    useState<AwsUploadStorageClass>(DEFAULT_AWS_UPLOAD_STORAGE_CLASS);
-  const [uploadSettingsAzureTier, setUploadSettingsAzureTier] =
-    useState<AzureUploadTier>(DEFAULT_AZURE_UPLOAD_TIER);
-  const [uploadSettingsSubmitError, setUploadSettingsSubmitError] = useState<string | null>(null);
-  const [isSavingUploadSettings, setIsSavingUploadSettings] = useState(false);
   const [contentRefreshNonce, setContentRefreshNonce] = useState(0);
   const contentDropZoneRef = useRef<HTMLElement | null>(null);
   const hasProcessedStartupAutoConnectRef = useRef(false);

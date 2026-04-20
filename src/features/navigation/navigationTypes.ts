@@ -26,6 +26,7 @@ export type NavigationFileActionKind =
 export type NavigationContentItem = {
   id: string;
   kind: "directory" | "file";
+  name?: string;
   path: string;
   availabilityStatus?: NavigationAvailabilityStatus;
   downloadState?: NavigationDownloadState;
