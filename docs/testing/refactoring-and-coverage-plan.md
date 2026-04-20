@@ -174,11 +174,15 @@ cobertura de componentes restantes (formulários de conexão, `main.tsx`, etc.).
 - [x] **Step RF2** — Split de `navigationGuards.ts` em 4 arquivos focados
   - `navigationTypes.ts`, `navigationOperationBuilders.ts`, `navigationItemGuards.ts`, `navigationSelectionGuards.ts`
   - `navigationGuards.ts` → barrel de re-exports
-- [ ] **Step V2** — Re-medir cobertura após splits
+- [x] **Step V2** — Re-medir cobertura após splits
+  - Frontend: `36.41%` (sem alteração — splits puros, sem novos testes)
 
 ### CN-1: Hooks de Estado
 
-- [ ] **Step CN-1a** — Extrair `useNavigationPreferencesState` (menor, menos dependências)
+- [x] **Step CN-1a** — Extrair `useNavigationPreferencesState` (menor, menos dependências)
+  - Hook em `src/features/navigation/hooks/useNavigationPreferencesState.ts`
+  - 7 testes em `useNavigationPreferencesState.test.ts`
+  - Build e 273 testes passando
 - [ ] **Step CN-1b** — Extrair `useTransferState`
 - [ ] **Step CN-1c** — Extrair `useModalOrchestrationState`
 - [ ] **Step CN-1d** — Extrair `useContentListingState`
@@ -227,3 +231,4 @@ cobertura de componentes restantes (formulários de conexão, `main.tsx`, etc.).
 ## Latest Measurements
 
 - Baseline Milestone C: Frontend `36.39%`, Rust `46.83%`
+- Post CN-1a: 38 test files, 273 tests passing (7 novos do hook)

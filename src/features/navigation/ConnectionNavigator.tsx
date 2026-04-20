@@ -3,6 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { isTauri } from "@tauri-apps/api/core";
+import { useNavigationPreferencesState } from "./hooks/useNavigationPreferencesState";
 import {
   AlertCircle,
   ChevronRight,
@@ -43,7 +44,6 @@ import {
   normalizeAzureUploadTier,
   type AzureUploadTier
 } from "../connections/azureUploadTiers";
-import { appSettingsStore } from "../settings/persistence/appSettingsStore";
 import {
   DEFAULT_CONTENT_LISTING_PAGE_SIZE,
   MAX_CONTENT_LISTING_PAGE_SIZE,
@@ -104,7 +104,6 @@ import {
 } from "../../lib/tauri/azureConnections";
 import type { Locale } from "../../lib/i18n/I18nProvider";
 import { useI18n } from "../../lib/i18n/useI18n";
-import { validateLocalMappingDirectory } from "../../lib/tauri/commands";
 import { RestoreRequestModal } from "../restore/RestoreRequestModal";
 import { ChangeStorageClassModal } from "../storage-class/ChangeStorageClassModal";
 import {
@@ -232,12 +231,6 @@ import {
   updateConnectionIndicatorMap
 } from "./navigationConnectionState";
 import {
-  resolveInitialContentListingPageSize,
-  resolveInitialContentViewMode,
-  resolveInitialGlobalCacheDirectory,
-  resolveInitialSidebarWidth
-} from "./navigationPreferences";
-import {
   buildAwsEditModalState,
   buildAzureEditModalState,
   buildBaseEditModalState,
@@ -270,10 +263,7 @@ import {
   buildOpenedUploadSettingsModalState,
   buildPendingRemoveConnectionState
 } from "./navigationSecondaryModalState";
-import {
-  loadLegacyGlobalCacheDirectoryCandidateFromStorage,
-  resolveCachedFileIdentities
-} from "./navigationCacheState";
+import { resolveCachedFileIdentities } from "./navigationCacheState";
 import {
   buildDownloadCompletionToast,
   getTransferCancellationTarget,
@@ -342,18 +332,11 @@ function Globe2Icon() {
 type NavigatorView = "home" | "node";
 type ConnectionTestStatus = "idle" | "testing" | "success" | "error";
 type ConnectionIndicatorStatus = "disconnected" | "connecting" | "connected" | "error";
-const DEFAULT_SIDEBAR_WIDTH = 360;
-const MIN_SIDEBAR_WIDTH = 300;
-const MAX_SIDEBAR_WIDTH = 520;
-const MIN_CONTENT_WIDTH = 420;
-const SIDEBAR_WIDTH_STORAGE_KEY = "cloudeasyfiles.sidebar-width";
 const CONNECTING_CONNECTION_TITLE_KEY = "navigation.connection_status.connecting";
 const CONNECTED_CONNECTION_TITLE_KEY = "navigation.connection_status.connected";
 const DISCONNECTED_CONNECTION_TITLE_KEY = "navigation.connection_status.disconnected";
 const BUCKET_REGION_PLACEHOLDER = "...";
 const MAX_BUCKET_REGION_REQUESTS = 4;
-const CONTENT_VIEW_MODE_STORAGE_KEY = "cloudeasyfiles.content-view-mode";
-const CONNECTION_METADATA_STORAGE_KEY = "cloudeasyfiles.connection-metadata";
 const ALL_CONTENT_STATUS_FILTERS: Array<
   "directory" | "downloaded" | "available" | "restoring" | "archived"
 > = [
@@ -368,8 +351,6 @@ type ConnectionIndicator = {
   message?: string;
 };
 
-type ContentViewMode = "list" | "compact";
-type LocalMappingDirectoryStatus = "checking" | "valid" | "invalid" | "missing";
 type FileAvailabilityStatus = "available" | "archived" | "restoring";
 type FileDownloadState = "not_downloaded" | "restoring" | "available_to_download" | "downloaded";
 type ContentStatusFilter = (typeof ALL_CONTENT_STATUS_FILTERS)[number];
@@ -445,27 +426,6 @@ type ExplorerTreeNode = {
   path?: string;
   children?: ExplorerTreeNode[];
 };
-
-function loadLegacyGlobalCacheDirectoryCandidate(): string | undefined {
-  if (typeof window === "undefined") {
-    return undefined;
-  }
-  return loadLegacyGlobalCacheDirectoryCandidateFromStorage(
-    window.localStorage.getItem(CONNECTION_METADATA_STORAGE_KEY)
-  );
-}
-
-function loadInitialGlobalCacheDirectory(): string {
-  const appSettings = appSettingsStore.load();
-  return resolveInitialGlobalCacheDirectory({
-    settingsDirectory: appSettings.globalLocalCacheDirectory,
-    legacyDirectoryCandidate: loadLegacyGlobalCacheDirectoryCandidate()
-  });
-}
-
-function loadInitialContentListingPageSize(): number {
-  return resolveInitialContentListingPageSize(appSettingsStore.load().contentListingPageSize);
-}
 
 type ActiveTransfer = {
   operationId: string;
@@ -552,16 +512,19 @@ export function ConnectionNavigator({
     useState<AwsUploadStorageClass>(DEFAULT_AWS_UPLOAD_STORAGE_CLASS);
   const [defaultAzureUploadTier, setDefaultAzureUploadTier] =
     useState<AzureUploadTier>(DEFAULT_AZURE_UPLOAD_TIER);
-  const [globalLocalCacheDirectory, setGlobalLocalCacheDirectory] = useState(
-    loadInitialGlobalCacheDirectory
-  );
-  const [contentListingPageSize, setContentListingPageSize] = useState(
-    loadInitialContentListingPageSize
-  );
-  const [localMappingDirectoryStatus, setLocalMappingDirectoryStatus] =
-    useState<LocalMappingDirectoryStatus>(() =>
-      loadInitialGlobalCacheDirectory().trim() ? "checking" : "missing"
-    );
+  const {
+    globalLocalCacheDirectory,
+    contentListingPageSize,
+    contentViewMode,
+    sidebarWidth,
+    localMappingDirectoryStatus,
+    isResizingSidebar,
+    workspaceRef,
+    setGlobalLocalCacheDirectory,
+    setContentListingPageSize,
+    setContentViewMode,
+    startResizing
+  } = useNavigationPreferencesState();
   const [connectionTestStatus, setConnectionTestStatus] =
     useState<ConnectionTestStatus>("idle");
   const [connectionTestMessage, setConnectionTestMessage] = useState<string | null>(null);
@@ -634,25 +597,6 @@ export function ConnectionNavigator({
   const [uploadSettingsSubmitError, setUploadSettingsSubmitError] = useState<string | null>(null);
   const [isSavingUploadSettings, setIsSavingUploadSettings] = useState(false);
   const [contentRefreshNonce, setContentRefreshNonce] = useState(0);
-  const [contentViewMode, setContentViewMode] = useState<ContentViewMode>(() => {
-    if (typeof window === "undefined") {
-      return "list";
-    }
-    return resolveInitialContentViewMode(window.localStorage.getItem(CONTENT_VIEW_MODE_STORAGE_KEY));
-  });
-  const [sidebarWidth, setSidebarWidth] = useState(() => {
-    if (typeof window === "undefined") {
-      return DEFAULT_SIDEBAR_WIDTH;
-    }
-    return resolveInitialSidebarWidth(
-      window.localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY),
-      DEFAULT_SIDEBAR_WIDTH,
-      MIN_SIDEBAR_WIDTH,
-      MAX_SIDEBAR_WIDTH
-    );
-  });
-  const [isResizingSidebar, setIsResizingSidebar] = useState(false);
-  const workspaceRef = useRef<HTMLDivElement | null>(null);
   const contentDropZoneRef = useRef<HTMLElement | null>(null);
   const hasProcessedStartupAutoConnectRef = useRef(false);
   const nativeDragDropPathsRef = useRef<string[]>([]);
@@ -2638,39 +2582,6 @@ export function ConnectionNavigator({
   }, [treeNodes]);
 
   useEffect(() => {
-    if (!isResizingSidebar) {
-      return undefined;
-    }
-
-    function handlePointerMove(event: PointerEvent) {
-      const workspaceElement = workspaceRef.current;
-
-      if (!workspaceElement) {
-        return;
-      }
-
-      const workspaceRect = workspaceElement.getBoundingClientRect();
-      const nextWidth = event.clientX - workspaceRect.left;
-      const maxWidth = Math.min(MAX_SIDEBAR_WIDTH, workspaceRect.width - MIN_CONTENT_WIDTH);
-      const clampedWidth = Math.min(Math.max(nextWidth, MIN_SIDEBAR_WIDTH), maxWidth);
-
-      setSidebarWidth(clampedWidth);
-    }
-
-    function handlePointerUp() {
-      setIsResizingSidebar(false);
-    }
-
-    window.addEventListener("pointermove", handlePointerMove);
-    window.addEventListener("pointerup", handlePointerUp);
-
-    return () => {
-      window.removeEventListener("pointermove", handlePointerMove);
-      window.removeEventListener("pointerup", handlePointerUp);
-    };
-  }, [isResizingSidebar]);
-
-  useEffect(() => {
     return () => {
       connectionTestRequestIdRef.current += 1;
       contentRequestIdRef.current += 1;
@@ -2812,85 +2723,6 @@ export function ConnectionNavigator({
     t
   ]);
 
-  useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
-    }
-
-    window.localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(sidebarWidth));
-  }, [sidebarWidth]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
-    }
-
-    window.localStorage.setItem(CONTENT_VIEW_MODE_STORAGE_KEY, contentViewMode);
-  }, [contentViewMode]);
-
-  useEffect(() => {
-    appSettingsStore.save({
-      globalLocalCacheDirectory: globalLocalCacheDirectory.trim() || undefined,
-      contentListingPageSize
-    });
-  }, [contentListingPageSize, globalLocalCacheDirectory]);
-
-  useEffect(() => {
-    let isActive = true;
-    const normalizedPath = globalLocalCacheDirectory.trim();
-
-    if (!normalizedPath) {
-      setLocalMappingDirectoryStatus("missing");
-      return undefined;
-    }
-
-    if (!isTauri()) {
-      setLocalMappingDirectoryStatus("valid");
-      return undefined;
-    }
-
-    setLocalMappingDirectoryStatus("checking");
-
-    void (async () => {
-      try {
-        const isValidDirectory = await validateLocalMappingDirectory(normalizedPath);
-
-        if (!isActive) {
-          return;
-        }
-
-        setLocalMappingDirectoryStatus(isValidDirectory ? "valid" : "invalid");
-      } catch {
-        if (!isActive) {
-          return;
-        }
-
-        setLocalMappingDirectoryStatus("invalid");
-      }
-    })();
-
-    return () => {
-      isActive = false;
-    };
-  }, [globalLocalCacheDirectory]);
-
-  useEffect(() => {
-    if (!isResizingSidebar) {
-      return undefined;
-    }
-
-    const previousCursor = document.body.style.cursor;
-    const previousUserSelect = document.body.style.userSelect;
-
-    document.body.style.cursor = "col-resize";
-    document.body.style.userSelect = "none";
-
-    return () => {
-      document.body.style.cursor = previousCursor;
-      document.body.style.userSelect = previousUserSelect;
-    };
-  }, [isResizingSidebar]);
-
   function resetForm() {
     const resetState = buildResetModalFormState();
     resetConnectionTestState();
@@ -2907,10 +2739,6 @@ export function ConnectionNavigator({
     setDefaultAzureUploadTier(resetState.defaultAzureUploadTier);
     setFormErrors(resetState.formErrors);
     setSubmitError(resetState.submitError);
-  }
-
-  function handleResizeStart() {
-    setIsResizingSidebar(true);
   }
 
   function openCreateModal() {
@@ -3803,7 +3631,7 @@ export function ConnectionNavigator({
           role="separator"
           aria-orientation="vertical"
           aria-label={t("navigation.sidebar_aria_label")}
-          onPointerDown={handleResizeStart}
+          onPointerDown={startResizing}
         >
           <span className="sidebar-resizer-handle" aria-hidden="true" />
         </div>
