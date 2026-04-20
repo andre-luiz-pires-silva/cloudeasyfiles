@@ -243,4 +243,76 @@ describe("navigationPresentation", () => {
       "content.availability.available_until".replace("{date}", "invalid-date")
     );
   });
+
+  it("returns empty badge array for non-file items", () => {
+    const t = (key: string) => key;
+    const directory: NavigationContentExplorerItem = {
+      id: "d1",
+      kind: "directory",
+      name: "docs",
+      path: "docs/"
+    };
+    expect(getFileStatusBadgeDescriptors(directory, "en-US", t)).toEqual([]);
+    expect(getPreferredFileStatusBadgeDescriptors(directory, "en-US", t)).toEqual([]);
+  });
+
+  it("computes summary and display statuses for restoring, available, and archived files", () => {
+    const restoring: NavigationContentExplorerItem = {
+      id: "f1",
+      kind: "file",
+      name: "file.txt",
+      path: "file.txt",
+      availabilityStatus: "restoring",
+      downloadState: "not_downloaded"
+    };
+    const available: NavigationContentExplorerItem = {
+      id: "f2",
+      kind: "file",
+      name: "file.txt",
+      path: "file.txt",
+      availabilityStatus: "available",
+      downloadState: "not_downloaded"
+    };
+    const archived: NavigationContentExplorerItem = {
+      id: "f3",
+      kind: "file",
+      name: "file.txt",
+      path: "file.txt",
+      availabilityStatus: "archived",
+      downloadState: "not_downloaded"
+    };
+
+    expect(getSummaryContentStatuses(restoring)).toEqual(["restoring"]);
+    expect(getSummaryContentStatuses(available)).toEqual(["available"]);
+    expect(getSummaryContentStatuses(archived)).toEqual(["archived"]);
+    expect(getSummaryContentStatuses({ id: "f4", kind: "file", name: "f", path: "f" })).toEqual([]);
+
+    expect(getDisplayContentStatus(available)).toBe("available");
+    expect(getDisplayContentStatus(restoring)).toBe("restoring");
+    expect(getDisplayContentStatus(archived)).toBe("archived");
+    expect(getDisplayContentStatus({ id: "f5", kind: "file", name: "f", path: "f" })).toBeNull();
+  });
+
+  it("returns null label for null status and correct labels for all status types", () => {
+    const t = (key: string) => key;
+    expect(getContentStatusLabel(null, t)).toBeNull();
+    expect(getContentStatusLabel("downloaded", t)).toBe("content.download_state.downloaded");
+    expect(getContentStatusLabel("restoring", t)).toBe("content.availability.restoring");
+    expect(getContentStatusLabel("available", t)).toBe("content.availability.available");
+  });
+
+  it("formats bytes in TB range and handles non-finite values", () => {
+    expect(formatBytes(Infinity, "en-US")).toBe("-");
+    expect(formatBytes(NaN, "en-US")).toBe("-");
+    const tb = 1024 * 1024 * 1024 * 1024;
+    expect(formatBytes(tb, "en-US")).toContain("TB");
+  });
+
+  it("returns all nodes for empty filter and returns true for empty normalizedFilter in matchesFilter", () => {
+    expect(matchesFilter(["anything"], "")).toBe(true);
+    const nodes: NavigationTreeNode[] = [
+      { id: "c1", kind: "connection", connectionId: "1", provider: "aws", name: "AWS" }
+    ];
+    expect(filterTreeNodes(nodes, "")).toEqual(nodes);
+  });
 });

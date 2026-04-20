@@ -25,7 +25,7 @@ Increase automated test coverage toward the agreed long-term target of `75%` lin
 - [x] Milestone A: Frontend `10%`, Rust `15%`
 - [x] Milestone B: Frontend `20%`, Rust `25%`
 - [x] Milestone C (Rust): Rust `40%` reached — `46.83%` measured after Step R2
-- [ ] Milestone C (Frontend): Frontend `35%` — currently at `~29.5%` after awsProviderContent + azureProviderContent tests
+- [x] Milestone C (Frontend): Frontend `35%` reached — `36.39%` measured after component render tests
 - [ ] Final target: Frontend `75%`, Rust `75%`
 
 ## Phases
@@ -76,10 +76,9 @@ Increase automated test coverage toward the agreed long-term target of `75%` lin
 
 ## Current Priorities
 
-1. Step V1 — re-measure frontend after new provider-content tests to confirm new baseline
-2. Close the ~5.5 pp gap to Milestone C frontend `35%` target (~550 additional covered lines needed)
-3. Quick wins remaining: `navigationPresentation.ts` (~28 uncovered lines), `navigationCacheState.ts` (~12 uncovered lines)
-4. Larger extraction work: `ConnectionNavigator.tsx` — still 5,060 lines at 0%, primary remaining surface
+1. **Milestone C complete** ✅ — Frontend `36.39%`, Rust `46.83%` (both exceed targets of 35%/40%)
+2. Plan next milestone: decide target for next phase (e.g., Frontend `50%`, Rust `55%`)
+3. Remaining largest uncovered surface: `ConnectionNavigator.tsx` (~5,060 lines, 0%), `main.tsx` (156 lines), modal/form components
 
 ## Operational Roadmap
 
@@ -484,6 +483,21 @@ Use the checklist below as the next execution guide for the coverage-expansion b
     - created `src/features/aws/awsProviderContent.test.ts` — 14 tests covering all 3 pure functions (`getAwsUploadTierContent`, `getAwsRestoreTierContent`, `getAwsChangeTierContent`), URL constants, option array shape, and translator wiring
     - created `src/features/azure/azureProviderContent.test.ts` — 6 tests covering `getAzureUploadTierContent`, URL constants, option array shape, and translator wiring
     - both files were at 0% coverage before this step
+
+- After quick-win .ts coverage and component render tests (Milestone C closure):
+  - Frontend line coverage: `36.39%`
+  - Frontend statements: `36.39%`
+  - Frontend branches: `90.07%`
+  - Frontend functions: `81.58%`
+  - Delivered:
+    - extended `navigationPresentation.test.ts` — covered `restoring/available/archived` status paths, `getContentStatusLabel(null)`, `formatBytes(TB/NaN/Infinity)`, empty filter paths
+    - extended `navigationCacheState.test.ts` — covered Azure provider branch in `resolveCachedFileIdentities`
+    - created `connectionSecretsVault.test.ts` — 6 tests covering all vault methods via mocked Tauri layer
+    - created `ChangeStorageClassModal.test.tsx` — 9 render tests covering AWS and Azure variants, submitting state, error states, same-class error, choose-destination error
+    - created `AwsRestoreRequestPanel.test.tsx` — 6 tests covering tier filtering (GLACIER, DEEP_ARCHIVE, batch), submitting, error, retention input
+    - created `RestoreRequestModal.test.tsx` — 5 tests covering AWS/Azure single/batch and generic provider fallback
+    - created `AzureRehydrationRequestPanel.test.tsx` — 7 tests covering tier/priority options, submitting, error, cancel, form submit, batch summary
+  - **Milestone C reached**: Frontend `36.39%` ✅ (target `35%`), Rust `46.83%` ✅ (target `40%`)
 
 ## Next Steps to Reach Milestone C Frontend 35%
 

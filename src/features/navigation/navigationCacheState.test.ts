@@ -76,6 +76,36 @@ describe("navigationCacheState", () => {
     expect(findAzureCachedObjects).not.toHaveBeenCalled();
   });
 
+  it("resolves cached file identities for Azure provider", async () => {
+    const findAwsCachedObjects = vi.fn();
+    const findAzureCachedObjects = vi.fn().mockResolvedValue(["docs/archive.zip"]);
+    const items: NavigationContentExplorerItem[] = [
+      { id: "f1", kind: "file", name: "archive.zip", path: "docs/archive.zip" }
+    ];
+
+    await expect(
+      resolveCachedFileIdentities({
+        provider: "azure",
+        connectionId: "conn-2",
+        connectionName: "Azure Primary",
+        bucketName: "container-b",
+        globalLocalCacheDirectory: "/cache",
+        items,
+        findAwsCachedObjects,
+        findAzureCachedObjects
+      })
+    ).resolves.toEqual(new Set(["conn-2:container-b:docs/archive.zip"]));
+
+    expect(findAzureCachedObjects).toHaveBeenCalledWith(
+      "conn-2",
+      "Azure Primary",
+      "container-b",
+      "/cache",
+      ["docs/archive.zip"]
+    );
+    expect(findAwsCachedObjects).not.toHaveBeenCalled();
+  });
+
   it("loads a legacy global cache directory candidate from stored metadata", () => {
     expect(loadLegacyGlobalCacheDirectoryCandidateFromStorage(null)).toBeUndefined();
     expect(loadLegacyGlobalCacheDirectoryCandidateFromStorage("invalid-json")).toBeUndefined();
