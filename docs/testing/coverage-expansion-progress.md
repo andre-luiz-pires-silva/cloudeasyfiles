@@ -76,9 +76,9 @@ Increase automated test coverage toward the agreed long-term target of `75%` lin
 
 ## Current Priorities
 
-1. **Rust provider mutation helper coverage added** ✅ — Frontend `53.08%`, Rust `49.52%` measured on 2026-04-22
+1. **Rust provider mutation guard coverage added** ✅ — Frontend `53.08%`, Rust `54.20%` measured on 2026-04-22
 2. Frontend has crossed the interim `50%` threshold; Rust still needs expansion toward `55%`
-3. Next executable priority: continue Rust provider mutation/error-path coverage toward `55%`
+3. Next executable priority: one more focused Rust provider/command step to cross `55%`
 
 ## Operational Roadmap
 
@@ -105,7 +105,8 @@ Use the checklist below as the next execution guide for the coverage-expansion b
 - [x] Step R2. Expand `presentation/commands.rs` coverage for upload/download command-service handoff flows
 - [x] Step R3. Expand Rust app/provider helper coverage for bootstrap reload decisions, window-state JSON contracts, and AWS provider error formatting
 - [x] Step R4. Expand remaining Rust provider mutation/error-path coverage toward `55%`
-- [ ] Step R5. Continue Rust provider mutation/error-path coverage toward `55%`
+- [x] Step R5. Continue Rust provider mutation/error-path coverage toward `55%`
+- [ ] Step R6. Cross Rust `55%` with one more provider/command coverage step
 
 ### Review Step
 
@@ -731,11 +732,34 @@ Use the checklist below as the next execution guide for the coverage-expansion b
   - `aws_connection_service.rs` line coverage is now `39.63%`
   - `azure_connection_service.rs` line coverage is now `51.95%`
 
+## Rust Provider Mutation Guard Coverage Step
+
+- Targeted Rust test command: `cargo test --manifest-path src-tauri/Cargo.toml application::services::aws_connection_service::tests::rejects_provider_mutation_inputs_before_network -- --nocapture`
+  - Tests: `1` passed
+- Targeted Rust test command: `cargo test --manifest-path src-tauri/Cargo.toml application::services::azure_connection_service::tests::rejects_provider_mutation_inputs_before_network -- --nocapture`
+  - Tests: `1` passed
+- Targeted Rust test command: `cargo test --manifest-path src-tauri/Cargo.toml application::services::azure_connection_service::tests::builds_upload_and_block_commit_payloads -- --nocapture`
+  - Tests: `1` passed
+- Rust check command: `cargo check --manifest-path src-tauri/Cargo.toml`
+  - Result: passed
+- Rust coverage command: `npm run test:rust:coverage`
+  - Tests: `73` passed
+  - Rust line coverage: `54.20%`
+  - Rust regions: `53.18%`
+  - Rust functions: `46.04%`
+- Delivered:
+  - completed roadmap Step `R5`
+  - covered AWS public mutation guardrails that reject invalid restore, delete, folder, object-exists, and upload inputs before network calls
+  - covered Azure public mutation guardrails that reject invalid delete, tier change, rehydration, and upload inputs before network calls
+  - extracted and covered upload mode/block-id helpers for AWS/Azure upload branching
+  - `aws_connection_service.rs` line coverage is now `48.63%`
+  - `azure_connection_service.rs` line coverage is now `58.40%`
+
 ## Next Steps Toward Next Milestone
 
 Ordered by likely value:
 
-1. Continue Rust coverage around remaining provider-service mutation/error paths.
+1. Add one more focused Rust provider/command coverage step to cross `55%`.
 2. Add Rust coverage around command wrappers that still only have partial `Window`-driven coverage.
 3. Re-run `npm run test:rust:coverage` and update this tracker after each Rust step.
 4. Resume frontend toward Milestone E `65%` after Rust reaches `55%`.

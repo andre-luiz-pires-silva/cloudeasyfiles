@@ -853,7 +853,7 @@ impl AzureConnectionService {
             .await
             .map_err(|error| error.to_string())?;
 
-        if metadata.len() <= AZURE_UPLOAD_BLOCK_SIZE as u64 {
+        if should_use_single_request_upload(metadata.len() as usize) {
             let mut file_bytes = Vec::with_capacity(metadata.len() as usize);
             file.read_to_end(&mut file_bytes)
                 .await
@@ -892,7 +892,7 @@ impl AzureConnectionService {
                 break;
             }
 
-            let block_id = BASE64_STANDARD.encode(format!("{next_block_index:08}"));
+            let block_id = build_block_id(next_block_index);
             upload_blob_block(
                 &client,
                 &storage_account_name,
@@ -968,7 +968,7 @@ impl AzureConnectionService {
             return Err(AZURE_UPLOAD_CANCELLED_ERROR.to_string());
         }
 
-        if file_bytes.len() <= AZURE_UPLOAD_BLOCK_SIZE {
+        if should_use_single_request_upload(file_bytes.len()) {
             upload_blob_single_request(
                 &client,
                 &storage_account_name,
@@ -992,7 +992,7 @@ impl AzureConnectionService {
                 return Err(AZURE_UPLOAD_CANCELLED_ERROR.to_string());
             }
 
-            let block_id = BASE64_STANDARD.encode(format!("{index:08}"));
+            let block_id = build_block_id(index);
             upload_blob_block(
                 &client,
                 &storage_account_name,
@@ -1938,6 +1938,14 @@ fn has_next_marker(marker: Option<&str>) -> bool {
         .unwrap_or(false)
 }
 
+fn should_use_single_request_upload(byte_count: usize) -> bool {
+    byte_count <= AZURE_UPLOAD_BLOCK_SIZE
+}
+
+fn build_block_id(index: usize) -> String {
+    BASE64_STANDARD.encode(format!("{index:08}"))
+}
+
 async fn upload_blob_single_request(
     client: &Client,
     storage_account_name: &str,
@@ -2208,6 +2216,13 @@ mod tests {
     use super::*;
     use std::path::PathBuf;
     use std::sync::atomic::Ordering;
+
+    fn azure_test_input() -> AzureConnectionTestInput {
+        AzureConnectionTestInput {
+            storage_account_name: "storageacct".to_string(),
+            account_key: "unused-key".to_string(),
+        }
+    }
 
     #[test]
     fn normalizes_storage_account_name() {
@@ -2598,6 +2613,128 @@ mod tests {
             ]))
             .unwrap(),
             "<?xml version=\"1.0\" encoding=\"utf-8\"?><BlockList><Latest>block-a</Latest><Latest>block-b</Latest></BlockList>"
+        );
+        assert!(should_use_single_request_upload(AZURE_UPLOAD_BLOCK_SIZE));
+        assert!(!should_use_single_request_upload(AZURE_UPLOAD_BLOCK_SIZE + 1));
+        assert_eq!(build_block_id(0), "MDAwMDAwMDA=");
+        assert_eq!(build_block_id(42), "MDAwMDAwNDI=");
+    }
+
+    #[tokio::test]
+    async fn rejects_provider_mutation_inputs_before_network() {
+        let input = azure_test_input();
+
+        assert_eq!(
+            AzureConnectionService::delete_objects(
+                input.clone(),
+                "   ".to_string(),
+                vec!["docs/file.txt".to_string()]
+            )
+            .await
+            .unwrap_err(),
+            "The Azure container name is required for delete requests."
+        );
+        assert_eq!(
+            AzureConnectionService::delete_objects(
+                input.clone(),
+                "container-a".to_string(),
+                vec!["   ".to_string()]
+            )
+            .await
+            .unwrap_err(),
+            "At least one blob name is required for delete requests."
+        );
+        assert_eq!(
+            AzureConnectionService::delete_prefix(
+                input.clone(),
+                "container-a".to_string(),
+                " / ".to_string()
+            )
+            .await
+            .unwrap_err(),
+            "Directory prefix is required for recursive delete requests."
+        );
+        assert_eq!(
+            AzureConnectionService::change_blob_access_tier(
+                input.clone(),
+                "container-a".to_string(),
+                "docs/file.txt".to_string(),
+                "Premium".to_string()
+            )
+            .await
+            .unwrap_err(),
+            "Unsupported Azure upload access tier."
+        );
+        assert_eq!(
+            AzureConnectionService::rehydrate_blob(
+                input.clone(),
+                "container-a".to_string(),
+                "docs/archive.zip".to_string(),
+                "Archive".to_string(),
+                "High".to_string()
+            )
+            .await
+            .unwrap_err(),
+            "Unsupported Azure rehydration target tier."
+        );
+        assert_eq!(
+            AzureConnectionService::upload_blob_from_path(
+                "azure-upload-r5-a".to_string(),
+                input.clone(),
+                "container-a".to_string(),
+                "docs/report.txt".to_string(),
+                "   ".to_string(),
+                None,
+                |_, _| Ok(())
+            )
+            .await
+            .unwrap_err(),
+            "Local file path is required for uploads."
+        );
+        assert_eq!(
+            AzureConnectionService::upload_blob_from_bytes(
+                "azure-upload-r5-b".to_string(),
+                input.clone(),
+                "   ".to_string(),
+                "docs/report.txt".to_string(),
+                "report.txt".to_string(),
+                Vec::new(),
+                None,
+                |_, _| Ok(())
+            )
+            .await
+            .unwrap_err(),
+            "The Azure container name is required."
+        );
+        assert_eq!(
+            AzureConnectionService::upload_blob_from_bytes(
+                "azure-upload-r5-c".to_string(),
+                input.clone(),
+                "container-a".to_string(),
+                "   ".to_string(),
+                "report.txt".to_string(),
+                Vec::new(),
+                None,
+                |_, _| Ok(())
+            )
+            .await
+            .unwrap_err(),
+            "Blob name is required for uploads."
+        );
+        assert_eq!(
+            AzureConnectionService::upload_blob_from_bytes(
+                "azure-upload-r5-d".to_string(),
+                input,
+                "container-a".to_string(),
+                "docs/report.txt".to_string(),
+                "   ".to_string(),
+                Vec::new(),
+                None,
+                |_, _| Ok(())
+            )
+            .await
+            .unwrap_err(),
+            "File name is required for uploads."
         );
     }
 

@@ -315,6 +315,10 @@ fn chunk_delete_object_keys(object_keys: &[String]) -> Vec<Vec<String>> {
         .collect()
 }
 
+fn should_use_single_request_upload(object_size: u64) -> bool {
+    object_size <= MULTIPART_UPLOAD_CHUNK_SIZE as u64
+}
+
 impl AwsConnectionService {
     const CACHE_TEMP_DIRECTORY: &'static str = ".cloudeasyfiles-tmp";
     const CACHE_ESCAPED_SEGMENT_PREFIX: &'static str = ".cloudeasyfiles-segment-";
@@ -1925,7 +1929,7 @@ impl AwsConnectionService {
             return Err(UPLOAD_CANCELLED_ERROR.to_string());
         }
 
-        if metadata.len() <= MULTIPART_UPLOAD_CHUNK_SIZE as u64 {
+        if should_use_single_request_upload(metadata.len()) {
             let body = ByteStream::from_path(&file_path)
                 .await
                 .map_err(|error| error.to_string())?;
@@ -2454,6 +2458,14 @@ mod tests {
     use std::path::PathBuf;
     use std::sync::atomic::Ordering;
 
+    fn aws_test_input() -> AwsConnectionTestInput {
+        AwsConnectionTestInput {
+            access_key_id: "access-key".to_string(),
+            secret_access_key: "secret-key".to_string(),
+            restricted_bucket_name: None,
+        }
+    }
+
     #[test]
     fn normalizes_listing_page_size_with_bounds() {
         assert_eq!(
@@ -2793,6 +2805,163 @@ mod tests {
         assert_eq!(
             batches[1][2],
             format!("docs/file-{}.txt", S3_DELETE_BATCH_SIZE + 2)
+        );
+
+        assert!(should_use_single_request_upload(
+            MULTIPART_UPLOAD_CHUNK_SIZE as u64
+        ));
+        assert!(!should_use_single_request_upload(
+            MULTIPART_UPLOAD_CHUNK_SIZE as u64 + 1
+        ));
+    }
+
+    #[tokio::test]
+    async fn rejects_provider_mutation_inputs_before_network() {
+        let input = aws_test_input();
+
+        assert_eq!(
+            AwsConnectionService::object_exists(
+                input.clone(),
+                "bucket-a".to_string(),
+                "   ".to_string(),
+                None
+            )
+            .await
+            .unwrap_err(),
+            "Object key is required."
+        );
+        assert_eq!(
+            AwsConnectionService::delete_objects(
+                input.clone(),
+                "   ".to_string(),
+                vec!["docs/file.txt".to_string()],
+                None
+            )
+            .await
+            .unwrap_err(),
+            "Bucket name is required for delete requests."
+        );
+        assert_eq!(
+            AwsConnectionService::delete_objects(
+                input.clone(),
+                "bucket-a".to_string(),
+                vec!["   ".to_string()],
+                None
+            )
+            .await
+            .unwrap_err(),
+            "At least one object key is required for delete requests."
+        );
+        assert_eq!(
+            AwsConnectionService::delete_prefix(
+                input.clone(),
+                "bucket-a".to_string(),
+                " / ".to_string(),
+                None
+            )
+            .await
+            .unwrap_err(),
+            "Directory prefix is required for recursive delete requests."
+        );
+        assert_eq!(
+            AwsConnectionService::create_folder(
+                input.clone(),
+                "   ".to_string(),
+                None,
+                "reports".to_string(),
+                None
+            )
+            .await
+            .unwrap_err(),
+            "Bucket name is required for folder creation."
+        );
+        assert_eq!(
+            AwsConnectionService::create_folder(
+                input.clone(),
+                "bucket-a".to_string(),
+                None,
+                "bad/name".to_string(),
+                None
+            )
+            .await
+            .unwrap_err(),
+            "Folder name cannot contain path separators."
+        );
+        assert_eq!(
+            AwsConnectionService::request_object_restore(
+                input.clone(),
+                "bucket-a".to_string(),
+                "docs/archive.zip".to_string(),
+                Some("DEEP_ARCHIVE".to_string()),
+                None,
+                "Standard".to_string(),
+                0,
+            )
+            .await
+            .unwrap_err(),
+            "Restore retention days must be between 1 and 365."
+        );
+        assert_eq!(
+            AwsConnectionService::upload_object_from_path(
+                "aws-upload-r5-a".to_string(),
+                input.clone(),
+                "bucket-a".to_string(),
+                "   ".to_string(),
+                "/tmp/report.txt".to_string(),
+                None,
+                None,
+                |_, _| Ok(())
+            )
+            .await
+            .unwrap_err(),
+            "Object key is required for uploads."
+        );
+        assert_eq!(
+            AwsConnectionService::upload_object_from_path(
+                "aws-upload-r5-b".to_string(),
+                input.clone(),
+                "bucket-a".to_string(),
+                "docs/report.txt".to_string(),
+                "   ".to_string(),
+                None,
+                None,
+                |_, _| Ok(())
+            )
+            .await
+            .unwrap_err(),
+            "Local file path is required for uploads."
+        );
+        assert_eq!(
+            AwsConnectionService::upload_object_from_bytes(
+                "aws-upload-r5-c".to_string(),
+                input.clone(),
+                "bucket-a".to_string(),
+                "   ".to_string(),
+                "report.txt".to_string(),
+                Vec::new(),
+                None,
+                None,
+                |_, _| Ok(())
+            )
+            .await
+            .unwrap_err(),
+            "Object key is required for uploads."
+        );
+        assert_eq!(
+            AwsConnectionService::upload_object_from_bytes(
+                "aws-upload-r5-d".to_string(),
+                input,
+                "bucket-a".to_string(),
+                "docs/report.txt".to_string(),
+                "   ".to_string(),
+                Vec::new(),
+                None,
+                None,
+                |_, _| Ok(())
+            )
+            .await
+            .unwrap_err(),
+            "File name is required for uploads."
         );
     }
 
