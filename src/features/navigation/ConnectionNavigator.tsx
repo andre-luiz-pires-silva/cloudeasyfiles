@@ -13,7 +13,6 @@ import {
   useContentListingState
 } from "./hooks/useContentListingState";
 import {
-  AlertCircle,
   ChevronRight,
   CheckCircle2,
   CircleAlert,
@@ -31,16 +30,13 @@ import {
   Settings,
   Trash2,
   Upload,
-  XCircle,
   X
 } from "lucide-react";
 import logoPrimary from "../../assets/logo-primary.svg";
-import { AwsUploadStorageClassField } from "../connections/components/AwsUploadStorageClassField";
-import { AzureUploadTierField } from "../connections/components/AzureUploadTierField";
-import { ConnectionFormModal } from "./components/ConnectionFormModal";
 import { ContentExplorerHeader } from "./components/ContentExplorerHeader";
 import { ContentItemList } from "./components/ContentItemList";
 import { ConnectionsSidebar } from "./components/ConnectionsSidebar";
+import { NavigatorModalOrchestrator } from "./components/NavigatorModalOrchestrator";
 import type { AwsUploadStorageClass } from "../connections/awsUploadStorageClasses";
 import type { AzureUploadTier } from "../connections/azureUploadTiers";
 import {
@@ -101,8 +97,6 @@ import {
 } from "../../lib/tauri/azureConnections";
 import type { Locale } from "../../lib/i18n/I18nProvider";
 import { useI18n } from "../../lib/i18n/useI18n";
-import { RestoreRequestModal } from "../restore/RestoreRequestModal";
-import { ChangeStorageClassModal } from "../storage-class/ChangeStorageClassModal";
 import {
   type CloudContainerItemsResult,
   type CloudContainerSummary,
@@ -197,7 +191,6 @@ import {
   buildNodeSelectionState,
   clearConnectionBucketNodes,
   findTreeNodeById,
-  getTransferCancelLabel,
   setBucketPath,
   sortTreeNodes,
   toggleCollapsedConnection,
@@ -4145,580 +4138,145 @@ export function ConnectionNavigator({
         </section>
       </div>
 
-      {restoreRequest ? (
-        <RestoreRequestModal
-          locale={locale}
-          request={restoreRequest.request}
-          isSubmitting={isSubmittingRestoreRequest}
-          submitError={restoreSubmitError}
-          onCancel={closeRestoreRequestModal}
-          onSubmitAwsRequest={handleSubmitAwsRestoreRequest}
-          onSubmitAzureRequest={handleSubmitAzureRehydrationRequest}
-          t={t}
-        />
-      ) : null}
-
-      {changeStorageClassRequest ? (
-        <ChangeStorageClassModal
-          provider={changeStorageClassRequest.provider}
-          locale={locale}
-          request={changeStorageClassRequest.request}
-          initialStorageClass={changeStorageClassRequest.currentStorageClass}
-          isSubmitting={isSubmittingStorageClassChange}
-          submitError={changeStorageClassSubmitError}
-          onCancel={closeChangeStorageClassModal}
-          onSubmit={handleSubmitChangeStorageClass}
-          t={t}
-        />
-      ) : null}
-
-      {isTransferModalOpen ? (
-        <div className="modal-backdrop" role="presentation">
-          <div
-            className="modal-card"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="transfer-summary-modal-title"
-          >
-            <div className="modal-header">
-              <div>
-                <p className="modal-eyebrow">{t("content.transfer.modal_eyebrow")}</p>
-                <h2 id="transfer-summary-modal-title" className="modal-title">
-                  {t("content.transfer.modal_title")}
-                </h2>
-              </div>
-            </div>
-
-            <div className="transfer-modal-list">
-              {activeTransferList.length === 0 ? (
-                <p className="modal-copy">{t("content.transfer.modal_empty")}</p>
-              ) : (
-                activeTransferList.map((download) => (
-                  <article key={download.operationId} className="transfer-modal-item">
-                    <div className="transfer-modal-item-header">
-                      <strong>{download.fileName}</strong>
-                      <span>{Math.max(0, Math.min(100, Math.round(download.progressPercent)))}%</span>
-                    </div>
-                    <p className="transfer-modal-item-copy">
-                      {download.transferKind === "direct"
-                        ? t("content.transfer.direct_download_label")
-                        : download.transferKind === "upload"
-                        ? t("content.transfer.simple_upload_label")
-                        : t("content.transfer.tracked_download_label")}
-                      {" · "}
-                      {download.bucketName}
-                    </p>
-                    {download.transferKind === "direct" && download.targetPath ? (
-                      <p className="transfer-modal-item-copy transfer-modal-item-copy-secondary">
-                        {download.targetPath}
-                      </p>
-                    ) : null}
-                    {download.transferKind === "upload" && download.objectKey ? (
-                      <p className="transfer-modal-item-copy transfer-modal-item-copy-secondary">
-                        {download.objectKey}
-                      </p>
-                    ) : null}
-                    <div className="transfer-progress">
-                      <span
-                        className="transfer-progress-bar"
-                        style={{
-                          width: `${Math.max(4, Math.min(100, download.progressPercent || 4))}%`
-                        }}
-                      />
-                    </div>
-                    <p className="transfer-modal-item-meta">
-                      {formatBytes(download.bytesTransferred, locale)} /{" "}
-                      {download.totalBytes > 0
-                        ? formatBytes(download.totalBytes, locale)
-                        : t("content.transfer.size_unknown")}
-                    </p>
-                    <div className="transfer-modal-item-actions">
-                      <button
-                        type="button"
-                        className="secondary-button"
-                        onClick={() =>
-                          handleCancelActiveTransfer(download.operationId, download.transferKind)
-                        }
-                      >
-                        {getTransferCancelLabel(download.transferKind, t)}
-                      </button>
-                    </div>
-                  </article>
-                ))
-              )}
-            </div>
-
-            <div className="modal-actions">
-              <button
-                type="button"
-                className="secondary-button"
-                onClick={() => setIsTransferModalOpen(false)}
-              >
-                {t("common.close")}
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-
-      {completionToast ? (
-        <div className="toast-stack" aria-live="polite" aria-atomic="true">
-          <article
-            className={`toast-card${completionToast.tone === "error" ? " is-error" : ""}`}
-          >
-            <div className="toast-card-copy">
-              <strong>{completionToast.title}</strong>
-              <p>{completionToast.description}</p>
-            </div>
-            <button
-              type="button"
-              className="toast-card-close"
-              onClick={() => setCompletionToast(null)}
-              aria-label={t("common.close")}
-            >
-              <X size={14} strokeWidth={2} />
-            </button>
-          </article>
-        </div>
-      ) : null}
-
-      <ConnectionFormModal
-        isOpen={isModalOpen}
+      <NavigatorModalOrchestrator
         locale={locale}
-        fieldIds={{
-          nameFieldId,
-          providerFieldId,
-          accessKeyFieldId,
-          secretKeyFieldId,
-          restrictedBucketNameFieldId,
-          storageAccountNameFieldId,
-          azureAuthenticationMethodFieldId,
-          azureAccountKeyFieldId,
-          connectOnStartupFieldId
-        }}
-        modalMode={modalMode}
-        connectionName={connectionName}
-        connectionProvider={connectionProvider}
-        accessKeyId={accessKeyId}
-        secretAccessKey={secretAccessKey}
-        restrictedBucketName={restrictedBucketName}
-        storageAccountName={storageAccountName}
-        azureAuthenticationMethod={azureAuthenticationMethod}
-        azureAccountKey={azureAccountKey}
-        connectOnStartup={connectOnStartup}
-        defaultAwsUploadStorageClass={defaultAwsUploadStorageClass}
-        defaultAzureUploadTier={defaultAzureUploadTier}
-        formErrors={formErrors}
-        submitError={submitError}
-        isSubmitting={isSubmitting}
-        connectionTestStatus={connectionTestStatus}
-        connectionTestMessage={connectionTestMessage}
         t={t}
-        onConnectionNameChange={(value) => {
-          setConnectionName(value);
-          resetConnectionTestState();
+        restoreRequest={restoreRequest}
+        restoreSubmitError={restoreSubmitError}
+        isSubmittingRestoreRequest={isSubmittingRestoreRequest}
+        onCloseRestoreRequestModal={closeRestoreRequestModal}
+        onSubmitAwsRestoreRequest={handleSubmitAwsRestoreRequest}
+        onSubmitAzureRehydrationRequest={handleSubmitAzureRehydrationRequest}
+        changeStorageClassRequest={changeStorageClassRequest}
+        changeStorageClassSubmitError={changeStorageClassSubmitError}
+        isSubmittingStorageClassChange={isSubmittingStorageClassChange}
+        onCloseChangeStorageClassModal={closeChangeStorageClassModal}
+        onSubmitChangeStorageClass={handleSubmitChangeStorageClass}
+        isTransferModalOpen={isTransferModalOpen}
+        activeTransferList={activeTransferList}
+        onCancelActiveTransfer={handleCancelActiveTransfer}
+        onCloseTransferModal={() => setIsTransferModalOpen(false)}
+        completionToast={completionToast}
+        onCloseCompletionToast={() => setCompletionToast(null)}
+        connectionFormProps={{
+          isOpen: isModalOpen,
+          locale,
+          fieldIds: {
+            nameFieldId,
+            providerFieldId,
+            accessKeyFieldId,
+            secretKeyFieldId,
+            restrictedBucketNameFieldId,
+            storageAccountNameFieldId,
+            azureAuthenticationMethodFieldId,
+            azureAccountKeyFieldId,
+            connectOnStartupFieldId
+          },
+          modalMode,
+          connectionName,
+          connectionProvider,
+          accessKeyId,
+          secretAccessKey,
+          restrictedBucketName,
+          storageAccountName,
+          azureAuthenticationMethod,
+          azureAccountKey,
+          connectOnStartup,
+          defaultAwsUploadStorageClass,
+          defaultAzureUploadTier,
+          formErrors,
+          submitError,
+          isSubmitting,
+          connectionTestStatus,
+          connectionTestMessage,
+          t,
+          onConnectionNameChange: (value) => {
+            setConnectionName(value);
+            resetConnectionTestState();
+          },
+          onConnectionProviderChange: (value) => {
+            setConnectionProvider(value);
+            resetConnectionTestState();
+          },
+          onAccessKeyIdChange: (value) => {
+            setAccessKeyId(value);
+            resetConnectionTestState();
+          },
+          onSecretAccessKeyChange: (value) => {
+            setSecretAccessKey(value);
+            resetConnectionTestState();
+          },
+          onRestrictedBucketNameChange: (value) => {
+            setRestrictedBucketName(value);
+            resetConnectionTestState();
+          },
+          onStorageAccountNameChange: (value) => {
+            setStorageAccountName(value);
+            resetConnectionTestState();
+          },
+          onAzureAuthenticationMethodChange: (value) => {
+            setAzureAuthenticationMethod(value);
+            resetConnectionTestState();
+          },
+          onAzureAccountKeyChange: (value) => {
+            setAzureAccountKey(value);
+            resetConnectionTestState();
+          },
+          onConnectOnStartupChange: setConnectOnStartup,
+          onDefaultAwsUploadStorageClassChange: setDefaultAwsUploadStorageClass,
+          onDefaultAzureUploadTierChange: setDefaultAzureUploadTier,
+          onTestConnection: handleTestConnection,
+          onSaveConnection: () => {
+            void handleSaveConnection();
+          },
+          onClose: closeModal
         }}
-        onConnectionProviderChange={(value) => {
-          setConnectionProvider(value);
-          resetConnectionTestState();
+        isUploadSettingsModalOpen={isUploadSettingsModalOpen}
+        selectedConnection={selectedConnection}
+        uploadSettingsStorageClass={uploadSettingsStorageClass}
+        uploadSettingsAzureTier={uploadSettingsAzureTier}
+        uploadSettingsSubmitError={uploadSettingsSubmitError}
+        isSavingUploadSettings={isSavingUploadSettings}
+        onUploadSettingsStorageClassChange={setUploadSettingsStorageClass}
+        onUploadSettingsAzureTierChange={setUploadSettingsAzureTier}
+        onSaveUploadSettings={() => {
+          void handleSaveUploadSettings();
         }}
-        onAccessKeyIdChange={(value) => {
-          setAccessKeyId(value);
-          resetConnectionTestState();
+        onCloseUploadSettingsModal={closeUploadSettingsModal}
+        isCreateFolderModalOpen={isCreateFolderModalOpen}
+        canCreateFolderInCurrentContext={canCreateFolderInCurrentContext}
+        newFolderNameFieldId={newFolderNameFieldId}
+        newFolderName={newFolderName}
+        createFolderError={createFolderError}
+        isCreatingFolder={isCreatingFolder}
+        selectedBucketProvider={selectedBucketProvider}
+        selectedBucketName={selectedBucketName}
+        selectedBucketPath={selectedBucketPath}
+        onNewFolderNameChange={setNewFolderName}
+        onClearCreateFolderError={() => setCreateFolderError(null)}
+        onCreateFolder={() => {
+          void handleCreateFolder();
         }}
-        onSecretAccessKeyChange={(value) => {
-          setSecretAccessKey(value);
-          resetConnectionTestState();
+        onCloseCreateFolderModal={() => closeCreateFolderModal()}
+        pendingContentDelete={pendingContentDelete}
+        deleteConfirmationValue={deleteConfirmationValue}
+        deleteContentError={deleteContentError}
+        isDeletingContent={isDeletingContent}
+        contentDeleteConfirmationText={CONTENT_DELETE_CONFIRMATION_TEXT}
+        onDeleteConfirmationValueChange={setDeleteConfirmationValue}
+        onClearDeleteContentError={() => setDeleteContentError(null)}
+        onCloseDeleteContentModal={() => closeDeleteContentModal()}
+        onConfirmDeleteContent={() => {
+          void handleConfirmDeleteContent();
         }}
-        onRestrictedBucketNameChange={(value) => {
-          setRestrictedBucketName(value);
-          resetConnectionTestState();
+        pendingDeleteConnection={pendingDeleteConnection}
+        onCancelDeleteConnection={() => setPendingDeleteConnectionId(null)}
+        onConfirmDeleteConnection={() => {
+          void confirmRemoveConnection();
         }}
-        onStorageAccountNameChange={(value) => {
-          setStorageAccountName(value);
-          resetConnectionTestState();
-        }}
-        onAzureAuthenticationMethodChange={(value) => {
-          setAzureAuthenticationMethod(value);
-          resetConnectionTestState();
-        }}
-        onAzureAccountKeyChange={(value) => {
-          setAzureAccountKey(value);
-          resetConnectionTestState();
-        }}
-        onConnectOnStartupChange={setConnectOnStartup}
-        onDefaultAwsUploadStorageClassChange={setDefaultAwsUploadStorageClass}
-        onDefaultAzureUploadTierChange={setDefaultAzureUploadTier}
-        onTestConnection={handleTestConnection}
-        onSaveConnection={() => {
-          void handleSaveConnection();
-        }}
-        onClose={closeModal}
+        uploadConflictPrompt={uploadConflictPrompt}
+        onResolveUploadConflict={resolveUploadConflict}
       />
-
-      {isUploadSettingsModalOpen && selectedConnection ? (
-        <div className="modal-backdrop" role="presentation">
-          <div
-            className="modal-card modal-card-wide"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="upload-settings-modal-title"
-          >
-            <div className="modal-header">
-              <div>
-                <p className="modal-eyebrow">{t("content.transfer.upload_settings_eyebrow")}</p>
-                <h2 id="upload-settings-modal-title" className="modal-title">
-                  {t("content.transfer.upload_settings_title").replace(
-                    "{name}",
-                    selectedConnection.name
-                  )}
-                </h2>
-              </div>
-            </div>
-
-            <form
-              className="modal-form"
-              onSubmit={(event) => {
-                event.preventDefault();
-                void handleSaveUploadSettings();
-              }}
-            >
-              <div className="modal-scroll-panel">
-                <div className="modal-scroll-viewport">
-                  {selectedConnection.provider === "aws" ? (
-                    <AwsUploadStorageClassField
-                      locale={locale}
-                      value={uploadSettingsStorageClass}
-                      onChange={setUploadSettingsStorageClass}
-                    />
-                  ) : (
-                    <AzureUploadTierField
-                      value={uploadSettingsAzureTier}
-                      onChange={setUploadSettingsAzureTier}
-                    />
-                  )}
-
-                  {uploadSettingsSubmitError ? (
-                    <p className="status-message-error">{uploadSettingsSubmitError}</p>
-                  ) : null}
-                </div>
-              </div>
-
-              <div className="modal-actions">
-                <button
-                  type="button"
-                  className="secondary-button"
-                  onClick={closeUploadSettingsModal}
-                >
-                  {t("common.cancel")}
-                </button>
-                <button type="submit" className="primary-button" disabled={isSavingUploadSettings}>
-                  {t("common.save")}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      ) : null}
-
-      {isCreateFolderModalOpen && canCreateFolderInCurrentContext ? (
-        <div className="modal-backdrop" role="presentation">
-          <div
-            className="modal-card modal-card-compact"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="create-folder-modal-title"
-          >
-            <div className="modal-header">
-              <div>
-                <p className="modal-eyebrow">{t("content.folder.create_eyebrow")}</p>
-                <h2 id="create-folder-modal-title" className="modal-title">
-                  {t("content.folder.create_title")}
-                </h2>
-              </div>
-            </div>
-
-            <form
-              className="modal-form"
-              onSubmit={(event) => {
-                event.preventDefault();
-                void handleCreateFolder();
-              }}
-            >
-              <label className="field-group" htmlFor={newFolderNameFieldId}>
-                <span>{t("content.folder.name_label")}</span>
-                <input
-                  id={newFolderNameFieldId}
-                  type="text"
-                  value={newFolderName}
-                  placeholder={t("content.folder.name_placeholder")}
-                  onChange={(event) => {
-                    setNewFolderName(event.target.value);
-                    if (createFolderError) {
-                      setCreateFolderError(null);
-                    }
-                  }}
-                  autoFocus
-                />
-                <span className="field-helper">
-                  {t("content.folder.name_helper").replace("{path}", [
-                    selectedBucketProvider?.toUpperCase() ?? t("content.provider.aws"),
-                    selectedBucketName ?? "",
-                    selectedBucketPath
-                  ].filter((segment) => segment.length > 0).join("/"))}
-                </span>
-              </label>
-
-              {createFolderError ? (
-                <p className="status-message-error">{createFolderError}</p>
-              ) : null}
-
-              <div className="modal-actions">
-                <button
-                  type="button"
-                  className="secondary-button"
-                  onClick={() => closeCreateFolderModal()}
-                  disabled={isCreatingFolder}
-                >
-                  {t("common.cancel")}
-                </button>
-                <button type="submit" className="primary-button" disabled={isCreatingFolder}>
-                  {isCreatingFolder
-                    ? t("content.folder.creating_button")
-                    : t("content.folder.create_button")}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      ) : null}
-
-      {pendingContentDelete ? (
-        <div className="modal-backdrop" role="presentation">
-          <div
-            className="modal-card modal-card-compact"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="delete-content-modal-title"
-          >
-            <div className="modal-header">
-              <div>
-                <p className="modal-eyebrow">{t("content.delete.eyebrow")}</p>
-                <h2 id="delete-content-modal-title" className="modal-title">
-                  {pendingContentDelete.items.length === 1
-                    ? t(
-                        pendingContentDelete.directoryCount === 1
-                          ? "content.delete.title_single_folder"
-                          : "content.delete.title_single_file"
-                      ).replace("{name}", pendingContentDelete.items[0]?.name ?? "")
-                    : t("content.delete.title_batch").replace(
-                        "{count}",
-                        String(pendingContentDelete.items.length)
-                      )}
-                </h2>
-              </div>
-            </div>
-
-            <div className="modal-scroll-panel">
-              <div className="modal-scroll-viewport">
-                <p className="modal-copy">
-                  {pendingContentDelete.directoryCount > 0
-                    ? t("content.delete.description_recursive")
-                        .replace("{files}", String(pendingContentDelete.fileCount))
-                        .replace("{folders}", String(pendingContentDelete.directoryCount))
-                    : t("content.delete.description_files").replace(
-                        "{count}",
-                        String(pendingContentDelete.fileCount)
-                      )}
-                </p>
-                <p className="modal-copy">
-                  {t("content.delete.confirmation_instruction").replace(
-                    "{value}",
-                    CONTENT_DELETE_CONFIRMATION_TEXT
-                  )}
-                </p>
-                <label className="field-group" htmlFor="delete-content-confirmation-input">
-                  <span>{t("content.delete.confirmation_label")}</span>
-                  <input
-                    id="delete-content-confirmation-input"
-                    type="text"
-                    value={deleteConfirmationValue}
-                    onChange={(event) => {
-                      setDeleteConfirmationValue(event.target.value);
-                      if (deleteContentError) {
-                        setDeleteContentError(null);
-                      }
-                    }}
-                    autoFocus
-                  />
-                </label>
-
-                <div className="content-delete-summary">
-                  <span>
-                    <File size={14} strokeWidth={1.9} />
-                    {t("content.delete.summary_files").replace(
-                      "{count}",
-                      String(pendingContentDelete.fileCount)
-                    )}
-                  </span>
-                  <span>
-                    <Folder size={14} strokeWidth={1.9} />
-                    {t("content.delete.summary_folders").replace(
-                      "{count}",
-                      String(pendingContentDelete.directoryCount)
-                    )}
-                  </span>
-                </div>
-
-                {deleteContentError ? (
-                  <p className="status-message-error">{deleteContentError}</p>
-                ) : null}
-              </div>
-            </div>
-
-            <div className="modal-actions">
-              <button
-                type="button"
-                className="secondary-button"
-                onClick={() => closeDeleteContentModal()}
-                disabled={isDeletingContent}
-              >
-                {t("common.cancel")}
-              </button>
-              <button
-                type="button"
-                className="secondary-button secondary-button-danger"
-                onClick={() => {
-                  void handleConfirmDeleteContent();
-                }}
-                disabled={
-                  isDeletingContent ||
-                  deleteConfirmationValue.trim() !== CONTENT_DELETE_CONFIRMATION_TEXT
-                }
-              >
-                {isDeletingContent ? t("content.delete.deleting") : t("content.delete.action")}
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      {pendingDeleteConnection ? (
-        <div className="modal-backdrop" role="presentation">
-          <div
-            className="modal-card modal-card-compact"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="delete-connection-modal-title"
-          >
-            <div className="modal-header">
-              <div>
-                <p className="modal-eyebrow">{t("navigation.connections.delete_title")}</p>
-                <h2 id="delete-connection-modal-title" className="modal-title">
-                  {t("navigation.connections.delete_confirm").replace(
-                    "{name}",
-                    pendingDeleteConnection.name
-                  )}
-                </h2>
-              </div>
-            </div>
-
-            <p className="modal-copy">
-              {t("navigation.connections.delete_description")
-                .replace("{name}", pendingDeleteConnection.name)
-                .replace(
-                  "{provider}",
-                  t(`content.provider.${pendingDeleteConnection.provider}`)
-                )}
-            </p>
-
-            <div className="modal-actions">
-              <button
-                type="button"
-                className="secondary-button"
-                onClick={() => setPendingDeleteConnectionId(null)}
-              >
-                {t("common.cancel")}
-              </button>
-              <button
-                type="button"
-                className="secondary-button secondary-button-danger"
-                onClick={() => {
-                  void confirmRemoveConnection();
-                }}
-              >
-                {t("navigation.menu.remove")}
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      {uploadConflictPrompt ? (
-        <div className="modal-backdrop" role="presentation">
-          <div
-            className="modal-card modal-card-compact"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="upload-conflict-modal-title"
-          >
-            <div className="modal-header">
-              <div>
-                <p className="modal-eyebrow">{t("content.transfer.conflict_modal_eyebrow")}</p>
-                <h2 id="upload-conflict-modal-title" className="modal-title">
-                  {t("content.transfer.conflict_modal_title").replace(
-                    "{name}",
-                    uploadConflictPrompt.fileName
-                  )}
-                </h2>
-              </div>
-            </div>
-
-            <p className="modal-copy">
-              {t("content.transfer.conflict_modal_progress")
-                .replace("{current}", String(uploadConflictPrompt.currentConflictIndex))
-                .replace("{total}", String(uploadConflictPrompt.totalConflicts))}
-            </p>
-            <p className="modal-copy">{t("content.transfer.conflict_modal_body")}</p>
-            <p className="modal-copy">
-              <strong>{t("content.transfer.conflict_modal_destination_label")}:</strong>{" "}
-              {uploadConflictPrompt.objectKey}
-            </p>
-
-            <div className="modal-actions">
-              <button
-                type="button"
-                className="secondary-button"
-                onClick={() => resolveUploadConflict("skip")}
-              >
-                {t("content.transfer.conflict_skip")}
-              </button>
-              <button
-                type="button"
-                className="secondary-button"
-                onClick={() => resolveUploadConflict("skipAll")}
-              >
-                {t("content.transfer.conflict_skip_all")}
-              </button>
-              <button
-                type="button"
-                className="primary-button"
-                onClick={() => resolveUploadConflict("overwrite")}
-              >
-                {t("content.transfer.conflict_replace")}
-              </button>
-              <button
-                type="button"
-                className="primary-button"
-                onClick={() => resolveUploadConflict("overwriteAll")}
-              >
-                {t("content.transfer.conflict_replace_all")}
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
     </>
   );
 }
