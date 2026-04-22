@@ -24,14 +24,11 @@ import {
   File,
   Folder,
   FolderPlus,
-  LayoutGrid,
-  List,
   LoaderCircle,
   Plus,
   RefreshCw,
   Search,
   Settings,
-  Snowflake,
   Trash2,
   Upload,
   XCircle,
@@ -42,6 +39,7 @@ import { AwsConnectionFields } from "../connections/components/AwsConnectionFiel
 import { AwsUploadStorageClassField } from "../connections/components/AwsUploadStorageClassField";
 import { AzureConnectionFields } from "../connections/components/AzureConnectionFields";
 import { AzureUploadTierField } from "../connections/components/AzureUploadTierField";
+import { ContentExplorerHeader } from "./components/ContentExplorerHeader";
 import { ContentItemList } from "./components/ContentItemList";
 import type { AwsUploadStorageClass } from "../connections/awsUploadStorageClasses";
 import type { AzureUploadTier } from "../connections/azureUploadTiers";
@@ -813,10 +811,6 @@ export function ConnectionNavigator({
       loadedRestoringCount,
       t
     ]
-  );
-  const contentStatusSummaryMap = useMemo(
-    () => new Map(contentStatusSummaryItems.map((item) => [item.key, item] as const)),
-    [contentStatusSummaryItems]
   );
 
   const shouldRenderLoadMoreButton = selectedNode?.kind === "bucket";
@@ -3620,177 +3614,43 @@ export function ConnectionNavigator({
           }}
         >
           {selectedView === "home" ? null : (
-            <div className="content-toolbar">
-              <div className="content-toolbar-copy">
-                <p className="content-eyebrow">{t("content.eyebrow")}</p>
-                <h1 className="content-title">
-                  {displayedContentTitle}
-                </h1>
+            <ContentExplorerHeader
+              title={displayedContentTitle}
+              selectedNodeKind={selectedNode?.kind ?? null}
+              breadcrumbs={selectedBreadcrumbs}
+              connectionIndicator={
+                selectedConnection
+                  ? connectionIndicators[selectedConnection.id] ?? { status: "disconnected" }
+                  : null
+              }
+              contentFilterText={contentFilterText}
+              contentStatusFilters={contentStatusFilters}
+              allContentStatusFilters={ALL_CONTENT_STATUS_FILTERS}
+              contentStatusSummaryItems={contentStatusSummaryItems}
+              contentViewMode={contentViewMode}
+              t={t}
+              onNavigateConnectionBreadcrumb={() => {
+                if (!selectedNode) {
+                  return;
+                }
 
-                {selectedNode?.kind === "bucket" ? (
-                  <nav
-                    className="content-breadcrumb"
-                    aria-label={t("content.breadcrumb.aria_label")}
-                  >
-                    {selectedBreadcrumbs.map((breadcrumb, index) => {
-                      const isCurrent = index === selectedBreadcrumbs.length - 1;
+                const connectionNode = treeNodes.find(
+                  (node) => node.id === selectedNode.connectionId
+                );
 
-                      return (
-                        <span
-                          key={`${breadcrumb.path}:${index}`}
-                          className="content-breadcrumb-item"
-                        >
-                          {index > 0 ? (
-                            <ChevronRight
-                              size={14}
-                              strokeWidth={2}
-                              className="content-breadcrumb-separator"
-                            />
-                          ) : null}
-
-                          {isCurrent ? (
-                            <span className="content-breadcrumb-current">
-                              {breadcrumb.label}
-                            </span>
-                          ) : (
-                            <button
-                              type="button"
-                              className="content-breadcrumb-link"
-                              onClick={() => {
-                                if (breadcrumb.path === null) {
-                                  const connectionNode = treeNodes.find(
-                                    (node) => node.id === selectedNode.connectionId
-                                  );
-
-                                  if (connectionNode) {
-                                    handleSelectNode(connectionNode);
-                                  }
-
-                                  return;
-                                }
-
-                                navigateBucketPath(selectedNode.id, breadcrumb.path);
-                              }}
-                            >
-                              {breadcrumb.label}
-                            </button>
-                          )}
-                        </span>
-                      );
-                    })}
-                  </nav>
-                ) : null}
-              </div>
-
-              {selectedConnection ? (
-                <div className="content-toolbar-side">
-                  <div className="content-toolbar-status">
-                    <ConnectionStatusIcon
-                      indicator={
-                        connectionIndicators[selectedConnection.id] ?? { status: "disconnected" }
-                      }
-                      connectingTitle={t(CONNECTING_CONNECTION_TITLE_KEY)}
-                      connectedTitle={t(CONNECTED_CONNECTION_TITLE_KEY)}
-                      disconnectedTitle={t(DISCONNECTED_CONNECTION_TITLE_KEY)}
-                      size={22}
-                    />
-                    <span>
-                      {getConnectionStatusLabel(
-                        connectionIndicators[selectedConnection.id] ?? { status: "disconnected" },
-                        t
-                      )}
-                    </span>
-                  </div>
-
-                  {selectedNode && (selectedNode.kind === "bucket" || selectedNode.kind === "connection") ? (
-                    <div className="content-toolbar-controls">
-                      <label className="filter-field content-toolbar-filter" htmlFor="content-filter">
-                        <Search size={16} strokeWidth={2} className="filter-field-icon" />
-                        <input
-                          id="content-filter"
-                          type="text"
-                          className="filter-field-input"
-                          value={contentFilterText}
-                          onChange={(event) => setContentFilterText(event.target.value)}
-                          placeholder={t(
-                            selectedNode.kind === "connection"
-                              ? "content.filter.placeholder_buckets"
-                              : "content.filter.placeholder"
-                          )}
-                          aria-label={t("content.filter.label")}
-                        />
-                        {contentFilterText ? (
-                          <button
-                            type="button"
-                            className="filter-field-clear"
-                            aria-label={t("common.clear")}
-                            title={t("common.clear")}
-                            onClick={() => setContentFilterText("")}
-                          >
-                            <X size={14} strokeWidth={2.2} />
-                          </button>
-                        ) : null}
-                      </label>
-
-                      {selectedNode.kind === "bucket" ? (
-                        <div
-                          className="content-status-filter-group"
-                          role="group"
-                          aria-label={t("content.filter.status_label")}
-                        >
-                          {ALL_CONTENT_STATUS_FILTERS.map((status) => {
-                            const isSelected = contentStatusFilters.includes(status);
-                            const summaryItem = contentStatusSummaryMap.get(status);
-                            const label = summaryItem?.label ?? t(`content.filter.status.${status}`);
-                            const count = summaryItem?.count ?? 0;
-
-                            return (
-                              <button
-                                key={status}
-                                type="button"
-                                className={`content-status-filter-button${
-                                  isSelected ? " is-selected" : ""
-                                }`}
-                                aria-pressed={isSelected}
-                                title={`${label}: ${count}`}
-                                onClick={() => toggleContentStatusFilter(status)}
-                              >
-                                <ContentCounterStatus status={status} label={label} count={count} />
-                              </button>
-                            );
-                          })}
-                        </div>
-                      ) : null}
-
-                      <div
-                        className="content-view-switcher"
-                        role="group"
-                        aria-label={t("content.view_mode.label")}
-                      >
-                        <button
-                          type="button"
-                          className={`content-view-button${contentViewMode === "list" ? " is-active" : ""}`}
-                          aria-label={t("content.view_mode.list")}
-                          title={t("content.view_mode.list")}
-                          onClick={() => setContentViewMode("list")}
-                        >
-                          <List size={16} strokeWidth={2} />
-                        </button>
-                        <button
-                          type="button"
-                          className={`content-view-button${contentViewMode === "compact" ? " is-active" : ""}`}
-                          aria-label={t("content.view_mode.compact")}
-                          title={t("content.view_mode.compact")}
-                          onClick={() => setContentViewMode("compact")}
-                        >
-                          <LayoutGrid size={16} strokeWidth={2} />
-                        </button>
-                      </div>
-                    </div>
-                      ) : null}
-                </div>
-              ) : null}
-            </div>
+                if (connectionNode) {
+                  handleSelectNode(connectionNode);
+                }
+              }}
+              onNavigateBucketBreadcrumb={(path) => {
+                if (selectedNode?.kind === "bucket") {
+                  navigateBucketPath(selectedNode.id, path);
+                }
+              }}
+              onContentFilterTextChange={setContentFilterText}
+              onToggleContentStatusFilter={toggleContentStatusFilter}
+              onContentViewModeChange={setContentViewMode}
+            />
           )}
 
           <div className="content-panel-scroll-viewport">
@@ -5398,52 +5258,4 @@ function ContentAreaContextMenu({
       </button>
     </div>
   );
-}
-
-type ContentCounterStatusProps = {
-  status: "directory" | "available" | "downloaded" | "archived" | "restoring";
-  label: string;
-  count: number;
-};
-
-function ContentCounterStatus({ status, label, count }: ContentCounterStatusProps) {
-  let icon = <CircleAlert size={12} strokeWidth={2} />;
-
-  if (status === "directory") {
-    icon = <Folder size={12} strokeWidth={2} />;
-  } else if (status === "available") {
-    icon = <Cloud size={12} strokeWidth={2} />;
-  } else if (status === "downloaded") {
-    icon = <Cloud size={12} strokeWidth={2} className="is-filled" />;
-  } else if (status === "archived") {
-    icon = <Snowflake size={12} strokeWidth={2} />;
-  } else if (status === "restoring") {
-    icon = <LoaderCircle size={12} strokeWidth={2} className="content-counter-status-spinner" />;
-  }
-
-  return (
-    <span className={`content-counter-status content-counter-status-${status}`} title={label}>
-      {icon}
-      <strong>{count}</strong>
-    </span>
-  );
-}
-
-function getConnectionStatusLabel(
-  indicator: ConnectionIndicator,
-  t: (key: string) => string
-): string {
-  if (indicator.status === "connected") {
-    return t(CONNECTED_CONNECTION_TITLE_KEY);
-  }
-
-  if (indicator.status === "connecting") {
-    return t(CONNECTING_CONNECTION_TITLE_KEY);
-  }
-
-  if (indicator.status === "error") {
-    return t("navigation.connection_status.error");
-  }
-
-  return t(DISCONNECTED_CONNECTION_TITLE_KEY);
 }
