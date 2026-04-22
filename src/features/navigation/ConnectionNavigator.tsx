@@ -6,6 +6,7 @@ import { isTauri } from "@tauri-apps/api/core";
 import { useNavigationPreferencesState } from "./hooks/useNavigationPreferencesState";
 import { useTransferState } from "./hooks/useTransferState";
 import { useModalOrchestrationState } from "./hooks/useModalOrchestrationState";
+import { useConnectionFormState } from "./hooks/useConnectionFormState";
 import {
   ALL_CONTENT_STATUS_FILTERS,
   type ContentStatusFilter,
@@ -41,16 +42,8 @@ import { AwsConnectionFields } from "../connections/components/AwsConnectionFiel
 import { AwsUploadStorageClassField } from "../connections/components/AwsUploadStorageClassField";
 import { AzureConnectionFields } from "../connections/components/AzureConnectionFields";
 import { AzureUploadTierField } from "../connections/components/AzureUploadTierField";
-import {
-  DEFAULT_AWS_UPLOAD_STORAGE_CLASS,
-  normalizeAwsUploadStorageClass,
-  type AwsUploadStorageClass
-} from "../connections/awsUploadStorageClasses";
-import {
-  DEFAULT_AZURE_UPLOAD_TIER,
-  normalizeAzureUploadTier,
-  type AzureUploadTier
-} from "../connections/azureUploadTiers";
+import type { AwsUploadStorageClass } from "../connections/awsUploadStorageClasses";
+import type { AzureUploadTier } from "../connections/azureUploadTiers";
 import {
   DEFAULT_CONTENT_LISTING_PAGE_SIZE,
   MAX_CONTENT_LISTING_PAGE_SIZE,
@@ -59,8 +52,6 @@ import {
 } from "../settings/persistence/appSettingsStore";
 import type {
   AwsConnectionDraft,
-  AzureAuthenticationMethod,
-  ConnectionFormMode,
   ConnectionProvider,
   SavedConnectionSummary
 } from "../connections/models";
@@ -340,7 +331,6 @@ function Globe2Icon() {
 }
 
 type NavigatorView = "home" | "node";
-type ConnectionTestStatus = "idle" | "testing" | "success" | "error";
 type ConnectionIndicatorStatus = "disconnected" | "connecting" | "connected" | "error";
 const CONNECTING_CONNECTION_TITLE_KEY = "navigation.connection_status.connecting";
 const CONNECTED_CONNECTION_TITLE_KEY = "navigation.connection_status.connected";
@@ -430,23 +420,46 @@ export function ConnectionNavigator({
   const [connections, setConnections] = useState<SavedConnectionSummary[]>([]);
   const [selectedView, setSelectedView] = useState<NavigatorView>("home");
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [modalMode, setModalMode] = useState<ConnectionFormMode>("create");
-  const [editingConnectionId, setEditingConnectionId] = useState<string | null>(null);
-  const [connectionName, setConnectionName] = useState("");
-  const [connectionProvider, setConnectionProvider] = useState<ConnectionProvider>("aws");
-  const [accessKeyId, setAccessKeyId] = useState("");
-  const [secretAccessKey, setSecretAccessKey] = useState("");
-  const [restrictedBucketName, setRestrictedBucketName] = useState("");
-  const [storageAccountName, setStorageAccountName] = useState("");
-  const [azureAuthenticationMethod, setAzureAuthenticationMethod] =
-    useState<AzureAuthenticationMethod>("shared_key");
-  const [azureAccountKey, setAzureAccountKey] = useState("");
-  const [connectOnStartup, setConnectOnStartup] = useState(false);
-  const [defaultAwsUploadStorageClass, setDefaultAwsUploadStorageClass] =
-    useState<AwsUploadStorageClass>(DEFAULT_AWS_UPLOAD_STORAGE_CLASS);
-  const [defaultAzureUploadTier, setDefaultAzureUploadTier] =
-    useState<AzureUploadTier>(DEFAULT_AZURE_UPLOAD_TIER);
+  const {
+    isModalOpen,
+    modalMode,
+    editingConnectionId,
+    connectionName,
+    connectionProvider,
+    accessKeyId,
+    secretAccessKey,
+    restrictedBucketName,
+    storageAccountName,
+    azureAuthenticationMethod,
+    azureAccountKey,
+    connectOnStartup,
+    defaultAwsUploadStorageClass,
+    defaultAzureUploadTier,
+    connectionTestStatus,
+    connectionTestMessage,
+    formErrors,
+    submitError,
+    isSubmitting,
+    setIsModalOpen,
+    setModalMode,
+    setEditingConnectionId,
+    setConnectionName,
+    setConnectionProvider,
+    setAccessKeyId,
+    setSecretAccessKey,
+    setRestrictedBucketName,
+    setStorageAccountName,
+    setAzureAuthenticationMethod,
+    setAzureAccountKey,
+    setConnectOnStartup,
+    setDefaultAwsUploadStorageClass,
+    setDefaultAzureUploadTier,
+    setConnectionTestStatus,
+    setConnectionTestMessage,
+    setFormErrors,
+    setSubmitError,
+    setIsSubmitting
+  } = useConnectionFormState();
   const {
     globalLocalCacheDirectory,
     contentListingPageSize,
@@ -460,12 +473,6 @@ export function ConnectionNavigator({
     setContentViewMode,
     startResizing
   } = useNavigationPreferencesState();
-  const [connectionTestStatus, setConnectionTestStatus] =
-    useState<ConnectionTestStatus>("idle");
-  const [connectionTestMessage, setConnectionTestMessage] = useState<string | null>(null);
-  const [formErrors, setFormErrors] = useState<FormErrors>({});
-  const [submitError, setSubmitError] = useState<string | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const [isLoadingConnections, setIsLoadingConnections] = useState(true);
   const [openMenuConnectionId, setOpenMenuConnectionId] = useState<string | null>(null);
   const [pendingDeleteConnectionId, setPendingDeleteConnectionId] = useState<string | null>(null);

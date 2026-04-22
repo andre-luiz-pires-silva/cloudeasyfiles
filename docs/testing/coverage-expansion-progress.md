@@ -76,7 +76,7 @@ Increase automated test coverage toward the agreed long-term target of `75%` lin
 
 ## Current Priorities
 
-1. **Milestone C complete** ✅ — Frontend `38.34%`, Rust `46.82%` measured on 2026-04-22 (both exceed targets of 35%/40%)
+1. **Milestone C complete** ✅ — Frontend `38.63%`, Rust `46.82%` measured on 2026-04-22 (both exceed targets of 35%/40%)
 2. Plan next milestone: decide target for next phase (e.g., Frontend `50%`, Rust `55%`)
 3. Remaining largest uncovered surface: `ConnectionNavigator.tsx`, `main.tsx`, and modal/form components
 
@@ -523,6 +523,19 @@ Use the checklist below as the next execution guide for the coverage-expansion b
   - completed refactoring roadmap Step `CN-1d`
   - integrated `src/features/navigation/hooks/useContentListingState.ts` into `ConnectionNavigator.tsx`
   - added `src/features/navigation/hooks/useContentListingState.test.ts`
+
+## Refactoring Plan CN-1e Measurement
+
+- Frontend coverage command: `npm run test:frontend:coverage`
+  - Tests: `301` passed across `42` files
+  - Frontend line coverage: `38.63%`
+  - Frontend statements: `38.63%`
+  - Frontend branches: `89.66%`
+  - Frontend functions: `81.70%`
+- Delivered:
+  - completed refactoring roadmap Step `CN-1e`
+  - integrated `src/features/navigation/hooks/useConnectionFormState.ts` into `ConnectionNavigator.tsx`
+  - added `src/features/navigation/hooks/useConnectionFormState.test.ts`
 
 ## Next Steps Toward Next Milestone
 
