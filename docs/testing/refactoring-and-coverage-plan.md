@@ -227,11 +227,17 @@ cobertura de componentes restantes (formulários de conexão, `main.tsx`, etc.).
   - Componente em `src/features/navigation/components/NavigatorModalOrchestrator.tsx`
   - 6 testes em `NavigatorModalOrchestrator.test.tsx`
   - Build e 331 testes passando
-- [ ] **Step V4** — Re-medir após componentes + escrever testes dos componentes
+- [x] **Step V4** — Re-medir após componentes + escrever testes dos componentes
+  - CN-2 completo: 5 componentes extraídos e cobertos
+  - Frontend line coverage: `52.90%`
+  - 47 arquivos de teste, 331 testes passando
+  - Frontend já cruzou o alvo intermediário de `50%`; Rust ainda segue abaixo de `55%`
 
 ### Splits de suporte
 
-- [ ] **Step RF3** — Split de `navigationGuards.ts`
+- [x] **Step RF3** — Confirmar split de `navigationGuards.ts`
+  - Já entregue como parte de RF2: `navigationGuards.ts` é barrel de re-exports
+  - Responsabilidades já estão em `navigationTypes.ts`, `navigationOperationBuilders.ts`, `navigationItemGuards.ts` e `navigationSelectionGuards.ts`
 - [ ] **Step RF4** — Split de `connectionService.ts`
 - [ ] **Step V5** — Re-medir e confirmar Milestone Final
 
@@ -272,3 +278,4 @@ cobertura de componentes restantes (formulários de conexão, `main.tsx`, etc.).
 - Post CN-2c: Frontend `46.36%`, 45 test files, 319 tests passing (6 novos do componente)
 - Post CN-2d: Frontend `49.35%`, 46 test files, 325 tests passing (6 novos do componente)
 - Post CN-2e: Frontend `52.90%`, 47 test files, 331 tests passing (6 novos do componente)
+- Post V4: CN-2 encerrado, Frontend `52.90%`, 47 test files, 331 tests passing

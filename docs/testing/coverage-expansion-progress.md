@@ -76,9 +76,9 @@ Increase automated test coverage toward the agreed long-term target of `75%` lin
 
 ## Current Priorities
 
-1. **Milestone C complete** ✅ — Frontend `52.90%`, Rust `46.82%` measured on 2026-04-22 (both exceed targets of 35%/40%)
+1. **CN-2 complete** ✅ — Frontend `52.90%`, Rust `46.82%` measured on 2026-04-22
 2. Frontend has crossed the next interim `50%` threshold; Rust still needs expansion toward `55%`
-3. Remaining largest uncovered surface: `ConnectionNavigator.tsx`, `main.tsx`, and residual provider/orchestration modules
+3. Next executable refactoring target: split `connectionService.ts` into focused normalization/validation/provider-service modules
 
 ## Operational Roadmap
 
@@ -609,11 +609,26 @@ Use the checklist below as the next execution guide for the coverage-expansion b
   - added `src/features/navigation/components/NavigatorModalOrchestrator.test.tsx`
   - moved modal/toast rendering out of `ConnectionNavigator.tsx` while keeping async handlers in the parent component
 
+## Refactoring Plan V4 Closure
+
+- CN-2 is complete:
+  - `ContentItemList`
+  - `ContentExplorerHeader`
+  - `ConnectionsSidebar`
+  - `ConnectionFormModal`
+  - `NavigatorModalOrchestrator`
+- Frontend coverage after CN-2: `52.90%`
+- Tests: `331` passed across `47` files
+- Decision:
+  - frontend crossed the interim `50%` threshold
+  - `navigationGuards.ts` split is already complete from RF2 and remains a barrel of re-exports
+  - next refactoring step should be `RF4`, splitting `connectionService.ts`
+
 ## Next Steps Toward Next Milestone
 
 Ordered by likely value:
 
-1. Close Step `V4` with the CN-2 summary and decide the next refactoring target.
-2. Continue targeted component/form coverage where the component contains workflow decisions or provider-operation guardrails.
+1. Execute `RF4`: split `connectionService.ts` into focused normalization, validation, AWS service, Azure service, and facade modules.
+2. Re-run frontend tests and coverage after the service split to ensure behavior stayed stable.
 3. Decide whether to prioritize Rust `55%` next or continue frontend toward Milestone E `65%`.
 4. Reassess Rust command/provider gaps after the next frontend-heavy iteration.
