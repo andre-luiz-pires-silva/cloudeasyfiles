@@ -138,3 +138,49 @@ impl AwsConnectionSecretService {
         message
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn builds_stable_account_names_for_each_aws_secret_field() {
+        assert_eq!(
+            AwsConnectionSecretService::build_account_name("connection-1", ACCESS_KEY_ACCOUNT),
+            "connection-1:access-key-id"
+        );
+        assert_eq!(
+            AwsConnectionSecretService::build_account_name("connection-1", SECRET_KEY_ACCOUNT),
+            "connection-1:secret-access-key"
+        );
+    }
+
+    #[test]
+    fn maps_keyring_errors_to_user_visible_messages() {
+        let no_entry_message =
+            AwsConnectionSecretService::map_error("load-access-key", "connection-1", KeyringError::NoEntry);
+        let too_long_message = AwsConnectionSecretService::map_error(
+            "build-entry",
+            "connection-1",
+            KeyringError::TooLong("account".to_string(), 128),
+        );
+        let invalid_message = AwsConnectionSecretService::map_error(
+            "build-entry",
+            "connection-1",
+            KeyringError::Invalid("service".to_string(), "blank".to_string()),
+        );
+
+        assert_eq!(
+            no_entry_message,
+            "No matching entry found in secure storage"
+        );
+        assert_eq!(
+            too_long_message,
+            "Attribute 'account' is longer than platform limit of 128 chars"
+        );
+        assert_eq!(
+            invalid_message,
+            "Attribute service is invalid: blank"
+        );
+    }
+}
