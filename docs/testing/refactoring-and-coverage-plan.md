@@ -200,7 +200,10 @@ cobertura de componentes restantes (formulários de conexão, `main.tsx`, etc.).
   - Hook em `src/features/navigation/hooks/useConnectionFormState.ts`
   - 7 testes em `useConnectionFormState.test.ts`
   - Build e 301 testes passando
-- [ ] **Step V3** — Re-medir após hooks + escrever testes dos hooks
+- [x] **Step V3** — Re-medir após hooks + escrever testes dos hooks
+  - CN-1 completo: 5 hooks extraídos
+  - Frontend line coverage: `38.63%`
+  - 42 arquivos de teste, 301 testes passando
 
 ### CN-2: Componentes
 

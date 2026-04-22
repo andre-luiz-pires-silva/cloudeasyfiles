@@ -537,6 +537,12 @@ Use the checklist below as the next execution guide for the coverage-expansion b
   - integrated `src/features/navigation/hooks/useConnectionFormState.ts` into `ConnectionNavigator.tsx`
   - added `src/features/navigation/hooks/useConnectionFormState.test.ts`
 
+## Refactoring Plan V3 Closure
+
+- CN-1 is complete: `useNavigationPreferencesState`, `useTransferState`, `useModalOrchestrationState`, `useContentListingState`, and `useConnectionFormState`.
+- Frontend coverage after CN-1: `38.63%`
+- Next refactoring phase: CN-2 component extraction, starting with `ContentItemList`.
+
 ## Next Steps Toward Next Milestone
 
 Ordered by likely value:
