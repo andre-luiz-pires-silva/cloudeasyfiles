@@ -76,7 +76,7 @@ Increase automated test coverage toward the agreed long-term target of `75%` lin
 
 ## Current Priorities
 
-1. **Rust secret-service coverage added** ✅ — Frontend `53.08%`, Rust `47.56%` measured on 2026-04-22
+1. **Rust window-state coverage added** ✅ — Frontend `53.08%`, Rust `47.82%` measured on 2026-04-22
 2. Frontend has crossed the interim `50%` threshold; Rust still needs expansion toward `55%`
 3. Next executable priority: expand Rust command/provider coverage toward `55%`
 
@@ -670,12 +670,25 @@ Use the checklist below as the next execution guide for the coverage-expansion b
   - added unit coverage for Azure secret account-name construction and keyring error message mapping
   - added serde contract coverage for AWS/Azure secret input and output DTOs
 
+## Rust Window-State Coverage Step
+
+- Rust test command: `npm run test:rust`
+  - Tests: `64` passed
+- Rust coverage command: `npm run test:rust:coverage`
+  - Tests: `64` passed
+  - Rust line coverage: `47.82%`
+  - Rust regions: `46.88%`
+  - Rust functions: `41.03%`
+- Delivered:
+  - extracted pure helpers for parsing, serializing, and resolving the window-state path
+  - added coverage for valid/invalid saved window-state JSON
+  - added coverage for pretty JSON output and path construction
+
 ## Next Steps Toward Next Milestone
 
 Ordered by likely value:
 
-1. Add Rust coverage around `app/window_state.rs`, currently still at `0%`.
-2. Add Rust coverage around remaining provider-service mutation/error paths.
-3. Add Rust coverage around command wrappers that still only have partial `Window`-driven coverage.
-4. Re-run `npm run test:rust:coverage` and update this tracker after each Rust step.
-5. Resume frontend toward Milestone E `65%` after Rust reaches `55%`.
+1. Add Rust coverage around remaining provider-service mutation/error paths.
+2. Add Rust coverage around command wrappers that still only have partial `Window`-driven coverage.
+3. Re-run `npm run test:rust:coverage` and update this tracker after each Rust step.
+4. Resume frontend toward Milestone E `65%` after Rust reaches `55%`.
