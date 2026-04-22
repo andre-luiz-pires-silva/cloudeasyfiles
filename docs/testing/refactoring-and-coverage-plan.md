@@ -8,7 +8,7 @@ a cobertura de testes aproveitando a maior testabilidade resultante.
 
 ### Estado atual (pós Milestone C)
 
-- Frontend line coverage: `52.90%`
+- Frontend line coverage: `53.08%`
 - Rust line coverage: `46.83%`
 - Maior gargalo: `ConnectionNavigator.tsx` — 6.299 linhas, 0% de cobertura,
   78 state variables, 148 hook usages, 44 handlers, JSX começa na linha 323
@@ -238,7 +238,11 @@ cobertura de componentes restantes (formulários de conexão, `main.tsx`, etc.).
 - [x] **Step RF3** — Confirmar split de `navigationGuards.ts`
   - Já entregue como parte de RF2: `navigationGuards.ts` é barrel de re-exports
   - Responsabilidades já estão em `navigationTypes.ts`, `navigationOperationBuilders.ts`, `navigationItemGuards.ts` e `navigationSelectionGuards.ts`
-- [ ] **Step RF4** — Split de `connectionService.ts`
+- [x] **Step RF4** — Split de `connectionService.ts`
+  - `connectionService.ts` reduzido a fachada pública e re-exports compatíveis
+  - Extraídos `connectionNormalization.ts`, `connectionValidation.ts`, `awsConnectionService.ts` e `azureConnectionService.ts`
+  - Build e 331 testes passando
+  - Frontend line coverage: `53.08%`
 - [ ] **Step V5** — Re-medir e confirmar Milestone Final
 
 ---
@@ -279,3 +283,4 @@ cobertura de componentes restantes (formulários de conexão, `main.tsx`, etc.).
 - Post CN-2d: Frontend `49.35%`, 46 test files, 325 tests passing (6 novos do componente)
 - Post CN-2e: Frontend `52.90%`, 47 test files, 331 tests passing (6 novos do componente)
 - Post V4: CN-2 encerrado, Frontend `52.90%`, 47 test files, 331 tests passing
+- Post RF4: Frontend `53.08%`, 47 test files, 331 tests passing (split de `connectionService.ts`)

@@ -76,9 +76,9 @@ Increase automated test coverage toward the agreed long-term target of `75%` lin
 
 ## Current Priorities
 
-1. **CN-2 complete** ✅ — Frontend `52.90%`, Rust `46.82%` measured on 2026-04-22
+1. **RF4 complete** ✅ — Frontend `53.08%`, Rust `46.82%` measured on 2026-04-22
 2. Frontend has crossed the next interim `50%` threshold; Rust still needs expansion toward `55%`
-3. Next executable refactoring target: split `connectionService.ts` into focused normalization/validation/provider-service modules
+3. Next executable step: close `V5` and decide whether to prioritize Rust `55%` or continue frontend toward `65%`
 
 ## Operational Roadmap
 
@@ -624,11 +624,25 @@ Use the checklist below as the next execution guide for the coverage-expansion b
   - `navigationGuards.ts` split is already complete from RF2 and remains a barrel of re-exports
   - next refactoring step should be `RF4`, splitting `connectionService.ts`
 
+## Refactoring Plan RF4 Measurement
+
+- Frontend coverage command: `npm run test:frontend:coverage`
+  - Tests: `331` passed across `47` files
+  - Frontend line coverage: `53.08%`
+  - Frontend statements: `53.08%`
+  - Frontend branches: `87.12%`
+  - Frontend functions: `82.03%`
+- Delivered:
+  - completed support split Step `RF4`
+  - kept `src/features/connections/services/connectionService.ts` as the public facade
+  - extracted `connectionNormalization.ts`, `connectionValidation.ts`, `awsConnectionService.ts`, and `azureConnectionService.ts`
+  - preserved existing `connectionService` imports and helper re-exports
+
 ## Next Steps Toward Next Milestone
 
 Ordered by likely value:
 
-1. Execute `RF4`: split `connectionService.ts` into focused normalization, validation, AWS service, Azure service, and facade modules.
-2. Re-run frontend tests and coverage after the service split to ensure behavior stayed stable.
-3. Decide whether to prioritize Rust `55%` next or continue frontend toward Milestone E `65%`.
-4. Reassess Rust command/provider gaps after the next frontend-heavy iteration.
+1. Close `V5` with the post-RF4 measurement and milestone decision.
+2. Decide whether to prioritize Rust `55%` next or continue frontend toward Milestone E `65%`.
+3. Reassess Rust command/provider gaps after the next frontend-heavy iteration.
+4. If continuing frontend, target residual `ConnectionNavigator.tsx` orchestration and `main.tsx`.

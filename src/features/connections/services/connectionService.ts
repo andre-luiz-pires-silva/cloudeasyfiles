@@ -1,319 +1,68 @@
-import type {
-  AwsConnectionDraft,
-  AzureAuthenticationMethod,
-  AzureConnectionDraft,
-  SavedConnectionSummary
-} from "../models";
+import type { AwsConnectionDraft, AzureConnectionDraft, SavedConnectionSummary } from "../models";
 import { ConnectionMetadataStore } from "../persistence/connectionMetadataStore";
 import { ConnectionSecretsVault } from "../persistence/connectionSecretsVault";
-import { normalizeAwsUploadStorageClass } from "../awsUploadStorageClasses";
-import { normalizeAzureUploadTier, type AzureUploadTier } from "../azureUploadTiers";
+import type { AzureUploadTier } from "../azureUploadTiers";
+import { AwsConnectionService } from "./awsConnectionService";
+import { AzureConnectionService } from "./azureConnectionService";
+import { sortConnections } from "./connectionNormalization";
 
-export const MAX_CONNECTION_NAME_LENGTH = 20;
-const SIMPLE_CONNECTION_NAME_PATTERN = /^[\p{L}\p{N}][\p{L}\p{N} _-]*$/u;
-const SIMPLE_BUCKET_NAME_PATTERN = /^(?=.{3,63}$)[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/;
-const SIMPLE_STORAGE_ACCOUNT_NAME_PATTERN = /^(?=.{3,24}$)[a-z0-9]+$/;
-
-function createConnectionId(): string {
-  if (typeof globalThis.crypto !== "undefined" && "randomUUID" in globalThis.crypto) {
-    return globalThis.crypto.randomUUID();
-  }
-
-  return `connection-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-}
-
-function sortConnections(connections: SavedConnectionSummary[]) {
-  return [...connections].sort((left, right) =>
-    left.name.localeCompare(right.name, undefined, {
-      sensitivity: "base",
-      numeric: true
-    })
-  );
-}
-
-export function normalizeConnectionName(value: string): string {
-  return value.trim();
-}
-
-export function isConnectionNameFormatValid(value: string): boolean {
-  const normalizedValue = normalizeConnectionName(value);
-
-  return (
-    normalizedValue.length > 0 &&
-    normalizedValue.length <= MAX_CONNECTION_NAME_LENGTH &&
-    SIMPLE_CONNECTION_NAME_PATTERN.test(normalizedValue)
-  );
-}
-
-export function normalizeRestrictedBucketName(value: string | undefined): string | undefined {
-  const normalizedValue = value?.trim();
-
-  return normalizedValue ? normalizedValue : undefined;
-}
-
-export function isRestrictedBucketNameFormatValid(value: string): boolean {
-  const normalizedValue = value.trim();
-
-  return SIMPLE_BUCKET_NAME_PATTERN.test(normalizedValue) && !normalizedValue.includes("..");
-}
-
-export function normalizeStorageAccountName(value: string): string {
-  return value.trim().toLowerCase();
-}
-
-export function isStorageAccountNameFormatValid(value: string): boolean {
-  return SIMPLE_STORAGE_ACCOUNT_NAME_PATTERN.test(normalizeStorageAccountName(value));
-}
-
-export function normalizeAzureAuthenticationMethod(
-  value: string | null | undefined
-): AzureAuthenticationMethod {
-  return value === "entra_id" ? "entra_id" : "shared_key";
-}
-
-function normalizeConnectionNameForComparison(value: string): string {
-  return normalizeConnectionName(value).toLocaleLowerCase();
-}
+export {
+  normalizeAzureAuthenticationMethod,
+  normalizeConnectionName,
+  normalizeRestrictedBucketName,
+  normalizeStorageAccountName
+} from "./connectionNormalization";
+export {
+  isConnectionNameFormatValid,
+  isRestrictedBucketNameFormatValid,
+  isStorageAccountNameFormatValid,
+  MAX_CONNECTION_NAME_LENGTH
+} from "./connectionValidation";
 
 export class ConnectionService {
+  private readonly awsConnectionService: AwsConnectionService;
+  private readonly azureConnectionService: AzureConnectionService;
+
   constructor(
     private readonly metadataStore = new ConnectionMetadataStore(),
     private readonly secretsVault = new ConnectionSecretsVault()
-  ) {}
+  ) {
+    this.awsConnectionService = new AwsConnectionService(metadataStore, secretsVault);
+    this.azureConnectionService = new AzureConnectionService(metadataStore, secretsVault);
+  }
 
   async listConnections(): Promise<SavedConnectionSummary[]> {
     return sortConnections(this.metadataStore.load());
   }
 
   async getAwsConnectionDraft(connectionId: string): Promise<AwsConnectionDraft> {
-    const metadata = this.metadataStore.load().find((connection) => connection.id === connectionId);
-
-    if (!metadata || metadata.provider !== "aws") {
-      throw new Error("AWS connection not found");
-    }
-
-    const secrets = await this.secretsVault.loadAwsSecrets(connectionId);
-
-    return {
-      id: metadata.id,
-      name: metadata.name,
-      provider: "aws",
-      accessKeyId: secrets.accessKeyId,
-      secretAccessKey: secrets.secretAccessKey,
-      restrictedBucketName: normalizeRestrictedBucketName(metadata.restrictedBucketName),
-      connectOnStartup: metadata.connectOnStartup === true,
-      defaultUploadStorageClass: normalizeAwsUploadStorageClass(
-        metadata.defaultUploadStorageClass
-      )
-    };
+    return this.awsConnectionService.getConnectionDraft(connectionId);
   }
 
   async getAzureConnectionDraft(connectionId: string): Promise<AzureConnectionDraft> {
-    const metadata = this.metadataStore.load().find((connection) => connection.id === connectionId);
-
-    if (!metadata || metadata.provider !== "azure") {
-      throw new Error("Azure connection not found");
-    }
-
-    const secrets = await this.secretsVault.loadAzureSecrets(connectionId);
-
-    return {
-      id: metadata.id,
-      name: metadata.name,
-      provider: "azure",
-      storageAccountName: normalizeStorageAccountName(metadata.storageAccountName),
-      authenticationMethod: normalizeAzureAuthenticationMethod(metadata.authenticationMethod),
-      accountKey: secrets.accountKey,
-      connectOnStartup: metadata.connectOnStartup === true,
-      defaultUploadTier: normalizeAzureUploadTier(metadata.defaultUploadTier)
-    };
+    return this.azureConnectionService.getConnectionDraft(connectionId);
   }
 
   async saveAwsConnection(draft: AwsConnectionDraft): Promise<SavedConnectionSummary> {
-    const previousConnections = this.metadataStore.load();
-    const connectionId = draft.id ?? createConnectionId();
-    const normalizedName = normalizeConnectionName(draft.name);
-    const normalizedRestrictedBucketName = normalizeRestrictedBucketName(draft.restrictedBucketName);
-    const existingConnection = previousConnections.find((connection) => connection.id === connectionId);
-
-    if (existingConnection && existingConnection.provider !== "aws") {
-      throw new Error("Changing the provider of an existing connection is not supported.");
-    }
-
-    if (!isConnectionNameFormatValid(normalizedName)) {
-      throw new Error(
-        `Connection names must be 1 to ${MAX_CONNECTION_NAME_LENGTH} characters and use only letters, numbers, spaces, hyphens, or underscores.`
-      );
-    }
-
-    const normalizedComparisonName = normalizeConnectionNameForComparison(normalizedName);
-    const hasDuplicateName = previousConnections.some(
-      (connection) =>
-        connection.id !== connectionId &&
-        normalizeConnectionNameForComparison(connection.name) === normalizedComparisonName
-    );
-
-    if (hasDuplicateName) {
-      throw new Error("A connection with this name already exists.");
-    }
-
-    if (
-      normalizedRestrictedBucketName &&
-      !isRestrictedBucketNameFormatValid(normalizedRestrictedBucketName)
-    ) {
-      throw new Error("The restricted AWS bucket name is invalid.");
-    }
-
-    const nextConnection: SavedConnectionSummary = {
-      id: connectionId,
-      name: normalizedName,
-      provider: "aws",
-      restrictedBucketName: normalizedRestrictedBucketName,
-      connectOnStartup: draft.connectOnStartup === true,
-      defaultUploadStorageClass: normalizeAwsUploadStorageClass(draft.defaultUploadStorageClass)
-    };
-
-    const nextConnections = sortConnections(
-      previousConnections
-        .filter((connection) => connection.id !== connectionId)
-        .concat(nextConnection)
-    );
-
-    this.metadataStore.save(nextConnections);
-
-    try {
-      await this.secretsVault.saveAwsSecrets(
-        connectionId,
-        draft.accessKeyId.trim(),
-        draft.secretAccessKey
-      );
-    } catch (error) {
-      this.metadataStore.save(previousConnections);
-      throw error;
-    }
-
-    return nextConnection;
+    return this.awsConnectionService.saveConnection(draft);
   }
 
   async updateAwsUploadStorageClass(
     connectionId: string,
     storageClass: AwsConnectionDraft["defaultUploadStorageClass"]
   ): Promise<SavedConnectionSummary> {
-    const previousConnections = this.metadataStore.load();
-    const existingConnection = previousConnections.find((connection) => connection.id === connectionId);
-
-    if (!existingConnection || existingConnection.provider !== "aws") {
-      throw new Error("AWS connection not found");
-    }
-
-    const nextConnection: SavedConnectionSummary = {
-      ...existingConnection,
-      defaultUploadStorageClass: normalizeAwsUploadStorageClass(storageClass)
-    };
-
-    const nextConnections = sortConnections(
-      previousConnections
-        .filter((connection) => connection.id !== connectionId)
-        .concat(nextConnection)
-    );
-
-    this.metadataStore.save(nextConnections);
-
-    return nextConnection;
+    return this.awsConnectionService.updateUploadStorageClass(connectionId, storageClass);
   }
 
   async saveAzureConnection(draft: AzureConnectionDraft): Promise<SavedConnectionSummary> {
-    const previousConnections = this.metadataStore.load();
-    const connectionId = draft.id ?? createConnectionId();
-    const normalizedName = normalizeConnectionName(draft.name);
-    const normalizedStorageAccountName = normalizeStorageAccountName(draft.storageAccountName);
-    const normalizedAuthenticationMethod = normalizeAzureAuthenticationMethod(
-      draft.authenticationMethod
-    );
-    const existingConnection = previousConnections.find((connection) => connection.id === connectionId);
-
-    if (existingConnection && existingConnection.provider !== "azure") {
-      throw new Error("Changing the provider of an existing connection is not supported.");
-    }
-
-    if (!isConnectionNameFormatValid(normalizedName)) {
-      throw new Error(
-        `Connection names must be 1 to ${MAX_CONNECTION_NAME_LENGTH} characters and use only letters, numbers, spaces, hyphens, or underscores.`
-      );
-    }
-
-    const normalizedComparisonName = normalizeConnectionNameForComparison(normalizedName);
-    const hasDuplicateName = previousConnections.some(
-      (connection) =>
-        connection.id !== connectionId &&
-        normalizeConnectionNameForComparison(connection.name) === normalizedComparisonName
-    );
-
-    if (hasDuplicateName) {
-      throw new Error("A connection with this name already exists.");
-    }
-
-    if (!isStorageAccountNameFormatValid(normalizedStorageAccountName)) {
-      throw new Error("The Azure storage account name is invalid.");
-    }
-
-    if (normalizedAuthenticationMethod !== "shared_key") {
-      throw new Error("Azure Microsoft Entra ID is not available yet.");
-    }
-
-    const nextConnection: SavedConnectionSummary = {
-      id: connectionId,
-      name: normalizedName,
-      provider: "azure",
-      storageAccountName: normalizedStorageAccountName,
-      authenticationMethod: normalizedAuthenticationMethod,
-      connectOnStartup: draft.connectOnStartup === true,
-      defaultUploadTier: normalizeAzureUploadTier(draft.defaultUploadTier)
-    };
-
-    const nextConnections = sortConnections(
-      previousConnections
-        .filter((connection) => connection.id !== connectionId)
-        .concat(nextConnection)
-    );
-
-    this.metadataStore.save(nextConnections);
-
-    try {
-      await this.secretsVault.saveAzureSecrets(connectionId, draft.accountKey);
-    } catch (error) {
-      this.metadataStore.save(previousConnections);
-      throw error;
-    }
-
-    return nextConnection;
+    return this.azureConnectionService.saveConnection(draft);
   }
 
   async updateAzureUploadTier(
     connectionId: string,
     uploadTier: AzureUploadTier | undefined
   ): Promise<SavedConnectionSummary> {
-    const previousConnections = this.metadataStore.load();
-    const existingConnection = previousConnections.find((connection) => connection.id === connectionId);
-
-    if (!existingConnection || existingConnection.provider !== "azure") {
-      throw new Error("Azure connection not found");
-    }
-
-    const nextConnection: SavedConnectionSummary = {
-      ...existingConnection,
-      defaultUploadTier: normalizeAzureUploadTier(uploadTier)
-    };
-
-    const nextConnections = sortConnections(
-      previousConnections
-        .filter((connection) => connection.id !== connectionId)
-        .concat(nextConnection)
-    );
-
-    this.metadataStore.save(nextConnections);
-
-    return nextConnection;
+    return this.azureConnectionService.updateUploadTier(connectionId, uploadTier);
   }
 
   async deleteConnection(connectionId: string): Promise<void> {
