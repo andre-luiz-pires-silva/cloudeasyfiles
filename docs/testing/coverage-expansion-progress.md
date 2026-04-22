@@ -76,7 +76,7 @@ Increase automated test coverage toward the agreed long-term target of `75%` lin
 
 ## Current Priorities
 
-1. **Milestone C complete** ✅ — Frontend `38.63%`, Rust `46.82%` measured on 2026-04-22 (both exceed targets of 35%/40%)
+1. **Milestone C complete** ✅ — Frontend `42.77%`, Rust `46.82%` measured on 2026-04-22 (both exceed targets of 35%/40%)
 2. Plan next milestone: decide target for next phase (e.g., Frontend `50%`, Rust `55%`)
 3. Remaining largest uncovered surface: `ConnectionNavigator.tsx`, `main.tsx`, and modal/form components
 
@@ -541,13 +541,26 @@ Use the checklist below as the next execution guide for the coverage-expansion b
 
 - CN-1 is complete: `useNavigationPreferencesState`, `useTransferState`, `useModalOrchestrationState`, `useContentListingState`, and `useConnectionFormState`.
 - Frontend coverage after CN-1: `38.63%`
-- Next refactoring phase: CN-2 component extraction, starting with `ContentItemList`.
+- Next refactoring phase: CN-2 component extraction.
+
+## Refactoring Plan CN-2a Measurement
+
+- Frontend coverage command: `npm run test:frontend:coverage`
+  - Tests: `307` passed across `43` files
+  - Frontend line coverage: `42.77%`
+  - Frontend statements: `42.77%`
+  - Frontend branches: `88.25%`
+  - Frontend functions: `80.11%`
+- Delivered:
+  - completed refactoring roadmap Step `CN-2a`
+  - extracted `src/features/navigation/components/ContentItemList.tsx`
+  - added `src/features/navigation/components/ContentItemList.test.tsx`
 
 ## Next Steps Toward Next Milestone
 
 Ordered by likely value:
 
-1. Decide and record the next milestone target, likely Frontend `50%` and Rust `55%`.
-2. Extract routing logic from `ConnectionNavigator.tsx`, including `handlePreviewFileAction` and similar handlers.
-3. Continue targeted component/form coverage where the component contains workflow decisions or provider-operation guardrails.
+1. Continue CN-2 with `ContentExplorerHeader`.
+2. Continue targeted component/form coverage where the component contains workflow decisions or provider-operation guardrails.
+3. Decide whether the next formal milestone should be Frontend `50%` and Rust `55%`.
 4. Reassess Rust command/provider gaps after the next frontend-heavy iteration.
