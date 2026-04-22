@@ -35,10 +35,9 @@ import {
   X
 } from "lucide-react";
 import logoPrimary from "../../assets/logo-primary.svg";
-import { AwsConnectionFields } from "../connections/components/AwsConnectionFields";
 import { AwsUploadStorageClassField } from "../connections/components/AwsUploadStorageClassField";
-import { AzureConnectionFields } from "../connections/components/AzureConnectionFields";
 import { AzureUploadTierField } from "../connections/components/AzureUploadTierField";
+import { ConnectionFormModal } from "./components/ConnectionFormModal";
 import { ContentExplorerHeader } from "./components/ContentExplorerHeader";
 import { ContentItemList } from "./components/ContentItemList";
 import { ConnectionsSidebar } from "./components/ConnectionsSidebar";
@@ -4284,207 +4283,79 @@ export function ConnectionNavigator({
         </div>
       ) : null}
 
-      {isModalOpen ? (
-        <div className="modal-backdrop" role="presentation">
-          <div
-            className="modal-card modal-card-wide"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="connection-modal-title"
-          >
-            <div className="modal-header">
-              <div>
-                <p className="modal-eyebrow">
-                  {modalMode === "edit"
-                    ? t("navigation.modal.edit_eyebrow")
-                    : t("navigation.modal.eyebrow")}
-                </p>
-                <h2 id="connection-modal-title" className="modal-title">
-                  {modalMode === "edit"
-                    ? t("navigation.modal.edit_title")
-                    : t("navigation.modal.title")}
-                </h2>
-              </div>
-            </div>
-
-            <form
-              className="modal-form"
-              onSubmit={(event) => {
-                event.preventDefault();
-                void handleSaveConnection();
-              }}
-            >
-              <div className="modal-scroll-panel">
-                <div className="modal-scroll-viewport">
-                  <label className="field-group" htmlFor={nameFieldId}>
-                    <span>{t("navigation.modal.name_label")}</span>
-                    <input
-                      id={nameFieldId}
-                      type="text"
-                      value={connectionName}
-                      placeholder={t("navigation.modal.name_placeholder")}
-                      onChange={(event) => {
-                        setConnectionName(event.target.value);
-                        resetConnectionTestState();
-                      }}
-                      autoFocus
-                    />
-                    {formErrors.connectionName ? (
-                      <span className="field-error">{formErrors.connectionName}</span>
-                    ) : null}
-                  </label>
-
-                  <label className="field-group" htmlFor={providerFieldId}>
-                    <span>{t("navigation.modal.type_label")}</span>
-                    <select
-                      id={providerFieldId}
-                      value={connectionProvider}
-                      disabled={modalMode === "edit"}
-                      onChange={(event) => {
-                        setConnectionProvider(event.target.value as ConnectionProvider);
-                        resetConnectionTestState();
-                      }}
-                    >
-                      <option value="aws">{t("content.provider.aws")}</option>
-                      <option value="azure">{t("content.provider.azure")}</option>
-                    </select>
-                  </label>
-
-                  {connectionProvider === "aws" ? (
-                    <AwsConnectionFields
-                      locale={locale}
-                      accessKeyFieldId={accessKeyFieldId}
-                      secretKeyFieldId={secretKeyFieldId}
-                      restrictedBucketNameFieldId={restrictedBucketNameFieldId}
-                      connectOnStartupFieldId={connectOnStartupFieldId}
-                      accessKeyId={accessKeyId}
-                      secretAccessKey={secretAccessKey}
-                      restrictedBucketName={restrictedBucketName}
-                      connectOnStartup={connectOnStartup}
-                      defaultUploadStorageClass={defaultAwsUploadStorageClass}
-                      errors={{
-                        accessKeyId: formErrors.accessKeyId,
-                        secretAccessKey: formErrors.secretAccessKey,
-                        restrictedBucketName: formErrors.restrictedBucketName
-                      }}
-                      onAccessKeyIdChange={(value) => {
-                        setAccessKeyId(value);
-                        resetConnectionTestState();
-                      }}
-                      onSecretAccessKeyChange={(value) => {
-                        setSecretAccessKey(value);
-                        resetConnectionTestState();
-                      }}
-                      onRestrictedBucketNameChange={(value) => {
-                        setRestrictedBucketName(value);
-                        resetConnectionTestState();
-                      }}
-                      onConnectOnStartupChange={setConnectOnStartup}
-                      onDefaultUploadStorageClassChange={setDefaultAwsUploadStorageClass}
-                      t={t}
-                    />
-                  ) : (
-                    <AzureConnectionFields
-                      storageAccountNameFieldId={storageAccountNameFieldId}
-                      authenticationMethodFieldId={azureAuthenticationMethodFieldId}
-                      accountKeyFieldId={azureAccountKeyFieldId}
-                      connectOnStartupFieldId={connectOnStartupFieldId}
-                      storageAccountName={storageAccountName}
-                      authenticationMethod={azureAuthenticationMethod}
-                      accountKey={azureAccountKey}
-                      connectOnStartup={connectOnStartup}
-                      defaultUploadTier={defaultAzureUploadTier}
-                      errors={{
-                        storageAccountName: formErrors.storageAccountName,
-                        authenticationMethod: formErrors.authenticationMethod,
-                        accountKey: formErrors.accountKey
-                      }}
-                      onStorageAccountNameChange={(value) => {
-                        setStorageAccountName(value);
-                        resetConnectionTestState();
-                      }}
-                      onAuthenticationMethodChange={(value) => {
-                        setAzureAuthenticationMethod(value);
-                        resetConnectionTestState();
-                      }}
-                      onAccountKeyChange={(value) => {
-                        setAzureAccountKey(value);
-                        resetConnectionTestState();
-                      }}
-                      onConnectOnStartupChange={setConnectOnStartup}
-                      onDefaultUploadTierChange={setDefaultAzureUploadTier}
-                      t={t}
-                    />
-                  )}
-
-                  {submitError ? <p className="status-message-error">{submitError}</p> : null}
-                </div>
-              </div>
-
-              <div className="connection-modal-footer">
-                <div className="connection-test-footer">
-                  <button
-                    type="button"
-                    className="secondary-button"
-                    disabled={isSubmitting || connectionTestStatus === "testing"}
-                    onClick={handleTestConnection}
-                    title={t(
-                      connectionProvider === "aws"
-                        ? "navigation.modal.aws.test_connection_helper"
-                        : "navigation.modal.azure.test_connection_helper"
-                    )}
-                  >
-                    {t(
-                      connectionProvider === "aws"
-                        ? "navigation.modal.aws.test_connection_button"
-                        : "navigation.modal.azure.test_connection_button"
-                    )}
-                  </button>
-
-                  {connectionTestStatus !== "idle" ? (
-                    <span
-                      className={`connection-test-status-icon is-${connectionTestStatus}`}
-                      title={`${t(
-                        `navigation.modal.${connectionProvider}.test_connection_status.${connectionTestStatus}`
-                      )}${connectionTestMessage ? `: ${connectionTestMessage}` : ""}`}
-                      aria-label={`${t(
-                        `navigation.modal.${connectionProvider}.test_connection_status.${connectionTestStatus}`
-                      )}${connectionTestMessage ? `: ${connectionTestMessage}` : ""}`}
-                    >
-                      {connectionTestStatus === "success" ? (
-                        <CheckCircle2 size={16} strokeWidth={2} />
-                      ) : connectionTestStatus === "error" ? (
-                        <XCircle size={16} strokeWidth={2} />
-                      ) : connectionTestStatus === "testing" ? (
-                        <LoaderCircle
-                          size={16}
-                          strokeWidth={2}
-                          className="connection-test-spinner"
-                        />
-                      ) : (
-                        <AlertCircle size={16} strokeWidth={2} />
-                      )}
-                    </span>
-                  ) : null}
-                </div>
-
-                <div className="modal-actions modal-actions-inline">
-                  <button type="button" className="secondary-button" onClick={closeModal}>
-                    {t("common.cancel")}
-                  </button>
-                  <button
-                    type="submit"
-                    className="primary-button"
-                    disabled={isSubmitting}
-                  >
-                    {modalMode === "edit" ? t("common.update") : t("common.save")}
-                  </button>
-                </div>
-              </div>
-            </form>
-          </div>
-        </div>
-      ) : null}
+      <ConnectionFormModal
+        isOpen={isModalOpen}
+        locale={locale}
+        fieldIds={{
+          nameFieldId,
+          providerFieldId,
+          accessKeyFieldId,
+          secretKeyFieldId,
+          restrictedBucketNameFieldId,
+          storageAccountNameFieldId,
+          azureAuthenticationMethodFieldId,
+          azureAccountKeyFieldId,
+          connectOnStartupFieldId
+        }}
+        modalMode={modalMode}
+        connectionName={connectionName}
+        connectionProvider={connectionProvider}
+        accessKeyId={accessKeyId}
+        secretAccessKey={secretAccessKey}
+        restrictedBucketName={restrictedBucketName}
+        storageAccountName={storageAccountName}
+        azureAuthenticationMethod={azureAuthenticationMethod}
+        azureAccountKey={azureAccountKey}
+        connectOnStartup={connectOnStartup}
+        defaultAwsUploadStorageClass={defaultAwsUploadStorageClass}
+        defaultAzureUploadTier={defaultAzureUploadTier}
+        formErrors={formErrors}
+        submitError={submitError}
+        isSubmitting={isSubmitting}
+        connectionTestStatus={connectionTestStatus}
+        connectionTestMessage={connectionTestMessage}
+        t={t}
+        onConnectionNameChange={(value) => {
+          setConnectionName(value);
+          resetConnectionTestState();
+        }}
+        onConnectionProviderChange={(value) => {
+          setConnectionProvider(value);
+          resetConnectionTestState();
+        }}
+        onAccessKeyIdChange={(value) => {
+          setAccessKeyId(value);
+          resetConnectionTestState();
+        }}
+        onSecretAccessKeyChange={(value) => {
+          setSecretAccessKey(value);
+          resetConnectionTestState();
+        }}
+        onRestrictedBucketNameChange={(value) => {
+          setRestrictedBucketName(value);
+          resetConnectionTestState();
+        }}
+        onStorageAccountNameChange={(value) => {
+          setStorageAccountName(value);
+          resetConnectionTestState();
+        }}
+        onAzureAuthenticationMethodChange={(value) => {
+          setAzureAuthenticationMethod(value);
+          resetConnectionTestState();
+        }}
+        onAzureAccountKeyChange={(value) => {
+          setAzureAccountKey(value);
+          resetConnectionTestState();
+        }}
+        onConnectOnStartupChange={setConnectOnStartup}
+        onDefaultAwsUploadStorageClassChange={setDefaultAwsUploadStorageClass}
+        onDefaultAzureUploadTierChange={setDefaultAzureUploadTier}
+        onTestConnection={handleTestConnection}
+        onSaveConnection={() => {
+          void handleSaveConnection();
+        }}
+        onClose={closeModal}
+      />
 
       {isUploadSettingsModalOpen && selectedConnection ? (
         <div className="modal-backdrop" role="presentation">

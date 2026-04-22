@@ -76,9 +76,9 @@ Increase automated test coverage toward the agreed long-term target of `75%` lin
 
 ## Current Priorities
 
-1. **Milestone C complete** ✅ — Frontend `46.36%`, Rust `46.82%` measured on 2026-04-22 (both exceed targets of 35%/40%)
+1. **Milestone C complete** ✅ — Frontend `49.35%`, Rust `46.82%` measured on 2026-04-22 (both exceed targets of 35%/40%)
 2. Plan next milestone: decide target for next phase (e.g., Frontend `50%`, Rust `55%`)
-3. Remaining largest uncovered surface: `ConnectionNavigator.tsx`, `main.tsx`, and modal/form components
+3. Remaining largest uncovered surface: `ConnectionNavigator.tsx`, `main.tsx`, and remaining modal orchestration components
 
 ## Operational Roadmap
 
@@ -582,11 +582,24 @@ Use the checklist below as the next execution guide for the coverage-expansion b
   - extracted `src/features/navigation/components/ConnectionsSidebar.tsx`
   - added `src/features/navigation/components/ConnectionsSidebar.test.tsx`
 
+## Refactoring Plan CN-2d Measurement
+
+- Frontend coverage command: `npm run test:frontend:coverage`
+  - Tests: `325` passed across `46` files
+  - Frontend line coverage: `49.35%`
+  - Frontend statements: `49.35%`
+  - Frontend branches: `87.86%`
+  - Frontend functions: `81.93%`
+- Delivered:
+  - completed refactoring roadmap Step `CN-2d`
+  - extracted `src/features/navigation/components/ConnectionFormModal.tsx`
+  - added `src/features/navigation/components/ConnectionFormModal.test.tsx`
+
 ## Next Steps Toward Next Milestone
 
 Ordered by likely value:
 
-1. Continue CN-2 with `ConnectionFormModal`.
+1. Continue CN-2 with `NavigatorModalOrchestrator`.
 2. Continue targeted component/form coverage where the component contains workflow decisions or provider-operation guardrails.
 3. Decide whether the next formal milestone should be Frontend `50%` and Rust `55%`.
 4. Reassess Rust command/provider gaps after the next frontend-heavy iteration.
