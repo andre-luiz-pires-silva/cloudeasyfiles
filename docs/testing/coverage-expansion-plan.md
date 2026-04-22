@@ -128,7 +128,7 @@ These milestones are for planning and progress tracking only. They are not CI fa
 Current milestone status as of 2026-04-22:
 
 - Frontend has crossed the Milestone D frontend threshold at `53.08%`
-- Rust is progressing toward the Milestone D backend threshold at `48.32%`
+- Rust is progressing toward the Milestone D backend threshold at `49.52%`
 - The next planned steps should continue prioritizing Rust provider-service mutation/error paths and command-wrapper coverage until Rust reaches `55%`
 
 ## Prioritization Rules

@@ -280,10 +280,28 @@ fn normalize_recursive_delete_prefix(prefix: &str) -> Result<String, String> {
     Ok(format!("{normalized_prefix}/"))
 }
 
-fn has_more_listing_results(
-    is_truncated: Option<bool>,
-    continuation_token: Option<&str>,
-) -> bool {
+fn build_folder_marker_key(parent_path: Option<&str>, folder_name: &str) -> Result<String, String> {
+    let normalized_folder_name = folder_name.trim();
+    let normalized_parent_path = parent_path.unwrap_or_default().trim().trim_matches('/');
+
+    if normalized_folder_name.is_empty() {
+        return Err("Folder name is required.".to_string());
+    }
+
+    if normalized_folder_name.contains('/') || normalized_folder_name.contains('\\') {
+        return Err("Folder name cannot contain path separators.".to_string());
+    }
+
+    if normalized_parent_path.is_empty() {
+        Ok(format!("{normalized_folder_name}/"))
+    } else {
+        Ok(format!(
+            "{normalized_parent_path}/{normalized_folder_name}/"
+        ))
+    }
+}
+
+fn has_more_listing_results(is_truncated: Option<bool>, continuation_token: Option<&str>) -> bool {
     is_truncated.unwrap_or(false)
         && continuation_token
             .map(|value| !value.trim().is_empty())
@@ -1048,32 +1066,14 @@ impl AwsConnectionService {
         let access_key_id = input.access_key_id.trim().to_string();
         let secret_access_key = input.secret_access_key.trim().to_string();
         let bucket_name = bucket_name.trim().to_string();
-        let folder_name = folder_name.trim().to_string();
         let restricted_bucket_name =
             Self::normalize_restricted_bucket_name(input.restricted_bucket_name);
-        let normalized_parent_path = parent_path
-            .unwrap_or_default()
-            .trim()
-            .trim_matches('/')
-            .to_string();
 
         if bucket_name.is_empty() {
             return Err("Bucket name is required for folder creation.".to_string());
         }
 
-        if folder_name.is_empty() {
-            return Err("Folder name is required.".to_string());
-        }
-
-        if folder_name.contains('/') || folder_name.contains('\\') {
-            return Err("Folder name cannot contain path separators.".to_string());
-        }
-
-        let folder_key = if normalized_parent_path.is_empty() {
-            format!("{folder_name}/")
-        } else {
-            format!("{normalized_parent_path}/{folder_name}/")
-        };
+        let folder_key = build_folder_marker_key(parent_path.as_deref(), &folder_name)?;
 
         eprintln!(
             "[aws_connection_service] creating S3 folder marker for bucket={} key={}",
@@ -1130,11 +1130,7 @@ impl AwsConnectionService {
         let restricted_bucket_name =
             Self::normalize_restricted_bucket_name(input.restricted_bucket_name);
 
-        validate_mutation_bucket_and_object(
-            &bucket_name,
-            &object_key,
-            "storage class changes",
-        )?;
+        validate_mutation_bucket_and_object(&bucket_name, &object_key, "storage class changes")?;
 
         let storage_class = parse_required_storage_class(&target_storage_class)?;
 
@@ -2460,9 +2456,15 @@ mod tests {
 
     #[test]
     fn normalizes_listing_page_size_with_bounds() {
-        assert_eq!(normalize_listing_page_size(None), DEFAULT_S3_LISTING_PAGE_SIZE);
+        assert_eq!(
+            normalize_listing_page_size(None),
+            DEFAULT_S3_LISTING_PAGE_SIZE
+        );
         assert_eq!(normalize_listing_page_size(Some(0)), 1);
-        assert_eq!(normalize_listing_page_size(Some(5000)), MAX_S3_LISTING_PAGE_SIZE);
+        assert_eq!(
+            normalize_listing_page_size(Some(5000)),
+            MAX_S3_LISTING_PAGE_SIZE
+        );
         assert_eq!(normalize_listing_page_size(Some(250)), 250);
     }
 
@@ -2549,15 +2551,13 @@ mod tests {
                 .join("report.txt")
         );
 
-        assert!(
-            AwsConnectionService::build_primary_cache_object_path(
-                "/tmp/cache",
-                "Primary Connection",
-                "bucket-a",
-                "",
-            )
-            .is_err()
-        );
+        assert!(AwsConnectionService::build_primary_cache_object_path(
+            "/tmp/cache",
+            "Primary Connection",
+            "bucket-a",
+            "",
+        )
+        .is_err());
     }
 
     #[test]
@@ -2601,7 +2601,9 @@ mod tests {
                 .join("connection-123")
                 .join("bucket-a")
                 .join(AwsConnectionService::encode_cache_path_segment("docs"))
-                .join(AwsConnectionService::encode_cache_path_segment("report.txt"))
+                .join(AwsConnectionService::encode_cache_path_segment(
+                    "report.txt"
+                ))
         );
 
         let temp_cache_path = AwsConnectionService::build_cache_temp_object_path(
@@ -2621,12 +2623,10 @@ mod tests {
             temp_cache_path.file_stem().and_then(|value| value.to_str()),
             Some("report")
         );
-        assert!(
-            temp_cache_path
-                .extension()
-                .and_then(|value| value.to_str())
-                .is_some_and(|value| value.starts_with("part-"))
-        );
+        assert!(temp_cache_path
+            .extension()
+            .and_then(|value| value.to_str())
+            .is_some_and(|value| value.starts_with("part-")));
 
         let temp_file_path =
             AwsConnectionService::build_temp_file_path(Path::new("/tmp/downloads/report.txt"))
@@ -2658,7 +2658,10 @@ mod tests {
         );
         assert_eq!(normalize_bucket_region(None), "us-east-1");
 
-        assert!(matches!(parse_restore_tier(" expedited "), Ok(Tier::Expedited)));
+        assert!(matches!(
+            parse_restore_tier(" expedited "),
+            Ok(Tier::Expedited)
+        ));
         assert!(matches!(
             parse_upload_storage_class(Some(" STANDARD_IA ")),
             Ok(Some(StorageClass::StandardIa))
@@ -2719,28 +2722,26 @@ mod tests {
             AwsConnectionService::normalize_restricted_bucket_name(Some("   ".to_string())),
             None
         );
-        assert!(
-            AwsConnectionService::validate_bucket_matches_restriction(
-                "bucket-a",
-                Some("bucket-a")
-            )
-            .is_ok()
-        );
-        assert!(
-            AwsConnectionService::validate_bucket_matches_restriction(
-                "bucket-b",
-                Some("bucket-a")
-            )
-            .is_err()
-        );
+        assert!(AwsConnectionService::validate_bucket_matches_restriction(
+            "bucket-a",
+            Some("bucket-a")
+        )
+        .is_ok());
+        assert!(AwsConnectionService::validate_bucket_matches_restriction(
+            "bucket-b",
+            Some("bucket-a")
+        )
+        .is_err());
     }
 
     #[test]
     fn validates_mutation_inputs_for_restore_tier_change_and_delete() {
-        assert!(
-            validate_mutation_bucket_and_object("bucket-a", "docs/file.txt", "restore requests")
-                .is_ok()
-        );
+        assert!(validate_mutation_bucket_and_object(
+            "bucket-a",
+            "docs/file.txt",
+            "restore requests"
+        )
+        .is_ok());
         assert!(
             validate_mutation_bucket_and_object("", "docs/file.txt", "restore requests").is_err()
         );
@@ -2759,6 +2760,18 @@ mod tests {
             "docs/reports/"
         );
         assert!(normalize_recursive_delete_prefix(" / ").is_err());
+
+        assert_eq!(
+            build_folder_marker_key(None, " reports ").unwrap(),
+            "reports/"
+        );
+        assert_eq!(
+            build_folder_marker_key(Some(" /docs/ "), " reports ").unwrap(),
+            "docs/reports/"
+        );
+        assert!(build_folder_marker_key(Some("docs"), "   ").is_err());
+        assert!(build_folder_marker_key(Some("docs"), "bad/name").is_err());
+        assert!(build_folder_marker_key(Some("docs"), "bad\\name").is_err());
     }
 
     #[test]
@@ -2777,7 +2790,10 @@ mod tests {
         assert_eq!(batches[0].len(), S3_DELETE_BATCH_SIZE);
         assert_eq!(batches[1].len(), 3);
         assert_eq!(batches[0][0], "docs/file-0.txt");
-        assert_eq!(batches[1][2], format!("docs/file-{}.txt", S3_DELETE_BATCH_SIZE + 2));
+        assert_eq!(
+            batches[1][2],
+            format!("docs/file-{}.txt", S3_DELETE_BATCH_SIZE + 2)
+        );
     }
 
     #[tokio::test]
@@ -2796,9 +2812,7 @@ mod tests {
         fs::create_dir_all(recent_legacy_path.parent().unwrap())
             .await
             .unwrap();
-        fs::write(&recent_legacy_path, b"cached")
-            .await
-            .unwrap();
+        fs::write(&recent_legacy_path, b"cached").await.unwrap();
 
         let resolved = AwsConnectionService::resolve_cached_object_path(
             "connection-123".to_string(),
@@ -2813,7 +2827,9 @@ mod tests {
         assert_eq!(resolved, recent_legacy_path);
 
         let temp_file = temp_root.join("downloads").join(".report.txt.part");
-        fs::create_dir_all(temp_file.parent().unwrap()).await.unwrap();
+        fs::create_dir_all(temp_file.parent().unwrap())
+            .await
+            .unwrap();
         fs::write(&temp_file, b"partial").await.unwrap();
 
         AwsConnectionService::remove_temp_file_if_exists(&temp_file)
@@ -2839,10 +2855,13 @@ mod tests {
 
     #[test]
     fn rejects_non_http_external_urls() {
-        assert!(AwsConnectionService::open_external_url("   file:///tmp/report.txt   ".to_string())
-            .is_err());
-        assert!(AwsConnectionService::open_external_url("mailto:user@example.com".to_string())
-            .is_err());
+        assert!(AwsConnectionService::open_external_url(
+            "   file:///tmp/report.txt   ".to_string()
+        )
+        .is_err());
+        assert!(
+            AwsConnectionService::open_external_url("mailto:user@example.com".to_string()).is_err()
+        );
     }
 
     #[tokio::test]
@@ -2872,7 +2891,9 @@ mod tests {
         fs::create_dir_all(existing_legacy.parent().unwrap())
             .await
             .unwrap();
-        fs::write(&existing_primary, b"cached-primary").await.unwrap();
+        fs::write(&existing_primary, b"cached-primary")
+            .await
+            .unwrap();
         fs::write(&existing_legacy, b"cached-legacy").await.unwrap();
 
         let cached = AwsConnectionService::find_cached_objects(
@@ -2891,18 +2912,16 @@ mod tests {
         .unwrap();
 
         assert_eq!(cached, vec!["docs/report.txt", "docs/archive.zip"]);
-        assert!(
-            AwsConnectionService::find_cached_objects(
-                "connection-123".to_string(),
-                "Primary Connection".to_string(),
-                "bucket-a".to_string(),
-                "   ".to_string(),
-                vec!["docs/report.txt".to_string()],
-            )
-            .await
-            .unwrap()
-            .is_empty()
-        );
+        assert!(AwsConnectionService::find_cached_objects(
+            "connection-123".to_string(),
+            "Primary Connection".to_string(),
+            "bucket-a".to_string(),
+            "   ".to_string(),
+            vec!["docs/report.txt".to_string()],
+        )
+        .await
+        .unwrap()
+        .is_empty());
 
         fs::remove_dir_all(&temp_root).await.unwrap();
     }
