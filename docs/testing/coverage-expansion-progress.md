@@ -76,9 +76,9 @@ Increase automated test coverage toward the agreed long-term target of `75%` lin
 
 ## Current Priorities
 
-1. **RF4 complete** ✅ — Frontend `53.08%`, Rust `46.82%` measured on 2026-04-22
-2. Frontend has crossed the next interim `50%` threshold; Rust still needs expansion toward `55%`
-3. Next executable step: close `V5` and decide whether to prioritize Rust `55%` or continue frontend toward `65%`
+1. **V5 complete** ✅ — Frontend `53.08%`, Rust `46.82%` measured on 2026-04-22
+2. Frontend has crossed the interim `50%` threshold; Rust still needs expansion toward `55%`
+3. Next executable priority: expand Rust command/provider coverage toward `55%`
 
 ## Operational Roadmap
 
@@ -638,11 +638,29 @@ Use the checklist below as the next execution guide for the coverage-expansion b
   - extracted `connectionNormalization.ts`, `connectionValidation.ts`, `awsConnectionService.ts`, and `azureConnectionService.ts`
   - preserved existing `connectionService` imports and helper re-exports
 
+## Refactoring Plan V5 Closure
+
+- Frontend coverage command: `npm run test:frontend:coverage`
+  - Tests: `331` passed across `47` files
+  - Frontend line coverage: `53.08%`
+  - Frontend statements: `53.08%`
+  - Frontend branches: `87.12%`
+  - Frontend functions: `82.03%`
+- Rust coverage command: `npm run test:rust:coverage`
+  - Tests: `52` passed
+  - Rust line coverage: `46.82%`
+  - Rust regions: `45.82%`
+  - Rust functions: `39.31%`
+- Decision:
+  - frontend is past the interim `50%` threshold after CN-2 and RF4
+  - Rust remains below the `55%` milestone target
+  - next work should prioritize Rust provider/command coverage before more frontend expansion
+
 ## Next Steps Toward Next Milestone
 
 Ordered by likely value:
 
-1. Close `V5` with the post-RF4 measurement and milestone decision.
-2. Decide whether to prioritize Rust `55%` next or continue frontend toward Milestone E `65%`.
-3. Reassess Rust command/provider gaps after the next frontend-heavy iteration.
-4. If continuing frontend, target residual `ConnectionNavigator.tsx` orchestration and `main.tsx`.
+1. Add Rust coverage around remaining provider-service mutation/error paths.
+2. Add Rust coverage around command wrappers that still only have partial `Window`-driven coverage.
+3. Re-run `npm run test:rust:coverage` and update this tracker after each Rust step.
+4. Resume frontend toward Milestone E `65%` after Rust reaches `55%`.

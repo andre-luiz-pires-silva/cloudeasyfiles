@@ -9,7 +9,7 @@ a cobertura de testes aproveitando a maior testabilidade resultante.
 ### Estado atual (pós Milestone C)
 
 - Frontend line coverage: `53.08%`
-- Rust line coverage: `46.83%`
+- Rust line coverage: `46.82%`
 - Maior gargalo: `ConnectionNavigator.tsx` — 6.299 linhas, 0% de cobertura,
   78 state variables, 148 hook usages, 44 handlers, JSX começa na linha 323
 
@@ -243,7 +243,10 @@ cobertura de componentes restantes (formulários de conexão, `main.tsx`, etc.).
   - Extraídos `connectionNormalization.ts`, `connectionValidation.ts`, `awsConnectionService.ts` e `azureConnectionService.ts`
   - Build e 331 testes passando
   - Frontend line coverage: `53.08%`
-- [ ] **Step V5** — Re-medir e confirmar Milestone Final
+- [x] **Step V5** — Re-medir e confirmar status pós-RF4
+  - Frontend line coverage: `53.08%`, 47 arquivos de teste, 331 testes passando
+  - Rust line coverage: `46.82%`, 52 testes passando
+  - Decisão: priorizar Rust até `55%` antes de continuar frontend rumo a `65%`
 
 ---
 
@@ -284,3 +287,4 @@ cobertura de componentes restantes (formulários de conexão, `main.tsx`, etc.).
 - Post CN-2e: Frontend `52.90%`, 47 test files, 331 tests passing (6 novos do componente)
 - Post V4: CN-2 encerrado, Frontend `52.90%`, 47 test files, 331 tests passing
 - Post RF4: Frontend `53.08%`, 47 test files, 331 tests passing (split de `connectionService.ts`)
+- Post V5: Frontend `53.08%`, Rust `46.82%`; próxima prioridade é Rust `55%`
