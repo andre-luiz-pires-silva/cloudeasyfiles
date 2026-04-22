@@ -8,7 +8,7 @@ a cobertura de testes aproveitando a maior testabilidade resultante.
 
 ### Estado atual (pós Milestone C)
 
-- Frontend line coverage: `36.39%`
+- Frontend line coverage: `38.34%`
 - Rust line coverage: `46.83%`
 - Maior gargalo: `ConnectionNavigator.tsx` — 6.299 linhas, 0% de cobertura,
   78 state variables, 148 hook usages, 44 handlers, JSX começa na linha 323
@@ -192,7 +192,10 @@ cobertura de componentes restantes (formulários de conexão, `main.tsx`, etc.).
   - 7 testes em `useModalOrchestrationState.test.ts`
   - Adicionado `name?: string` a `NavigationContentItem`
   - Build e 287 testes passando
-- [ ] **Step CN-1d** — Extrair `useContentListingState`
+- [x] **Step CN-1d** — Extrair `useContentListingState`
+  - Hook em `src/features/navigation/hooks/useContentListingState.ts`
+  - 7 testes em `useContentListingState.test.ts`
+  - Build e 294 testes passando
 - [ ] **Step CN-1e** — Extrair `useConnectionFormState`
 - [ ] **Step V3** — Re-medir após hooks + escrever testes dos hooks
 
@@ -241,3 +244,4 @@ cobertura de componentes restantes (formulários de conexão, `main.tsx`, etc.).
 - Post CN-1a: 38 test files, 273 tests passing (7 novos do hook)
 - Post CN-1b: 39 test files, 280 tests passing (7 novos do hook)
 - Post CN-1c: 40 test files, 287 tests passing (7 novos do hook)
+- Post CN-1d: Frontend `38.34%`, 41 test files, 294 tests passing (7 novos do hook)

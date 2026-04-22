@@ -76,9 +76,9 @@ Increase automated test coverage toward the agreed long-term target of `75%` lin
 
 ## Current Priorities
 
-1. **Milestone C complete** ✅ — Frontend `36.39%`, Rust `46.83%` (both exceed targets of 35%/40%)
+1. **Milestone C complete** ✅ — Frontend `38.34%`, Rust `46.82%` measured on 2026-04-22 (both exceed targets of 35%/40%)
 2. Plan next milestone: decide target for next phase (e.g., Frontend `50%`, Rust `55%`)
-3. Remaining largest uncovered surface: `ConnectionNavigator.tsx` (~5,060 lines, 0%), `main.tsx` (156 lines), modal/form components
+3. Remaining largest uncovered surface: `ConnectionNavigator.tsx`, `main.tsx`, and modal/form components
 
 ## Operational Roadmap
 
@@ -106,15 +106,12 @@ Use the checklist below as the next execution guide for the coverage-expansion b
 
 ### Review Step
 
-- [ ] Step V1. Re-measure milestone status after F1-F7 and R1-R2, then decide whether Milestone C is reached
+- [x] Step V1. Re-measure milestone status after F1-F7 and R1-R2, then decide whether Milestone C is reached
 
 ## Estimated Remaining Work
 
-- Estimated steps to reach Milestone C (`35%` frontend, `40%` Rust): `4-6`
-- Likely composition:
-  - `3-5` frontend-heavy steps
-  - `0-1` Rust command-layer steps
-  - `1` review/replanning step
+- Milestone C (`35%` frontend, `40%` Rust) is complete.
+- Next estimate should be set after choosing the next milestone target.
 
 ## Current Risks
 
@@ -499,15 +496,39 @@ Use the checklist below as the next execution guide for the coverage-expansion b
     - created `AzureRehydrationRequestPanel.test.tsx` — 7 tests covering tier/priority options, submitting, error, cancel, form submit, batch summary
   - **Milestone C reached**: Frontend `36.39%` ✅ (target `35%`), Rust `46.83%` ✅ (target `40%`)
 
-## Next Steps to Reach Milestone C Frontend 35%
+## Step V1 Review Measurement
 
-Gap to close: ~5.5 pp from current ~29.5% → 35% (roughly 550 additional covered lines).
+- Frontend coverage command: `npm run test:frontend:coverage`
+  - Tests: `287` passed across `40` files
+  - Frontend line coverage: `37.87%`
+  - Frontend statements: `37.87%`
+  - Frontend branches: `89.56%`
+  - Frontend functions: `81.34%`
+- Rust coverage command: `npm run test:rust:coverage`
+  - Tests: `52` passed
+  - Rust line coverage: `46.82%`
+  - Rust regions: `45.82%`
+  - Rust functions: `39.31%`
+- Decision: **Milestone C is confirmed complete**.
 
-Ordered by effort/impact:
+## Refactoring Plan CN-1d Measurement
 
-1. **Step V1 (re-measure)** — Run `npm run coverage` to confirm actual new baseline after provider-content tests.
-2. **Extend `navigationPresentation.test.ts`** — ~28 uncovered lines remain in `navigationPresentation.ts` (was 90.31%). Extend existing test file to eliminate remaining gaps.
-3. **Extend `navigationCacheState.test.ts`** — ~12 uncovered lines remain in `navigationCacheState.ts` (was 67.56%). Extend existing test file.
-4. **Extract routing logic from `ConnectionNavigator.tsx`** — `handlePreviewFileAction` and similar routing handlers (~100+ lines extractable). Largest remaining extraction opportunity.
-5. **Additional ConnectionNavigator extractions** — After initial routing extraction, identify next highest-line-count untested behaviors for further extraction rounds.
-6. **Step V1 close** — Re-measure and mark Milestone C Frontend complete once 35% is confirmed.
+- Frontend coverage command: `npm run test:frontend:coverage`
+  - Tests: `294` passed across `41` files
+  - Frontend line coverage: `38.34%`
+  - Frontend statements: `38.34%`
+  - Frontend branches: `89.65%`
+  - Frontend functions: `81.65%`
+- Delivered:
+  - completed refactoring roadmap Step `CN-1d`
+  - integrated `src/features/navigation/hooks/useContentListingState.ts` into `ConnectionNavigator.tsx`
+  - added `src/features/navigation/hooks/useContentListingState.test.ts`
+
+## Next Steps Toward Next Milestone
+
+Ordered by likely value:
+
+1. Decide and record the next milestone target, likely Frontend `50%` and Rust `55%`.
+2. Extract routing logic from `ConnectionNavigator.tsx`, including `handlePreviewFileAction` and similar handlers.
+3. Continue targeted component/form coverage where the component contains workflow decisions or provider-operation guardrails.
+4. Reassess Rust command/provider gaps after the next frontend-heavy iteration.

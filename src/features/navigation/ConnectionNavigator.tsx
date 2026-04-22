@@ -7,6 +7,11 @@ import { useNavigationPreferencesState } from "./hooks/useNavigationPreferencesS
 import { useTransferState } from "./hooks/useTransferState";
 import { useModalOrchestrationState } from "./hooks/useModalOrchestrationState";
 import {
+  ALL_CONTENT_STATUS_FILTERS,
+  type ContentStatusFilter,
+  useContentListingState
+} from "./hooks/useContentListingState";
+import {
   AlertCircle,
   ChevronRight,
   CheckCircle2,
@@ -159,7 +164,8 @@ import {
   buildContentItems,
   buildPreviewFileState,
   isArchivedStorageClass,
-  mergeContentItems
+  mergeContentItems,
+  type NavigationContentExplorerItem as ContentExplorerItem
 } from "./navigationContent";
 import {
   buildAvailableUntilTooltip,
@@ -341,32 +347,9 @@ const CONNECTED_CONNECTION_TITLE_KEY = "navigation.connection_status.connected";
 const DISCONNECTED_CONNECTION_TITLE_KEY = "navigation.connection_status.disconnected";
 const BUCKET_REGION_PLACEHOLDER = "...";
 const MAX_BUCKET_REGION_REQUESTS = 4;
-const ALL_CONTENT_STATUS_FILTERS: Array<
-  "directory" | "downloaded" | "available" | "restoring" | "archived"
-> = [
-  "directory",
-  "downloaded",
-  "available",
-  "restoring",
-  "archived"
-];
 type ConnectionIndicator = {
   status: ConnectionIndicatorStatus;
   message?: string;
-};
-
-type FileAvailabilityStatus = "available" | "archived" | "restoring";
-type FileDownloadState = "not_downloaded" | "restoring" | "available_to_download" | "downloaded";
-type ContentStatusFilter = (typeof ALL_CONTENT_STATUS_FILTERS)[number];
-type ContentMenuAnchor = {
-  itemId: string;
-  x: number;
-  y: number;
-};
-
-type ContentAreaMenuAnchor = {
-  x: number;
-  y: number;
 };
 
 type FileActionAvailabilityContext = {
@@ -389,19 +372,6 @@ type BatchSelectionActionsState = {
 };
 
 const CONTENT_DELETE_CONFIRMATION_TEXT = "DELETE";
-
-type ContentExplorerItem = {
-  id: string;
-  kind: "directory" | "file";
-  name: string;
-  path: string;
-  size?: number;
-  lastModified?: string | null;
-  storageClass?: string | null;
-  restoreExpiryDate?: string | null;
-  availabilityStatus?: FileAvailabilityStatus;
-  downloadState?: FileDownloadState;
-};
 
 type TreeNodeKind = "connection" | "bucket";
 
@@ -510,14 +480,40 @@ export function ConnectionNavigator({
     Record<string, ExplorerTreeNode[]>
   >({});
   const [bucketContentPaths, setBucketContentPaths] = useState<Record<string, string>>({});
-  const [contentItems, setContentItems] = useState<ContentExplorerItem[]>([]);
-  const [contentContinuationToken, setContentContinuationToken] = useState<string | null>(null);
-  const [contentHasMore, setContentHasMore] = useState(false);
-  const [isLoadingContent, setIsLoadingContent] = useState(false);
-  const [isLoadingMoreContent, setIsLoadingMoreContent] = useState(false);
-  const [contentError, setContentError] = useState<string | null>(null);
-  const [loadMoreContentError, setLoadMoreContentError] = useState<string | null>(null);
-  const [contentActionError, setContentActionError] = useState<string | null>(null);
+  const {
+    contentItems,
+    contentContinuationToken,
+    contentHasMore,
+    isLoadingContent,
+    isLoadingMoreContent,
+    contentError,
+    loadMoreContentError,
+    contentActionError,
+    sidebarFilterText,
+    contentFilterText,
+    contentStatusFilters,
+    selectedContentItemIds,
+    openContentMenuItemId,
+    contentMenuAnchor,
+    contentAreaMenuAnchor,
+    contentRefreshNonce,
+    setContentItems,
+    setContentContinuationToken,
+    setContentHasMore,
+    setIsLoadingContent,
+    setIsLoadingMoreContent,
+    setContentError,
+    setLoadMoreContentError,
+    setContentActionError,
+    setSidebarFilterText,
+    setContentFilterText,
+    setContentStatusFilters,
+    setSelectedContentItemIds,
+    setOpenContentMenuItemId,
+    setContentMenuAnchor,
+    setContentAreaMenuAnchor,
+    setContentRefreshNonce
+  } = useContentListingState();
   const {
     restoreRequest,
     restoreSubmitError,
@@ -558,10 +554,6 @@ export function ConnectionNavigator({
     setUploadSettingsSubmitError,
     setIsSavingUploadSettings
   } = useModalOrchestrationState();
-  const [sidebarFilterText, setSidebarFilterText] = useState("");
-  const [contentFilterText, setContentFilterText] = useState("");
-  const [contentStatusFilters, setContentStatusFilters] = useState<ContentStatusFilter[]>([]);
-  const [selectedContentItemIds, setSelectedContentItemIds] = useState<string[]>([]);
   const {
     downloadedFilePaths,
     activeTransfers,
@@ -582,12 +574,6 @@ export function ConnectionNavigator({
     setIsUploadDropTargetActive,
     showTransferErrorToast
   } = useTransferState();
-  const [openContentMenuItemId, setOpenContentMenuItemId] = useState<string | null>(null);
-  const [contentMenuAnchor, setContentMenuAnchor] = useState<ContentMenuAnchor | null>(null);
-  const [contentAreaMenuAnchor, setContentAreaMenuAnchor] = useState<ContentAreaMenuAnchor | null>(
-    null
-  );
-  const [contentRefreshNonce, setContentRefreshNonce] = useState(0);
   const contentDropZoneRef = useRef<HTMLElement | null>(null);
   const hasProcessedStartupAutoConnectRef = useRef(false);
   const nativeDragDropPathsRef = useRef<string[]>([]);
