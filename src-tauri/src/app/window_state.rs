@@ -187,6 +187,28 @@ mod tests {
     }
 
     #[test]
+    fn round_trips_saved_window_state_through_json() {
+        let initial_state = SavedWindowState {
+            width: 1024.0,
+            height: 768.0,
+        };
+        let serialized = serialize_window_state(&initial_state).expect("serializable window state");
+        let parsed = parse_window_state(&serialized).expect("serialized state should parse");
+
+        assert_eq!(parsed.width, initial_state.width);
+        assert_eq!(parsed.height, initial_state.height);
+    }
+
+    #[test]
+    fn parses_integer_dimensions_as_f64_values() {
+        let saved_state = parse_window_state(r#"{"width":1280,"height":720}"#)
+            .expect("integer dimensions should parse as f64");
+
+        assert_eq!(saved_state.width, 1280.0);
+        assert_eq!(saved_state.height, 720.0);
+    }
+
+    #[test]
     fn builds_window_state_path_below_config_directory() {
         let path = build_window_state_path(Path::new("/tmp/cloudeasyfiles-config"));
 

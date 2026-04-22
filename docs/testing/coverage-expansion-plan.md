@@ -120,9 +120,16 @@ Intermediate milestones for this initiative:
 - Milestone A: Frontend `10%`, Rust `15%`
 - Milestone B: Frontend `20%`, Rust `25%`
 - Milestone C: Frontend `35%`, Rust `40%`
+- Milestone D: Frontend `50%`, Rust `55%`
 - Final target: Frontend `75%`, Rust `75%`
 
 These milestones are for planning and progress tracking only. They are not CI failure thresholds at this stage.
+
+Current milestone status as of 2026-04-22:
+
+- Frontend has crossed the Milestone D frontend threshold at `53.08%`
+- Rust is progressing toward the Milestone D backend threshold at `48.32%`
+- The next planned steps should continue prioritizing Rust provider-service mutation/error paths and command-wrapper coverage until Rust reaches `55%`
 
 ## Prioritization Rules
 

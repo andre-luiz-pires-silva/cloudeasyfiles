@@ -100,7 +100,7 @@ fn prepare_main_window<R: Runtime>(app: &AppHandle<R>) {
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(FRONTEND_READY_TIMEOUT).await;
 
-        if boot_resolved_flag.load(Ordering::SeqCst) {
+        if !should_reload_frontend_after_timeout(&boot_resolved_flag) {
             return;
         }
 
@@ -120,6 +120,10 @@ fn prepare_main_window<R: Runtime>(app: &AppHandle<R>) {
     });
 }
 
+fn should_reload_frontend_after_timeout(frontend_boot_resolved: &AtomicBool) -> bool {
+    !frontend_boot_resolved.load(Ordering::SeqCst)
+}
+
 fn apply_main_window_icon<R: Runtime>(window: &tauri::WebviewWindow<R>) {
     let icon = match Image::from_bytes(MAIN_WINDOW_ICON_PNG) {
         Ok(icon) => icon,
@@ -131,5 +135,19 @@ fn apply_main_window_icon<R: Runtime>(window: &tauri::WebviewWindow<R>) {
 
     if let Err(error) = window.set_icon(icon) {
         eprintln!("[bootstrap] failed to apply main window icon error={error}");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reloads_frontend_only_when_boot_is_unresolved_after_timeout() {
+        let unresolved = AtomicBool::new(false);
+        let resolved = AtomicBool::new(true);
+
+        assert!(should_reload_frontend_after_timeout(&unresolved));
+        assert!(!should_reload_frontend_after_timeout(&resolved));
     }
 }

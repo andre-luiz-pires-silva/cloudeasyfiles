@@ -76,9 +76,9 @@ Increase automated test coverage toward the agreed long-term target of `75%` lin
 
 ## Current Priorities
 
-1. **Rust window-state coverage added** ✅ — Frontend `53.08%`, Rust `47.82%` measured on 2026-04-22
+1. **Rust app/provider helper coverage added** ✅ — Frontend `53.08%`, Rust `48.32%` measured on 2026-04-22
 2. Frontend has crossed the interim `50%` threshold; Rust still needs expansion toward `55%`
-3. Next executable priority: expand Rust command/provider coverage toward `55%`
+3. Next executable priority: expand Rust provider mutation/error-path coverage toward `55%`
 
 ## Operational Roadmap
 
@@ -103,6 +103,8 @@ Use the checklist below as the next execution guide for the coverage-expansion b
 
 - [x] Step R1. Expand `presentation/commands.rs` coverage for higher-level `Window`-driven command flows
 - [x] Step R2. Expand `presentation/commands.rs` coverage for upload/download command-service handoff flows
+- [x] Step R3. Expand Rust app/provider helper coverage for bootstrap reload decisions, window-state JSON contracts, and AWS provider error formatting
+- [ ] Step R4. Expand remaining Rust provider mutation/error-path coverage toward `55%`
 
 ### Review Step
 
@@ -683,6 +685,27 @@ Use the checklist below as the next execution guide for the coverage-expansion b
   - extracted pure helpers for parsing, serializing, and resolving the window-state path
   - added coverage for valid/invalid saved window-state JSON
   - added coverage for pretty JSON output and path construction
+
+## Rust App/Provider Helper Coverage Step
+
+- Targeted Rust test command: `cargo test --manifest-path src-tauri/Cargo.toml application::services::aws_connection_service::tests::formats_provider_service_errors -- --nocapture`
+  - Tests: `3` passed
+- Targeted Rust test command: `cargo test --manifest-path src-tauri/Cargo.toml app:: -- --nocapture`
+  - Tests: `7` passed
+- Rust check command: `cargo check --manifest-path src-tauri/Cargo.toml`
+  - Result: passed
+- Rust coverage command: `npm run test:rust:coverage`
+  - Tests: `70` passed
+  - Rust line coverage: `48.32%`
+  - Rust regions: `47.49%`
+  - Rust functions: `41.84%`
+- Delivered:
+  - completed roadmap Step `R3`
+  - extracted and covered the frontend boot-timeout reload decision in `src-tauri/src/app/bootstrap.rs`
+  - expanded `src-tauri/src/app/window_state.rs` coverage for JSON round trips and integer dimension parsing
+  - expanded AWS provider-service coverage for missing, blank, and populated provider error metadata
+  - `aws_connection_service.rs` line coverage is now `38.64%`
+  - `window_state.rs` line coverage is now `36.49%`
 
 ## Next Steps Toward Next Milestone
 

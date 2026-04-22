@@ -2454,6 +2454,7 @@ impl AwsConnectionService {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use aws_sdk_sts::error::ErrorMetadata;
     use std::path::PathBuf;
     use std::sync::atomic::Ordering;
 
@@ -2670,6 +2671,42 @@ mod tests {
         assert!(parse_upload_storage_class(Some("invalid-tier")).is_err());
         assert!(parse_required_storage_class("invalid-tier").is_err());
         assert_eq!(parse_upload_storage_class(None).unwrap(), None);
+    }
+
+    #[test]
+    fn formats_provider_service_errors_with_defaults_for_missing_metadata() {
+        let error = ErrorMetadata::builder().build();
+
+        assert_eq!(
+            format_provider_service_error(&error),
+            "UnknownError: The provider returned an error without details."
+        );
+    }
+
+    #[test]
+    fn formats_provider_service_errors_with_code_and_non_blank_message() {
+        let error = ErrorMetadata::builder()
+            .code("AccessDenied")
+            .message("Missing permission")
+            .build();
+
+        assert_eq!(
+            format_provider_service_error(&error),
+            "AccessDenied: Missing permission"
+        );
+    }
+
+    #[test]
+    fn formats_provider_service_errors_with_default_message_for_blank_message() {
+        let error = ErrorMetadata::builder()
+            .code("InternalError")
+            .message("   ")
+            .build();
+
+        assert_eq!(
+            format_provider_service_error(&error),
+            "InternalError: The provider returned an error without details."
+        );
     }
 
     #[test]
