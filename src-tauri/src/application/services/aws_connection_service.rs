@@ -2819,6 +2819,33 @@ mod tests {
         .is_err());
     }
 
+    #[tokio::test]
+    async fn resolves_bucket_region_from_provided_value_before_network() {
+        let resolved_region = AwsConnectionService::resolve_bucket_region(
+            "access-key",
+            "secret-key",
+            "bucket-a",
+            Some("us-west-2".to_string()),
+            Some("bucket-a".to_string()),
+        )
+        .await
+        .expect("provided bucket region should be accepted");
+
+        assert_eq!(resolved_region, "us-west-2");
+
+        let restricted_error = AwsConnectionService::resolve_bucket_region(
+            "access-key",
+            "secret-key",
+            "bucket-b",
+            Some("us-west-2".to_string()),
+            Some("bucket-a".to_string()),
+        )
+        .await
+        .unwrap_err();
+
+        assert_eq!(restricted_error, RESTRICTED_BUCKET_MISMATCH_ERROR);
+    }
+
     #[test]
     fn validates_mutation_inputs_for_restore_tier_change_and_delete() {
         assert!(validate_mutation_bucket_and_object(
@@ -2928,6 +2955,8 @@ mod tests {
                     .build(),
             )
             .contents(Object::builder().key("docs/").size(0).build())
+            .contents(Object::builder().size(5).build())
+            .contents(Object::builder().key("docs/default.txt").size(7).build())
             .next_continuation_token("next-page")
             .is_truncated(true)
             .build();
@@ -2938,11 +2967,13 @@ mod tests {
         assert_eq!(result.directories.len(), 1);
         assert_eq!(result.directories[0].name, "reports");
         assert_eq!(result.directories[0].path, "docs/reports/");
-        assert_eq!(result.files.len(), 1);
+        assert_eq!(result.files.len(), 2);
         assert_eq!(result.files[0].key, "docs/report.txt");
         assert_eq!(result.files[0].size, 42);
         assert_eq!(result.files[0].e_tag.as_deref(), Some("etag-1"));
         assert_eq!(result.files[0].storage_class.as_deref(), Some("STANDARD_IA"));
+        assert_eq!(result.files[1].key, "docs/default.txt");
+        assert_eq!(result.files[1].storage_class.as_deref(), Some("STANDARD"));
         assert_eq!(result.continuation_token.as_deref(), Some("next-page"));
         assert!(result.has_more);
     }

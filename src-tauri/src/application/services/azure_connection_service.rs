@@ -2294,6 +2294,7 @@ mod tests {
 
         assert!(containers.is_empty());
         assert_eq!(marker, None);
+        assert!(parse_container_listing_response("<EnumerationResults>").is_err());
     }
 
     #[test]
@@ -2360,6 +2361,7 @@ mod tests {
         assert!(result.files.is_empty());
         assert_eq!(result.continuation_token, None);
         assert!(!result.has_more);
+        assert!(parse_blob_listing_response("<EnumerationResults>", None).is_err());
     }
 
     #[test]
