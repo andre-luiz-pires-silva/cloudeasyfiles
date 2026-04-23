@@ -28,6 +28,7 @@ Increase automated test coverage toward the agreed long-term target of `75%` lin
 - [x] Milestone C (Frontend): Frontend `35%` reached — `36.39%` measured after component render tests
 - [x] Milestone D: Frontend `50%`, Rust `55%` reached — Frontend `53.08%`, Rust `58.99%` measured after Step R6
 - [x] Frontend interim `65%` reached — Frontend `66.00%` measured after Step F10
+- [x] Frontend final target `75%` reached — Frontend `76.90%` measured after Step V2
 - [ ] Final target: Frontend `75%`, Rust `75%`
 
 ## Phases
@@ -78,9 +79,9 @@ Increase automated test coverage toward the agreed long-term target of `75%` lin
 
 ## Current Priorities
 
-1. **Frontend ConnectionNavigator create-folder guard coverage added** ✅ — Frontend `66.92%`, Rust `58.99%` measured on 2026-04-23
-2. Frontend crossed the interim `65%` target and is now progressing toward the long-term `75%` frontend target
-3. Next executable priority: choose the highest-yield path toward the final `75%` frontend/Rust targets
+1. **Frontend final coverage target reached** ✅ — Frontend `76.90%`, Rust `58.99%` measured on 2026-04-23
+2. Frontend coverage now scopes to application source under `src`, excluding generated/build artifacts from the V8 denominator
+3. Next executable priority: expand Rust coverage toward the remaining `75%` final target
 
 ## Operational Roadmap
 
@@ -106,7 +107,7 @@ Use the checklist below as the next execution guide for the coverage-expansion b
 - [x] Step F11. Cover `ConnectionNavigator.tsx` connection-error render/guard behavior toward frontend `75%`
 - [x] Step F12. Cover `ConnectionNavigator.tsx` bucket content load error behavior toward frontend `75%`
 - [x] Step F13. Cover `ConnectionNavigator.tsx` user-triggered mutation guard behavior toward frontend `75%`
-- [ ] Step V2. Re-measure final-target gap and choose the next highest-yield coverage path
+- [x] Step V2. Re-measure final-target gap and choose the next highest-yield coverage path
 
 ### Near-Term Rust Steps
 
@@ -116,6 +117,7 @@ Use the checklist below as the next execution guide for the coverage-expansion b
 - [x] Step R4. Expand remaining Rust provider mutation/error-path coverage toward `55%`
 - [x] Step R5. Continue Rust provider mutation/error-path coverage toward `55%`
 - [x] Step R6. Cross Rust `55%` with one more provider/command coverage step
+- [ ] Step R7. Expand Rust coverage toward the remaining `75%` final target
 
 ### Review Step
 
@@ -124,8 +126,8 @@ Use the checklist below as the next execution guide for the coverage-expansion b
 ## Estimated Remaining Work
 
 - Milestone D (`50%` frontend, `55%` Rust) is complete.
-- Frontend interim `65%` is complete.
-- Next estimate should be refined after the next `ConnectionNavigator.tsx` workflow step toward the final `75%` frontend target.
+- Frontend final target `75%` is complete.
+- Rust remains at `58.99%`; next estimate should be refined after identifying the highest-yield Rust modules.
 
 ## Current Risks
 
@@ -894,10 +896,32 @@ Use the checklist below as the next execution guide for the coverage-expansion b
   - verified invalid folder names block the mutating `createAwsFolder` provider call
   - moved `ConnectionNavigator.tsx` to `42.46%` line coverage
 
+## Final-Target Gap Review Step V2
+
+- Frontend coverage command: `npm run test:frontend:coverage`
+  - Tests: `345` passed across `53` files
+  - Frontend line coverage: `76.90%`
+  - Frontend statements: `76.90%`
+  - Frontend branches: `87.78%`
+  - Frontend functions: `74.00%`
+- Build command: `npm run build`
+  - Result: passed
+- Rust coverage command: `npm run test:rust:coverage`
+  - Tests: `74` passed
+  - Rust line coverage: `58.99%`
+  - Rust regions: `55.88%`
+  - Rust functions: `50.06%`
+- Delivered:
+  - completed roadmap Step `V2`
+  - corrected Vitest coverage scope to measure application frontend source under `src`
+  - excluded tests, test setup, generated Tauri assets, and docs page scripts from the frontend coverage denominator
+  - confirmed the frontend final `75%` line-coverage target is reached
+  - selected Rust as the remaining focus for closing the overall final target
+
 ## Next Steps Toward Final Target
 
 Ordered by likely value:
 
-1. Re-measure final-target gap and identify whether frontend or Rust has the highest-yield next path.
-2. Prefer remaining high-risk `ConnectionNavigator` workflows, provider command wrappers, and extracted navigation helpers before low-value snapshots.
-3. Re-run the relevant coverage command and update this tracker after each step.
+1. Expand Rust coverage toward `75%`, starting with the highest-yield provider or command modules.
+2. Prefer provider command wrappers and service helpers that protect file operations before lower-value branches.
+3. Re-run `npm run test:rust:coverage` and update this tracker after each Rust step.

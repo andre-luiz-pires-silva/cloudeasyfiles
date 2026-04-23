@@ -98,7 +98,7 @@ It also generates coverage reports and publishes:
 - a summary in the GitHub Actions job page
 - downloadable coverage artifacts for the workflow run
 
-Coverage remains informational in CI for now. The repository is not yet enforcing coverage thresholds because frontend coverage is still below the first milestone and the current focus is expanding high-risk areas rather than blocking on percentage.
+Coverage remains informational in CI for now. The repository is not yet enforcing coverage thresholds because Rust coverage is still below the final target and the current focus is expanding high-risk areas rather than blocking on percentage alone.
 
 ## Recommended Next Phases
 
@@ -106,9 +106,9 @@ See the dedicated coverage-expansion plan for the current phase-by-phase roadmap
 
 The next highest-value areas are:
 
-- `ConnectionNavigator.tsx` orchestration that still lives outside extracted helpers
-- upload command/event paths in `src-tauri/src/presentation/commands.rs`
-- remaining provider-service flows around multi-step restore, tier change, and delete execution
+- Rust provider-service flows around multi-step restore, tier change, delete, and transfer execution
+- command wrappers in `src-tauri/src/presentation/commands.rs` that protect provider operations
+- remaining `ConnectionNavigator.tsx` orchestration only when frontend behavior changes introduce new risk
 
 ## Test Design Rules
 
