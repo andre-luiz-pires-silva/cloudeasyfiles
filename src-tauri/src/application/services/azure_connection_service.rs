@@ -845,9 +845,7 @@ impl AzureConnectionService {
             return Err("Blob name is required for uploads.".to_string());
         }
 
-        if cancellation_flag.load(Ordering::SeqCst) {
-            return Err(AZURE_UPLOAD_CANCELLED_ERROR.to_string());
-        }
+        ensure_upload_not_cancelled(&cancellation_flag)?;
 
         let mut file = fs::File::open(&file_path)
             .await
@@ -879,9 +877,7 @@ impl AzureConnectionService {
         let mut next_block_index = 0_usize;
 
         loop {
-            if cancellation_flag.load(Ordering::SeqCst) {
-                return Err(AZURE_UPLOAD_CANCELLED_ERROR.to_string());
-            }
+            ensure_upload_not_cancelled(&cancellation_flag)?;
 
             let bytes_read = file
                 .read(&mut chunk_buffer)
@@ -910,9 +906,7 @@ impl AzureConnectionService {
             next_block_index += 1;
         }
 
-        if cancellation_flag.load(Ordering::SeqCst) {
-            return Err(AZURE_UPLOAD_CANCELLED_ERROR.to_string());
-        }
+        ensure_upload_not_cancelled(&cancellation_flag)?;
 
         commit_blob_blocks(
             &client,
@@ -964,9 +958,7 @@ impl AzureConnectionService {
             return Err("File name is required for uploads.".to_string());
         }
 
-        if cancellation_flag.load(Ordering::SeqCst) {
-            return Err(AZURE_UPLOAD_CANCELLED_ERROR.to_string());
-        }
+        ensure_upload_not_cancelled(&cancellation_flag)?;
 
         if should_use_single_request_upload(file_bytes.len()) {
             upload_blob_single_request(
@@ -988,9 +980,7 @@ impl AzureConnectionService {
         let mut block_ids = Vec::new();
 
         for (index, chunk) in file_bytes.chunks(AZURE_UPLOAD_BLOCK_SIZE).enumerate() {
-            if cancellation_flag.load(Ordering::SeqCst) {
-                return Err(AZURE_UPLOAD_CANCELLED_ERROR.to_string());
-            }
+            ensure_upload_not_cancelled(&cancellation_flag)?;
 
             let block_id = build_block_id(index);
             upload_blob_block(
@@ -1009,9 +999,7 @@ impl AzureConnectionService {
             on_progress(transferred_bytes, total_bytes)?;
         }
 
-        if cancellation_flag.load(Ordering::SeqCst) {
-            return Err(AZURE_UPLOAD_CANCELLED_ERROR.to_string());
-        }
+        ensure_upload_not_cancelled(&cancellation_flag)?;
 
         commit_blob_blocks(
             &client,
@@ -1948,6 +1936,14 @@ fn should_use_single_request_upload(byte_count: usize) -> bool {
     byte_count <= AZURE_UPLOAD_BLOCK_SIZE
 }
 
+fn ensure_upload_not_cancelled(cancellation_flag: &AtomicBool) -> Result<(), String> {
+    if cancellation_flag.load(Ordering::SeqCst) {
+        return Err(AZURE_UPLOAD_CANCELLED_ERROR.to_string());
+    }
+
+    Ok(())
+}
+
 fn build_block_id(index: usize) -> String {
     BASE64_STANDARD.encode(format!("{index:08}"))
 }
@@ -2764,6 +2760,18 @@ mod tests {
         assert!(!should_use_single_request_upload(AZURE_UPLOAD_BLOCK_SIZE + 1));
         assert_eq!(build_block_id(0), "MDAwMDAwMDA=");
         assert_eq!(build_block_id(42), "MDAwMDAwNDI=");
+    }
+
+    #[test]
+    fn detects_cancelled_uploads_from_atomic_flags() {
+        let active = AtomicBool::new(false);
+        let cancelled = AtomicBool::new(true);
+
+        assert!(ensure_upload_not_cancelled(&active).is_ok());
+        assert_eq!(
+            ensure_upload_not_cancelled(&cancelled).unwrap_err(),
+            AZURE_UPLOAD_CANCELLED_ERROR
+        );
     }
 
     #[tokio::test]

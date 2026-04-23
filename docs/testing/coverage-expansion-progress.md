@@ -80,7 +80,7 @@ Increase automated test coverage toward the agreed long-term target of `75%` lin
 
 ## Current Priorities
 
-1. **Frontend final coverage target reached** ✅ — Frontend `76.90%`, Rust `69.96%` measured on 2026-04-23
+1. **Frontend final coverage target reached** ✅ — Frontend `76.90%`, Rust `70.17%` measured on 2026-04-23
 2. Frontend coverage now scopes to application source under `src`, excluding generated/build artifacts from the V8 denominator
 3. Next executable priority: expand Rust coverage toward the remaining `75%` final target
 
@@ -134,7 +134,8 @@ Use the checklist below as the next execution guide for the coverage-expansion b
 - [x] Step R20. Cover provider auth/url helpers and local existence guards
 - [x] Step R21. Cover remaining provider mutation validation branches before network
 - [x] Step R22. Expand bootstrap and window-state local helper coverage
-- [ ] Step R23. Continue Rust provider/command coverage toward the remaining `75%` final target
+- [x] Step R23. Extract and cover provider upload-cancellation helpers
+- [ ] Step R24. Continue Rust provider/command coverage toward the remaining `75%` final target
 
 ### Review Step
 
@@ -144,7 +145,7 @@ Use the checklist below as the next execution guide for the coverage-expansion b
 
 - Milestone D (`50%` frontend, `55%` Rust) is complete.
 - Frontend final target `75%` is complete.
-- Rust has crossed the interim `65%` checkpoint and remains at `69.96%`; next estimate should continue prioritizing the highest-yield Rust provider and command modules.
+- Rust has crossed the interim `65%` checkpoint and remains at `70.17%`; next estimate should continue prioritizing the highest-yield Rust provider and command modules.
 
 ## Current Risks
 
@@ -1215,6 +1216,25 @@ Use the checklist below as the next execution guide for the coverage-expansion b
   - extracted bootstrap timeout and missing-window log-message helpers and covered them directly
   - covered window-state save failures when parent creation fails or the destination path is already a directory
   - improved low-coverage app-support modules without introducing UI-runtime test scaffolding
+
+## Rust Upload-Cancellation Helper Coverage Step
+
+- Targeted Rust test command: `cargo test --manifest-path src-tauri/Cargo.toml application::services::aws_connection_service::tests -- --nocapture`
+  - Tests: `28` passed
+- Targeted Rust test command: `cargo test --manifest-path src-tauri/Cargo.toml application::services::azure_connection_service::tests -- --nocapture`
+  - Tests: `24` passed
+- Rust check command: `cargo check --manifest-path src-tauri/Cargo.toml`
+  - Result: passed
+- Rust coverage command: `npm run test:rust:coverage`
+  - Tests: `102` passed
+  - Rust line coverage: `70.17%`
+  - Rust regions: `66.93%`
+  - Rust functions: `58.21%`
+- Delivered:
+  - completed roadmap Step `R23`
+  - extracted repeated AWS/Azure upload-cancellation checks into local helpers
+  - covered active-vs-cancelled atomic-flag behavior directly in both provider modules
+  - reduced duplication in multipart/block upload code while preserving cancellation semantics
 
 ## Next Steps Toward Final Target
 

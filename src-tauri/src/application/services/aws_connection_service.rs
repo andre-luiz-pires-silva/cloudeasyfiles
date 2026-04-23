@@ -321,6 +321,14 @@ fn should_use_single_request_upload(object_size: u64) -> bool {
     object_size <= MULTIPART_UPLOAD_CHUNK_SIZE as u64
 }
 
+fn ensure_upload_not_cancelled(cancellation_flag: &AtomicBool) -> Result<(), String> {
+    if cancellation_flag.load(Ordering::SeqCst) {
+        return Err(UPLOAD_CANCELLED_ERROR.to_string());
+    }
+
+    Ok(())
+}
+
 fn build_bucket_summaries(response: ListBucketsOutput) -> Vec<AwsBucketSummary> {
     let mut buckets = Vec::new();
 
@@ -1944,9 +1952,7 @@ impl AwsConnectionService {
         let (_, s3_client) =
             Self::build_clients(&resolved_bucket_region, access_key_id, secret_access_key).await;
 
-        if cancellation_flag.load(Ordering::SeqCst) {
-            return Err(UPLOAD_CANCELLED_ERROR.to_string());
-        }
+        ensure_upload_not_cancelled(&cancellation_flag)?;
 
         if should_use_single_request_upload(metadata.len()) {
             let body = ByteStream::from_path(&file_path)
@@ -2007,7 +2013,7 @@ impl AwsConnectionService {
         let mut chunk_buffer = vec![0_u8; MULTIPART_UPLOAD_CHUNK_SIZE];
 
         loop {
-            if cancellation_flag.load(Ordering::SeqCst) {
+            if ensure_upload_not_cancelled(&cancellation_flag).is_err() {
                 let _ = s3_client
                     .abort_multipart_upload()
                     .bucket(bucket_name.clone())
@@ -2071,7 +2077,7 @@ impl AwsConnectionService {
             next_part_number += 1;
         }
 
-        if cancellation_flag.load(Ordering::SeqCst) {
+        if ensure_upload_not_cancelled(&cancellation_flag).is_err() {
             let _ = s3_client
                 .abort_multipart_upload()
                 .bucket(bucket_name.clone())
@@ -2153,9 +2159,7 @@ impl AwsConnectionService {
         let (_, s3_client) =
             Self::build_clients(&resolved_bucket_region, access_key_id, secret_access_key).await;
 
-        if cancellation_flag.load(Ordering::SeqCst) {
-            return Err(UPLOAD_CANCELLED_ERROR.to_string());
-        }
+        ensure_upload_not_cancelled(&cancellation_flag)?;
 
         let mut request = s3_client
             .put_object()
@@ -2913,6 +2917,18 @@ mod tests {
         assert!(!should_use_single_request_upload(
             MULTIPART_UPLOAD_CHUNK_SIZE as u64 + 1
         ));
+    }
+
+    #[test]
+    fn detects_cancelled_uploads_from_atomic_flags() {
+        let active = AtomicBool::new(false);
+        let cancelled = AtomicBool::new(true);
+
+        assert!(ensure_upload_not_cancelled(&active).is_ok());
+        assert_eq!(
+            ensure_upload_not_cancelled(&cancelled).unwrap_err(),
+            UPLOAD_CANCELLED_ERROR
+        );
     }
 
     #[test]
