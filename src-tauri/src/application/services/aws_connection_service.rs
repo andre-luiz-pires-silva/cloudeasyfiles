@@ -402,6 +402,32 @@ struct PreparedAwsChangeStorageClassRequest {
     restricted_bucket_name: Option<String>,
 }
 
+struct PreparedAwsUploadFromPathRequest {
+    access_key_id: String,
+    secret_access_key: String,
+    bucket_name: String,
+    object_key: String,
+    local_file_path: String,
+    storage_class: Option<StorageClass>,
+    bucket_region: Option<String>,
+    total_bytes: i64,
+    object_size: u64,
+    restricted_bucket_name: Option<String>,
+}
+
+struct PreparedAwsUploadFromBytesRequest {
+    access_key_id: String,
+    secret_access_key: String,
+    bucket_name: String,
+    object_key: String,
+    file_name: String,
+    file_bytes: Vec<u8>,
+    storage_class: Option<StorageClass>,
+    bucket_region: Option<String>,
+    total_bytes: i64,
+    restricted_bucket_name: Option<String>,
+}
+
 fn prepare_list_bucket_items_request(
     input: AwsConnectionTestInput,
     bucket_name: String,
@@ -570,6 +596,82 @@ fn prepare_change_storage_class_request(
         object_key,
         bucket_region,
         storage_class: parse_required_storage_class(&target_storage_class)?,
+        restricted_bucket_name: AwsConnectionService::normalize_restricted_bucket_name(
+            input.restricted_bucket_name,
+        ),
+    })
+}
+
+fn prepare_upload_from_path_request(
+    input: AwsConnectionTestInput,
+    bucket_name: String,
+    object_key: String,
+    local_file_path: String,
+    storage_class: Option<String>,
+    bucket_region: Option<String>,
+    object_size: u64,
+) -> Result<PreparedAwsUploadFromPathRequest, String> {
+    let bucket_name = bucket_name.trim().to_string();
+    let object_key = object_key.trim().to_string();
+    let local_file_path = local_file_path.trim().to_string();
+
+    if object_key.is_empty() {
+        return Err("Object key is required for uploads.".to_string());
+    }
+
+    if local_file_path.is_empty() {
+        return Err("Local file path is required for uploads.".to_string());
+    }
+
+    Ok(PreparedAwsUploadFromPathRequest {
+        access_key_id: input.access_key_id.trim().to_string(),
+        secret_access_key: input.secret_access_key.trim().to_string(),
+        bucket_name,
+        object_key,
+        local_file_path,
+        storage_class: parse_upload_storage_class(storage_class.as_deref())?,
+        bucket_region,
+        total_bytes: i64::try_from(object_size)
+            .map_err(|_| "The selected file is too large to upload.".to_string())?,
+        object_size,
+        restricted_bucket_name: AwsConnectionService::normalize_restricted_bucket_name(
+            input.restricted_bucket_name,
+        ),
+    })
+}
+
+fn prepare_upload_from_bytes_request(
+    input: AwsConnectionTestInput,
+    bucket_name: String,
+    object_key: String,
+    file_name: String,
+    file_bytes: Vec<u8>,
+    storage_class: Option<String>,
+    bucket_region: Option<String>,
+) -> Result<PreparedAwsUploadFromBytesRequest, String> {
+    let bucket_name = bucket_name.trim().to_string();
+    let object_key = object_key.trim().to_string();
+    let file_name = file_name.trim().to_string();
+
+    if object_key.is_empty() {
+        return Err("Object key is required for uploads.".to_string());
+    }
+
+    if file_name.is_empty() {
+        return Err("File name is required for uploads.".to_string());
+    }
+
+    Ok(PreparedAwsUploadFromBytesRequest {
+        access_key_id: input.access_key_id.trim().to_string(),
+        secret_access_key: input.secret_access_key.trim().to_string(),
+        bucket_name,
+        object_key,
+        file_name,
+        total_bytes: i64::try_from(file_bytes.len())
+            .map_err(|_| "The selected file is too large to upload.".to_string())?,
+        file_bytes,
+        storage_class: parse_upload_storage_class(storage_class.as_deref())?,
+        bucket_region,
         restricted_bucket_name: AwsConnectionService::normalize_restricted_bucket_name(
             input.restricted_bucket_name,
         ),
@@ -2150,16 +2252,8 @@ impl AwsConnectionService {
     where
         F: FnMut(i64, i64) -> Result<(), String>,
     {
-        let access_key_id = input.access_key_id.trim().to_string();
-        let secret_access_key = input.secret_access_key.trim().to_string();
-        let bucket_name = bucket_name.trim().to_string();
-        let object_key = object_key.trim().to_string();
         let local_file_path = local_file_path.trim().to_string();
-        let storage_class = parse_upload_storage_class(storage_class.as_deref())?;
-        let restricted_bucket_name =
-            Self::normalize_restricted_bucket_name(input.restricted_bucket_name);
-        let (cancellation_flag, _cancellation_guard) =
-            Self::register_upload_cancellation(&operation_id)?;
+        let object_key = object_key.trim().to_string();
 
         if object_key.is_empty() {
             return Err("Object key is required for uploads.".to_string());
@@ -2178,35 +2272,48 @@ impl AwsConnectionService {
             return Err("The selected local path is not a regular file.".to_string());
         }
 
-        let total_bytes = i64::try_from(metadata.len())
-            .map_err(|_| "The selected file is too large to upload.".to_string())?;
+        let prepared = prepare_upload_from_path_request(
+            input,
+            bucket_name,
+            object_key,
+            local_file_path,
+            storage_class,
+            bucket_region,
+            metadata.len(),
+        )?;
+        let (cancellation_flag, _cancellation_guard) =
+            Self::register_upload_cancellation(&operation_id)?;
 
         let resolved_bucket_region = Self::resolve_bucket_region(
-            &access_key_id,
-            &secret_access_key,
-            &bucket_name,
-            bucket_region,
-            restricted_bucket_name,
+            &prepared.access_key_id,
+            &prepared.secret_access_key,
+            &prepared.bucket_name,
+            prepared.bucket_region,
+            prepared.restricted_bucket_name,
         )
         .await?;
 
-        let (_, s3_client) =
-            Self::build_clients(&resolved_bucket_region, access_key_id, secret_access_key).await;
+        let (_, s3_client) = Self::build_clients(
+            &resolved_bucket_region,
+            prepared.access_key_id,
+            prepared.secret_access_key,
+        )
+        .await;
 
         ensure_upload_not_cancelled(&cancellation_flag)?;
 
-        if should_use_single_request_upload(metadata.len()) {
+        if should_use_single_request_upload(prepared.object_size) {
             let body = ByteStream::from_path(&file_path)
                 .await
                 .map_err(|error| error.to_string())?;
 
             let mut request = s3_client
                 .put_object()
-                .bucket(bucket_name)
-                .key(object_key)
+                .bucket(prepared.bucket_name)
+                .key(prepared.object_key)
                 .body(body);
 
-            if let Some(storage_class) = storage_class {
+            if let Some(storage_class) = prepared.storage_class {
                 request = request.storage_class(storage_class);
             }
 
@@ -2220,17 +2327,17 @@ impl AwsConnectionService {
             // Single-request uploads cannot be interrupted once the provider call is in flight.
             // If the request succeeded, treat it as completed even if a local cancel was requested
             // while waiting for the response.
-            on_progress(total_bytes, total_bytes)?;
+            on_progress(prepared.total_bytes, prepared.total_bytes)?;
 
-            return Ok(local_file_path);
+            return Ok(prepared.local_file_path);
         }
 
         let mut create_request = s3_client
             .create_multipart_upload()
-            .bucket(bucket_name.clone())
-            .key(object_key.clone());
+            .bucket(prepared.bucket_name.clone())
+            .key(prepared.object_key.clone());
 
-        if let Some(storage_class) = storage_class.clone() {
+        if let Some(storage_class) = prepared.storage_class.clone() {
             create_request = create_request.storage_class(storage_class);
         }
 
@@ -2257,8 +2364,8 @@ impl AwsConnectionService {
             if ensure_upload_not_cancelled(&cancellation_flag).is_err() {
                 let _ = s3_client
                     .abort_multipart_upload()
-                    .bucket(bucket_name.clone())
-                    .key(object_key.clone())
+                    .bucket(prepared.bucket_name.clone())
+                    .key(prepared.object_key.clone())
                     .upload_id(upload_id.clone())
                     .send()
                     .await;
@@ -2278,8 +2385,8 @@ impl AwsConnectionService {
             let body = ByteStream::from(chunk_buffer[..bytes_read].to_vec());
             let upload_part_output = match s3_client
                 .upload_part()
-                .bucket(bucket_name.clone())
-                .key(object_key.clone())
+                .bucket(prepared.bucket_name.clone())
+                .key(prepared.object_key.clone())
                 .upload_id(upload_id.clone())
                 .part_number(next_part_number)
                 .body(body)
@@ -2290,8 +2397,8 @@ impl AwsConnectionService {
                 Err(error) => {
                     let _ = s3_client
                         .abort_multipart_upload()
-                        .bucket(bucket_name.clone())
-                        .key(object_key.clone())
+                        .bucket(prepared.bucket_name.clone())
+                        .key(prepared.object_key.clone())
                         .upload_id(upload_id.clone())
                         .send()
                         .await;
@@ -2314,15 +2421,15 @@ impl AwsConnectionService {
 
             completed_parts.push(completed_part);
             transferred_bytes += bytes_read as i64;
-            on_progress(transferred_bytes, total_bytes)?;
+            on_progress(transferred_bytes, prepared.total_bytes)?;
             next_part_number += 1;
         }
 
         if ensure_upload_not_cancelled(&cancellation_flag).is_err() {
             let _ = s3_client
                 .abort_multipart_upload()
-                .bucket(bucket_name.clone())
-                .key(object_key.clone())
+                .bucket(prepared.bucket_name.clone())
+                .key(prepared.object_key.clone())
                 .upload_id(upload_id.clone())
                 .send()
                 .await;
@@ -2336,8 +2443,8 @@ impl AwsConnectionService {
 
         s3_client
             .complete_multipart_upload()
-            .bucket(bucket_name)
-            .key(object_key)
+            .bucket(prepared.bucket_name)
+            .key(prepared.object_key)
             .upload_id(upload_id)
             .multipart_upload(completed_upload)
             .send()
@@ -2349,7 +2456,7 @@ impl AwsConnectionService {
                     .unwrap_or_else(|| error.to_string())
             })?;
 
-        Ok(local_file_path)
+        Ok(prepared.local_file_path)
     }
 
     pub async fn upload_object_from_bytes<F>(
@@ -2366,49 +2473,43 @@ impl AwsConnectionService {
     where
         F: FnMut(i64, i64) -> Result<(), String>,
     {
-        let access_key_id = input.access_key_id.trim().to_string();
-        let secret_access_key = input.secret_access_key.trim().to_string();
-        let bucket_name = bucket_name.trim().to_string();
-        let object_key = object_key.trim().to_string();
-        let file_name = file_name.trim().to_string();
-        let storage_class = parse_upload_storage_class(storage_class.as_deref())?;
-        let restricted_bucket_name =
-            Self::normalize_restricted_bucket_name(input.restricted_bucket_name);
+        let prepared = prepare_upload_from_bytes_request(
+            input,
+            bucket_name,
+            object_key,
+            file_name,
+            file_bytes,
+            storage_class,
+            bucket_region,
+        )?;
         let (cancellation_flag, _cancellation_guard) =
             Self::register_upload_cancellation(&operation_id)?;
 
-        if object_key.is_empty() {
-            return Err("Object key is required for uploads.".to_string());
-        }
-
-        if file_name.is_empty() {
-            return Err("File name is required for uploads.".to_string());
-        }
-
-        let total_bytes = i64::try_from(file_bytes.len())
-            .map_err(|_| "The selected file is too large to upload.".to_string())?;
-
         let resolved_bucket_region = Self::resolve_bucket_region(
-            &access_key_id,
-            &secret_access_key,
-            &bucket_name,
-            bucket_region,
-            restricted_bucket_name,
+            &prepared.access_key_id,
+            &prepared.secret_access_key,
+            &prepared.bucket_name,
+            prepared.bucket_region,
+            prepared.restricted_bucket_name,
         )
         .await?;
 
-        let (_, s3_client) =
-            Self::build_clients(&resolved_bucket_region, access_key_id, secret_access_key).await;
+        let (_, s3_client) = Self::build_clients(
+            &resolved_bucket_region,
+            prepared.access_key_id,
+            prepared.secret_access_key,
+        )
+        .await;
 
         ensure_upload_not_cancelled(&cancellation_flag)?;
 
         let mut request = s3_client
             .put_object()
-            .bucket(bucket_name)
-            .key(object_key)
-            .body(ByteStream::from(file_bytes));
+            .bucket(prepared.bucket_name)
+            .key(prepared.object_key)
+            .body(ByteStream::from(prepared.file_bytes));
 
-        if let Some(storage_class) = storage_class {
+        if let Some(storage_class) = prepared.storage_class {
             request = request.storage_class(storage_class);
         }
 
@@ -2421,9 +2522,9 @@ impl AwsConnectionService {
 
         // Byte-backed uploads use the same single-request PutObject path and share the same
         // cancellation limitation as small path uploads.
-        on_progress(total_bytes, total_bytes)?;
+        on_progress(prepared.total_bytes, prepared.total_bytes)?;
 
-        Ok(file_name)
+        Ok(prepared.file_name)
     }
 
     pub async fn find_cached_objects(
@@ -3337,6 +3438,85 @@ mod tests {
             "bucket-a".to_string(),
             "docs/archive.zip".to_string(),
             "INVALID".to_string(),
+            None,
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn prepares_upload_requests() {
+        let upload_from_path_prepared = prepare_upload_from_path_request(
+            AwsConnectionTestInput {
+                access_key_id: " access-key ".to_string(),
+                secret_access_key: " secret-key ".to_string(),
+                restricted_bucket_name: Some(" bucket-a ".to_string()),
+            },
+            " bucket-a ".to_string(),
+            " docs/report.txt ".to_string(),
+            " /tmp/report.txt ".to_string(),
+            Some(" STANDARD_IA ".to_string()),
+            Some("us-east-1".to_string()),
+            4096,
+        )
+        .unwrap();
+        assert_eq!(upload_from_path_prepared.bucket_name, "bucket-a");
+        assert_eq!(upload_from_path_prepared.object_key, "docs/report.txt");
+        assert_eq!(upload_from_path_prepared.local_file_path, "/tmp/report.txt");
+        assert_eq!(
+            upload_from_path_prepared.storage_class,
+            Some(StorageClass::StandardIa)
+        );
+        assert_eq!(upload_from_path_prepared.total_bytes, 4096);
+
+        let upload_from_bytes_prepared = prepare_upload_from_bytes_request(
+            AwsConnectionTestInput {
+                access_key_id: " access-key ".to_string(),
+                secret_access_key: " secret-key ".to_string(),
+                restricted_bucket_name: Some(" bucket-a ".to_string()),
+            },
+            " bucket-a ".to_string(),
+            " docs/report.txt ".to_string(),
+            " report.txt ".to_string(),
+            vec![1, 2, 3, 4],
+            Some(" STANDARD_IA ".to_string()),
+            Some("us-east-1".to_string()),
+        )
+        .unwrap();
+        assert_eq!(upload_from_bytes_prepared.bucket_name, "bucket-a");
+        assert_eq!(upload_from_bytes_prepared.object_key, "docs/report.txt");
+        assert_eq!(upload_from_bytes_prepared.file_name, "report.txt");
+        assert_eq!(
+            upload_from_bytes_prepared.storage_class,
+            Some(StorageClass::StandardIa)
+        );
+        assert_eq!(upload_from_bytes_prepared.total_bytes, 4);
+        assert!(prepare_upload_from_path_request(
+            aws_test_input(),
+            "bucket-a".to_string(),
+            "   ".to_string(),
+            "/tmp/report.txt".to_string(),
+            None,
+            None,
+            1,
+        )
+        .is_err());
+        assert!(prepare_upload_from_path_request(
+            aws_test_input(),
+            "bucket-a".to_string(),
+            "docs/report.txt".to_string(),
+            "   ".to_string(),
+            None,
+            None,
+            1,
+        )
+        .is_err());
+        assert!(prepare_upload_from_bytes_request(
+            aws_test_input(),
+            "bucket-a".to_string(),
+            "docs/report.txt".to_string(),
+            "   ".to_string(),
+            vec![1],
+            None,
             None,
         )
         .is_err());

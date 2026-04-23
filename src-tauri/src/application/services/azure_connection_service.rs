@@ -794,23 +794,17 @@ impl AzureConnectionService {
             return Err("The selected local path is not a regular file.".to_string());
         }
 
-        let storage_account_name = normalize_storage_account_name(&input.storage_account_name)?;
-        let normalized_container_name = container_name.trim().to_string();
-        let normalized_blob_name = blob_name.trim().to_string();
-        let normalized_access_tier = parse_access_tier(access_tier.as_deref())?;
-        let total_bytes = i64::try_from(metadata.len())
-            .map_err(|_| "The selected file is too large to upload.".to_string())?;
+        let prepared = prepare_upload_from_path_request(
+            input,
+            container_name,
+            blob_name,
+            local_file_path,
+            access_tier,
+            metadata.len(),
+        )?;
         let client = Client::new();
         let (cancellation_flag, _cancellation_guard) =
             Self::register_upload_cancellation(&operation_id)?;
-
-        if normalized_container_name.is_empty() {
-            return Err("The Azure container name is required.".to_string());
-        }
-
-        if normalized_blob_name.is_empty() {
-            return Err("Blob name is required for uploads.".to_string());
-        }
 
         ensure_upload_not_cancelled(&cancellation_flag)?;
 
@@ -818,24 +812,24 @@ impl AzureConnectionService {
             .await
             .map_err(|error| error.to_string())?;
 
-        if should_use_single_request_upload(metadata.len() as usize) {
-            let mut file_bytes = Vec::with_capacity(metadata.len() as usize);
+        if should_use_single_request_upload(prepared.object_size) {
+            let mut file_bytes = Vec::with_capacity(prepared.object_size);
             file.read_to_end(&mut file_bytes)
                 .await
                 .map_err(|error| error.to_string())?;
             upload_blob_single_request(
                 &client,
-                &storage_account_name,
-                &input.account_key,
-                &normalized_container_name,
-                &normalized_blob_name,
+                &prepared.storage_account_name,
+                &prepared.account_key,
+                &prepared.normalized_container_name,
+                &prepared.normalized_blob_name,
                 file_bytes,
-                normalized_access_tier.as_deref(),
+                prepared.normalized_access_tier.as_deref(),
                 None,
             )
             .await?;
-            on_progress(total_bytes, total_bytes)?;
-            return Ok(local_file_path);
+            on_progress(prepared.total_bytes, prepared.total_bytes)?;
+            return Ok(prepared.local_file_path);
         }
 
         let mut transferred_bytes = 0_i64;
@@ -858,10 +852,10 @@ impl AzureConnectionService {
             let block_id = build_block_id(next_block_index);
             upload_blob_block(
                 &client,
-                &storage_account_name,
-                &input.account_key,
-                &normalized_container_name,
-                &normalized_blob_name,
+                &prepared.storage_account_name,
+                &prepared.account_key,
+                &prepared.normalized_container_name,
+                &prepared.normalized_blob_name,
                 &block_id,
                 chunk_buffer[..bytes_read].to_vec(),
             )
@@ -869,7 +863,7 @@ impl AzureConnectionService {
             block_ids.push(block_id);
             transferred_bytes +=
                 i64::try_from(bytes_read).map_err(|_| "Chunk too large.".to_string())?;
-            on_progress(transferred_bytes, total_bytes)?;
+            on_progress(transferred_bytes, prepared.total_bytes)?;
             next_block_index += 1;
         }
 
@@ -877,16 +871,16 @@ impl AzureConnectionService {
 
         commit_blob_blocks(
             &client,
-            &storage_account_name,
-            &input.account_key,
-            &normalized_container_name,
-            &normalized_blob_name,
+            &prepared.storage_account_name,
+            &prepared.account_key,
+            &prepared.normalized_container_name,
+            &prepared.normalized_blob_name,
             &block_ids,
-            normalized_access_tier.as_deref(),
+            prepared.normalized_access_tier.as_deref(),
         )
         .await?;
 
-        Ok(local_file_path)
+        Ok(prepared.local_file_path)
     }
 
     pub async fn upload_blob_from_bytes<F>(
@@ -902,60 +896,49 @@ impl AzureConnectionService {
     where
         F: FnMut(i64, i64) -> Result<(), String>,
     {
-        let storage_account_name = normalize_storage_account_name(&input.storage_account_name)?;
-        let normalized_container_name = container_name.trim().to_string();
-        let normalized_blob_name = blob_name.trim().to_string();
-        let normalized_file_name = file_name.trim().to_string();
-        let normalized_access_tier = parse_access_tier(access_tier.as_deref())?;
-        let total_bytes = i64::try_from(file_bytes.len())
-            .map_err(|_| "The selected file is too large to upload.".to_string())?;
+        let prepared = prepare_upload_from_bytes_request(
+            input,
+            container_name,
+            blob_name,
+            file_name,
+            file_bytes,
+            access_tier,
+        )?;
         let client = Client::new();
         let (cancellation_flag, _cancellation_guard) =
             Self::register_upload_cancellation(&operation_id)?;
 
-        if normalized_container_name.is_empty() {
-            return Err("The Azure container name is required.".to_string());
-        }
-
-        if normalized_blob_name.is_empty() {
-            return Err("Blob name is required for uploads.".to_string());
-        }
-
-        if normalized_file_name.is_empty() {
-            return Err("File name is required for uploads.".to_string());
-        }
-
         ensure_upload_not_cancelled(&cancellation_flag)?;
 
-        if should_use_single_request_upload(file_bytes.len()) {
+        if should_use_single_request_upload(prepared.file_bytes.len()) {
             upload_blob_single_request(
                 &client,
-                &storage_account_name,
-                &input.account_key,
-                &normalized_container_name,
-                &normalized_blob_name,
-                file_bytes,
-                normalized_access_tier.as_deref(),
+                &prepared.storage_account_name,
+                &prepared.account_key,
+                &prepared.normalized_container_name,
+                &prepared.normalized_blob_name,
+                prepared.file_bytes,
+                prepared.normalized_access_tier.as_deref(),
                 None,
             )
             .await?;
-            on_progress(total_bytes, total_bytes)?;
-            return Ok(normalized_file_name);
+            on_progress(prepared.total_bytes, prepared.total_bytes)?;
+            return Ok(prepared.normalized_file_name);
         }
 
         let mut transferred_bytes = 0_i64;
         let mut block_ids = Vec::new();
 
-        for (index, chunk) in file_bytes.chunks(AZURE_UPLOAD_BLOCK_SIZE).enumerate() {
+        for (index, chunk) in prepared.file_bytes.chunks(AZURE_UPLOAD_BLOCK_SIZE).enumerate() {
             ensure_upload_not_cancelled(&cancellation_flag)?;
 
             let block_id = build_block_id(index);
             upload_blob_block(
                 &client,
-                &storage_account_name,
-                &input.account_key,
-                &normalized_container_name,
-                &normalized_blob_name,
+                &prepared.storage_account_name,
+                &prepared.account_key,
+                &prepared.normalized_container_name,
+                &prepared.normalized_blob_name,
                 &block_id,
                 chunk.to_vec(),
             )
@@ -963,23 +946,23 @@ impl AzureConnectionService {
             block_ids.push(block_id);
             transferred_bytes +=
                 i64::try_from(chunk.len()).map_err(|_| "Chunk too large.".to_string())?;
-            on_progress(transferred_bytes, total_bytes)?;
+            on_progress(transferred_bytes, prepared.total_bytes)?;
         }
 
         ensure_upload_not_cancelled(&cancellation_flag)?;
 
         commit_blob_blocks(
             &client,
-            &storage_account_name,
-            &input.account_key,
-            &normalized_container_name,
-            &normalized_blob_name,
+            &prepared.storage_account_name,
+            &prepared.account_key,
+            &prepared.normalized_container_name,
+            &prepared.normalized_blob_name,
             &block_ids,
-            normalized_access_tier.as_deref(),
+            prepared.normalized_access_tier.as_deref(),
         )
         .await?;
 
-        Ok(normalized_file_name)
+        Ok(prepared.normalized_file_name)
     }
 
     async fn list_containers_internal(
@@ -1431,6 +1414,28 @@ struct PreparedAzureRehydrateBlobRequest {
     normalized_priority: String,
 }
 
+struct PreparedAzureUploadFromPathRequest {
+    storage_account_name: String,
+    account_key: String,
+    normalized_container_name: String,
+    normalized_blob_name: String,
+    local_file_path: String,
+    normalized_access_tier: Option<String>,
+    total_bytes: i64,
+    object_size: usize,
+}
+
+struct PreparedAzureUploadFromBytesRequest {
+    storage_account_name: String,
+    account_key: String,
+    normalized_container_name: String,
+    normalized_blob_name: String,
+    normalized_file_name: String,
+    file_bytes: Vec<u8>,
+    normalized_access_tier: Option<String>,
+    total_bytes: i64,
+}
+
 fn prepare_list_container_items_request(
     input: AzureConnectionTestInput,
     container_name: String,
@@ -1591,6 +1596,81 @@ fn prepare_rehydrate_blob_request(
         )?,
         normalized_target_tier: parse_rehydration_target_tier(target_tier.as_str())?,
         normalized_priority: parse_rehydration_priority(priority.as_str())?,
+    })
+}
+
+fn prepare_upload_from_path_request(
+    input: AzureConnectionTestInput,
+    container_name: String,
+    blob_name: String,
+    local_file_path: String,
+    access_tier: Option<String>,
+    object_size: u64,
+) -> Result<PreparedAzureUploadFromPathRequest, String> {
+    let local_file_path = local_file_path.trim().to_string();
+    let normalized_container_name = container_name.trim().to_string();
+    let normalized_blob_name = blob_name.trim().to_string();
+
+    if local_file_path.is_empty() {
+        return Err("Local file path is required for uploads.".to_string());
+    }
+
+    if normalized_container_name.is_empty() {
+        return Err("The Azure container name is required.".to_string());
+    }
+
+    if normalized_blob_name.is_empty() {
+        return Err("Blob name is required for uploads.".to_string());
+    }
+
+    Ok(PreparedAzureUploadFromPathRequest {
+        storage_account_name: normalize_storage_account_name(&input.storage_account_name)?,
+        account_key: input.account_key,
+        normalized_container_name,
+        normalized_blob_name,
+        local_file_path,
+        normalized_access_tier: parse_access_tier(access_tier.as_deref())?,
+        total_bytes: i64::try_from(object_size)
+            .map_err(|_| "The selected file is too large to upload.".to_string())?,
+        object_size: usize::try_from(object_size)
+            .map_err(|_| "The selected file is too large to upload.".to_string())?,
+    })
+}
+
+fn prepare_upload_from_bytes_request(
+    input: AzureConnectionTestInput,
+    container_name: String,
+    blob_name: String,
+    file_name: String,
+    file_bytes: Vec<u8>,
+    access_tier: Option<String>,
+) -> Result<PreparedAzureUploadFromBytesRequest, String> {
+    let normalized_container_name = container_name.trim().to_string();
+    let normalized_blob_name = blob_name.trim().to_string();
+    let normalized_file_name = file_name.trim().to_string();
+
+    if normalized_container_name.is_empty() {
+        return Err("The Azure container name is required.".to_string());
+    }
+
+    if normalized_blob_name.is_empty() {
+        return Err("Blob name is required for uploads.".to_string());
+    }
+
+    if normalized_file_name.is_empty() {
+        return Err("File name is required for uploads.".to_string());
+    }
+
+    Ok(PreparedAzureUploadFromBytesRequest {
+        storage_account_name: normalize_storage_account_name(&input.storage_account_name)?,
+        account_key: input.account_key,
+        normalized_container_name,
+        normalized_blob_name,
+        normalized_file_name,
+        total_bytes: i64::try_from(file_bytes.len())
+            .map_err(|_| "The selected file is too large to upload.".to_string())?,
+        file_bytes,
+        normalized_access_tier: parse_access_tier(access_tier.as_deref())?,
     })
 }
 
@@ -3480,6 +3560,79 @@ mod tests {
             "docs/archive.zip".to_string(),
             "Archive".to_string(),
             "High".to_string(),
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn prepares_upload_requests() {
+        let upload_from_path_prepared = prepare_upload_from_path_request(
+            AzureConnectionTestInput {
+                storage_account_name: " StorageAcct ".to_string(),
+                account_key: "unused-key".to_string(),
+            },
+            " reports ".to_string(),
+            " docs/report.txt ".to_string(),
+            " /tmp/report.txt ".to_string(),
+            Some("Cool".to_string()),
+            4096,
+        )
+        .unwrap();
+        assert_eq!(upload_from_path_prepared.storage_account_name, "storageacct");
+        assert_eq!(upload_from_path_prepared.normalized_container_name, "reports");
+        assert_eq!(upload_from_path_prepared.normalized_blob_name, "docs/report.txt");
+        assert_eq!(
+            upload_from_path_prepared.normalized_access_tier.as_deref(),
+            Some("Cool")
+        );
+        assert_eq!(upload_from_path_prepared.total_bytes, 4096);
+
+        let upload_from_bytes_prepared = prepare_upload_from_bytes_request(
+            AzureConnectionTestInput {
+                storage_account_name: " StorageAcct ".to_string(),
+                account_key: "unused-key".to_string(),
+            },
+            " reports ".to_string(),
+            " docs/report.txt ".to_string(),
+            " report.txt ".to_string(),
+            vec![1, 2, 3, 4],
+            Some("Hot".to_string()),
+        )
+        .unwrap();
+        assert_eq!(upload_from_bytes_prepared.storage_account_name, "storageacct");
+        assert_eq!(upload_from_bytes_prepared.normalized_container_name, "reports");
+        assert_eq!(upload_from_bytes_prepared.normalized_blob_name, "docs/report.txt");
+        assert_eq!(upload_from_bytes_prepared.normalized_file_name, "report.txt");
+        assert_eq!(
+            upload_from_bytes_prepared.normalized_access_tier.as_deref(),
+            Some("Hot")
+        );
+        assert_eq!(upload_from_bytes_prepared.total_bytes, 4);
+        assert!(prepare_upload_from_path_request(
+            azure_test_input(),
+            "reports".to_string(),
+            "   ".to_string(),
+            "/tmp/report.txt".to_string(),
+            None,
+            1,
+        )
+        .is_err());
+        assert!(prepare_upload_from_path_request(
+            azure_test_input(),
+            "reports".to_string(),
+            "docs/report.txt".to_string(),
+            "   ".to_string(),
+            None,
+            1,
+        )
+        .is_err());
+        assert!(prepare_upload_from_bytes_request(
+            azure_test_input(),
+            "reports".to_string(),
+            "docs/report.txt".to_string(),
+            "   ".to_string(),
+            vec![1],
+            None,
         )
         .is_err());
     }

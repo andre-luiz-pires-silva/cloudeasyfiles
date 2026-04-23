@@ -80,7 +80,7 @@ Increase automated test coverage toward the agreed long-term target of `75%` lin
 
 ## Current Priorities
 
-1. **Frontend final coverage target reached** ✅ — Frontend `76.90%`, Rust `71.64%` measured on 2026-04-23
+1. **Frontend final coverage target reached** ✅ — Frontend `76.90%`, Rust `72.26%` measured on 2026-04-23
 2. Frontend coverage now scopes to application source under `src`, excluding generated/build artifacts from the V8 denominator
 3. Next executable priority: expand Rust coverage toward the remaining `75%` final target
 
@@ -138,7 +138,8 @@ Use the checklist below as the next execution guide for the coverage-expansion b
 - [x] Step R24. Extract and cover provider download-cancellation helpers
 - [x] Step R25. Extract and cover provider listing/delete preparation helpers
 - [x] Step R26. Extract and cover provider mutation/existence preparation helpers
-- [ ] Step R27. Continue Rust provider/command coverage toward the remaining `75%` final target
+- [x] Step R27. Extract and cover provider upload preparation helpers
+- [ ] Step R28. Continue Rust provider/command coverage toward the remaining `75%` final target
 
 ### Review Step
 
@@ -148,7 +149,7 @@ Use the checklist below as the next execution guide for the coverage-expansion b
 
 - Milestone D (`50%` frontend, `55%` Rust) is complete.
 - Frontend final target `75%` is complete.
-- Rust has crossed the interim `65%` checkpoint and remains at `71.64%`; next estimate should continue prioritizing the highest-yield Rust provider and command modules.
+- Rust has crossed the interim `65%` checkpoint and remains at `72.26%`; next estimate should continue prioritizing the highest-yield Rust provider and command modules.
 
 ## Current Risks
 
@@ -246,6 +247,13 @@ Use the checklist below as the next execution guide for the coverage-expansion b
   - Rust functions: `59.36%`
   - AWS service line coverage: `66.72%`
   - Azure service line coverage: `72.10%`
+- After Step R27:
+  - Frontend line coverage: `76.90%`
+  - Rust line coverage: `72.26%`
+  - Rust regions: `69.20%`
+  - Rust functions: `59.57%`
+  - AWS service line coverage: `67.78%`
+  - Azure service line coverage: `73.20%`
 
 ## Rust Mutation/Existence Preparation Coverage Step
 
@@ -260,6 +268,20 @@ Use the checklist below as the next execution guide for the coverage-expansion b
   - AWS: extracted request preparation helpers for `object_exists`, `request_object_restore`, `create_folder`, and `change_object_storage_class`
   - Azure: extracted request preparation helpers for `blob_exists`, `create_folder`, `change_blob_access_tier`, and `rehydrate_blob`
   - Added direct unit coverage for normalization, validation, and provider guard branches before network execution
+
+## Rust Upload Preparation Coverage Step
+
+- Step completed: `R27`
+- Focus: extract and cover provider upload preparation helpers in AWS and Azure services
+- Validation:
+  - `cargo test --manifest-path src-tauri/Cargo.toml application::services::aws_connection_service::tests -- --nocapture`
+  - `cargo test --manifest-path src-tauri/Cargo.toml application::services::azure_connection_service::tests -- --nocapture`
+  - `cargo check --manifest-path src-tauri/Cargo.toml`
+  - `npm run test:rust:coverage`
+- Delivered:
+  - AWS: extracted request preparation helpers for `upload_object_from_path` and `upload_object_from_bytes`
+  - Azure: extracted request preparation helpers for `upload_blob_from_path` and `upload_blob_from_bytes`
+  - Added direct unit coverage for upload normalization, storage-class/access-tier parsing, and pre-network validation branches
 - After Phase 1 substep 13:
   - Frontend line coverage: `14.06%`
   - Frontend statements: `14.06%`
