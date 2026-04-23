@@ -79,7 +79,7 @@ Increase automated test coverage toward the agreed long-term target of `75%` lin
 
 ## Current Priorities
 
-1. **Frontend final coverage target reached** ✅ — Frontend `76.90%`, Rust `59.39%` measured on 2026-04-23
+1. **Frontend final coverage target reached** ✅ — Frontend `76.90%`, Rust `60.53%` measured on 2026-04-23
 2. Frontend coverage now scopes to application source under `src`, excluding generated/build artifacts from the V8 denominator
 3. Next executable priority: expand Rust coverage toward the remaining `75%` final target
 
@@ -118,7 +118,8 @@ Use the checklist below as the next execution guide for the coverage-expansion b
 - [x] Step R5. Continue Rust provider mutation/error-path coverage toward `55%`
 - [x] Step R6. Cross Rust `55%` with one more provider/command coverage step
 - [x] Step R7. Expand Rust app state I/O coverage toward the remaining `75%` final target
-- [ ] Step R8. Continue Rust provider/command coverage toward the remaining `75%` final target
+- [x] Step R8. Cover AWS secret-store success, rollback, and idempotent delete paths
+- [ ] Step R9. Continue Rust provider/command coverage toward the remaining `75%` final target
 
 ### Review Step
 
@@ -128,7 +129,7 @@ Use the checklist below as the next execution guide for the coverage-expansion b
 
 - Milestone D (`50%` frontend, `55%` Rust) is complete.
 - Frontend final target `75%` is complete.
-- Rust remains at `59.39%`; next estimate should continue prioritizing the highest-yield Rust provider and command modules.
+- Rust remains at `60.53%`; next estimate should continue prioritizing the highest-yield Rust provider and command modules.
 
 ## Current Risks
 
@@ -935,6 +936,25 @@ Use the checklist below as the next execution guide for the coverage-expansion b
   - extracted path-based `window_state` load/save helpers so filesystem behavior can be covered without a Tauri runtime
   - covered state-file creation, persisted JSON reload, missing-file handling, and invalid-file parse handling
   - kept the public window-state integration behavior unchanged
+
+## Rust AWS Secret Store Coverage Step
+
+- Targeted Rust test command: `cargo test --manifest-path src-tauri/Cargo.toml application::services::aws_connection_secret_service::tests -- --nocapture`
+  - Tests: `6` passed
+- Rust format command: `cargo fmt --manifest-path src-tauri/Cargo.toml`
+  - Result: passed
+- Rust check command: `cargo check --manifest-path src-tauri/Cargo.toml`
+  - Result: passed
+- Rust coverage command: `npm run test:rust:coverage`
+  - Tests: `81` passed
+  - Rust line coverage: `60.53%`
+  - Rust regions: `57.64%`
+  - Rust functions: `51.45%`
+- Delivered:
+  - completed roadmap Step `R8`
+  - introduced an internal AWS secret-store adapter so keyring-backed behavior can be exercised with a fake store in unit tests
+  - covered AWS secret save/load success, secret-key save rollback, idempotent missing-entry delete, and load error propagation
+  - kept the public `AwsConnectionSecretService` API backed by the real `keyring` adapter
 
 ## Next Steps Toward Final Target
 
