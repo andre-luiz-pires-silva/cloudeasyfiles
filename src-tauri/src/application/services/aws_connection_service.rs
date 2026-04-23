@@ -337,6 +337,100 @@ fn ensure_download_not_cancelled(cancellation_flag: &AtomicBool) -> Result<(), S
     Ok(())
 }
 
+struct PreparedAwsListBucketItemsRequest {
+    access_key_id: String,
+    secret_access_key: String,
+    bucket_name: String,
+    prefix: String,
+    continuation_token: Option<String>,
+    page_size: i32,
+    restricted_bucket_name: Option<String>,
+}
+
+struct PreparedAwsDeleteObjectsRequest {
+    access_key_id: String,
+    secret_access_key: String,
+    bucket_name: String,
+    normalized_object_keys: Vec<String>,
+    restricted_bucket_name: Option<String>,
+}
+
+struct PreparedAwsDeletePrefixRequest {
+    access_key_id: String,
+    secret_access_key: String,
+    bucket_name: String,
+    recursive_prefix: String,
+    restricted_bucket_name: Option<String>,
+}
+
+fn prepare_list_bucket_items_request(
+    input: AwsConnectionTestInput,
+    bucket_name: String,
+    prefix: Option<String>,
+    continuation_token: Option<String>,
+    page_size: Option<i32>,
+) -> PreparedAwsListBucketItemsRequest {
+    PreparedAwsListBucketItemsRequest {
+        access_key_id: input.access_key_id.trim().to_string(),
+        secret_access_key: input.secret_access_key.trim().to_string(),
+        bucket_name: bucket_name.trim().to_string(),
+        prefix: prefix.unwrap_or_default(),
+        continuation_token,
+        page_size: normalize_listing_page_size(page_size),
+        restricted_bucket_name: AwsConnectionService::normalize_restricted_bucket_name(
+            input.restricted_bucket_name,
+        ),
+    }
+}
+
+fn prepare_delete_objects_request(
+    input: AwsConnectionTestInput,
+    bucket_name: String,
+    object_keys: Vec<String>,
+) -> Result<PreparedAwsDeleteObjectsRequest, String> {
+    let prepared = PreparedAwsDeleteObjectsRequest {
+        access_key_id: input.access_key_id.trim().to_string(),
+        secret_access_key: input.secret_access_key.trim().to_string(),
+        bucket_name: bucket_name.trim().to_string(),
+        normalized_object_keys: normalize_delete_object_keys(object_keys),
+        restricted_bucket_name: AwsConnectionService::normalize_restricted_bucket_name(
+            input.restricted_bucket_name,
+        ),
+    };
+
+    if prepared.bucket_name.is_empty() {
+        return Err("Bucket name is required for delete requests.".to_string());
+    }
+
+    if prepared.normalized_object_keys.is_empty() {
+        return Err("At least one object key is required for delete requests.".to_string());
+    }
+
+    Ok(prepared)
+}
+
+fn prepare_delete_prefix_request(
+    input: AwsConnectionTestInput,
+    bucket_name: String,
+    prefix: String,
+) -> Result<PreparedAwsDeletePrefixRequest, String> {
+    let bucket_name = bucket_name.trim().to_string();
+
+    if bucket_name.is_empty() {
+        return Err("Bucket name is required for delete requests.".to_string());
+    }
+
+    Ok(PreparedAwsDeletePrefixRequest {
+        access_key_id: input.access_key_id.trim().to_string(),
+        secret_access_key: input.secret_access_key.trim().to_string(),
+        bucket_name,
+        recursive_prefix: normalize_recursive_delete_prefix(&prefix)?,
+        restricted_bucket_name: AwsConnectionService::normalize_restricted_bucket_name(
+            input.restricted_bucket_name,
+        ),
+    })
+}
+
 fn build_bucket_summaries(response: ListBucketsOutput) -> Vec<AwsBucketSummary> {
     let mut buckets = Vec::new();
 
@@ -967,39 +1061,43 @@ impl AwsConnectionService {
         continuation_token: Option<String>,
         page_size: Option<i32>,
     ) -> Result<AwsBucketItemsResult, String> {
-        let access_key_id = input.access_key_id.trim().to_string();
-        let secret_access_key = input.secret_access_key.trim().to_string();
-        let bucket_name = bucket_name.trim().to_string();
-        let prefix = prefix.unwrap_or_default();
-        let restricted_bucket_name =
-            Self::normalize_restricted_bucket_name(input.restricted_bucket_name);
+        let prepared = prepare_list_bucket_items_request(
+            input,
+            bucket_name,
+            prefix,
+            continuation_token,
+            page_size,
+        );
 
         eprintln!(
             "[aws_connection_service] listing S3 objects for bucket={} prefix={}",
-            bucket_name, prefix
+            prepared.bucket_name, prepared.prefix
         );
 
         let resolved_bucket_region = Self::resolve_bucket_region(
-            &access_key_id,
-            &secret_access_key,
-            &bucket_name,
+            &prepared.access_key_id,
+            &prepared.secret_access_key,
+            &prepared.bucket_name,
             bucket_region,
-            restricted_bucket_name,
+            prepared.restricted_bucket_name,
         )
         .await?;
-        let page_size = normalize_listing_page_size(page_size);
 
-        let (_, s3_client) =
-            Self::build_clients(&resolved_bucket_region, access_key_id, secret_access_key).await;
+        let (_, s3_client) = Self::build_clients(
+            &resolved_bucket_region,
+            prepared.access_key_id,
+            prepared.secret_access_key,
+        )
+        .await;
 
         let response = s3_client
             .list_objects_v2()
-            .bucket(bucket_name.clone())
+            .bucket(prepared.bucket_name.clone())
             .delimiter("/")
-            .max_keys(page_size)
+            .max_keys(prepared.page_size)
             .optional_object_attributes(OptionalObjectAttributes::RestoreStatus)
-            .set_prefix((!prefix.is_empty()).then_some(prefix.clone()))
-            .set_continuation_token(continuation_token)
+            .set_prefix((!prepared.prefix.is_empty()).then_some(prepared.prefix.clone()))
+            .set_continuation_token(prepared.continuation_token)
             .send()
             .await
             .map_err(|error| {
@@ -1010,7 +1108,7 @@ impl AwsConnectionService {
 
                 eprintln!(
                     "[aws_connection_service] failed to list S3 objects for bucket={} prefix={} error={}",
-                    bucket_name, prefix, error_message
+                    prepared.bucket_name, prepared.prefix, error_message
                 );
 
                 error_message
@@ -1018,7 +1116,7 @@ impl AwsConnectionService {
 
         Ok(build_bucket_items_result(
             resolved_bucket_region,
-            &prefix,
+            &prepared.prefix,
             response,
         ))
     }
@@ -1495,37 +1593,29 @@ impl AwsConnectionService {
         object_keys: Vec<String>,
         bucket_region: Option<String>,
     ) -> Result<AwsDeleteResult, String> {
-        let access_key_id = input.access_key_id.trim().to_string();
-        let secret_access_key = input.secret_access_key.trim().to_string();
-        let bucket_name = bucket_name.trim().to_string();
-        let normalized_object_keys = normalize_delete_object_keys(object_keys);
-        let restricted_bucket_name =
-            Self::normalize_restricted_bucket_name(input.restricted_bucket_name);
-
-        if bucket_name.is_empty() {
-            return Err("Bucket name is required for delete requests.".to_string());
-        }
-
-        if normalized_object_keys.is_empty() {
-            return Err("At least one object key is required for delete requests.".to_string());
-        }
+        let prepared = prepare_delete_objects_request(input, bucket_name, object_keys)?;
 
         let resolved_bucket_region = Self::resolve_bucket_region(
-            &access_key_id,
-            &secret_access_key,
-            &bucket_name,
+            &prepared.access_key_id,
+            &prepared.secret_access_key,
+            &prepared.bucket_name,
             bucket_region,
-            restricted_bucket_name,
+            prepared.restricted_bucket_name,
         )
         .await?;
 
-        let (_, s3_client) =
-            Self::build_clients(&resolved_bucket_region, access_key_id, secret_access_key).await;
+        let (_, s3_client) = Self::build_clients(
+            &resolved_bucket_region,
+            prepared.access_key_id,
+            prepared.secret_access_key,
+        )
+        .await;
 
-        Self::delete_object_keys(&s3_client, &bucket_name, &normalized_object_keys).await?;
+        Self::delete_object_keys(&s3_client, &prepared.bucket_name, &prepared.normalized_object_keys)
+            .await?;
 
         Ok(AwsDeleteResult {
-            deleted_object_count: normalized_object_keys.len() as i64,
+            deleted_object_count: prepared.normalized_object_keys.len() as i64,
             deleted_directory_count: 0,
         })
     }
@@ -1536,28 +1626,23 @@ impl AwsConnectionService {
         prefix: String,
         bucket_region: Option<String>,
     ) -> Result<AwsDeleteResult, String> {
-        let access_key_id = input.access_key_id.trim().to_string();
-        let secret_access_key = input.secret_access_key.trim().to_string();
-        let bucket_name = bucket_name.trim().to_string();
-        let restricted_bucket_name =
-            Self::normalize_restricted_bucket_name(input.restricted_bucket_name);
-        if bucket_name.is_empty() {
-            return Err("Bucket name is required for delete requests.".to_string());
-        }
-
-        let recursive_prefix = normalize_recursive_delete_prefix(&prefix)?;
+        let prepared = prepare_delete_prefix_request(input, bucket_name, prefix)?;
 
         let resolved_bucket_region = Self::resolve_bucket_region(
-            &access_key_id,
-            &secret_access_key,
-            &bucket_name,
+            &prepared.access_key_id,
+            &prepared.secret_access_key,
+            &prepared.bucket_name,
             bucket_region,
-            restricted_bucket_name,
+            prepared.restricted_bucket_name,
         )
         .await?;
 
-        let (_, s3_client) =
-            Self::build_clients(&resolved_bucket_region, access_key_id, secret_access_key).await;
+        let (_, s3_client) = Self::build_clients(
+            &resolved_bucket_region,
+            prepared.access_key_id,
+            prepared.secret_access_key,
+        )
+        .await;
 
         let mut continuation_token = None;
         let mut object_keys = Vec::new();
@@ -1565,9 +1650,9 @@ impl AwsConnectionService {
         loop {
             let response = s3_client
                 .list_objects_v2()
-                .bucket(bucket_name.clone())
+                .bucket(prepared.bucket_name.clone())
                 .max_keys(DEFAULT_S3_LISTING_PAGE_SIZE)
-                .set_prefix(Some(recursive_prefix.clone()))
+                .set_prefix(Some(prepared.recursive_prefix.clone()))
                 .set_continuation_token(continuation_token.clone())
                 .send()
                 .await
@@ -1595,10 +1680,11 @@ impl AwsConnectionService {
             continuation_token = next_continuation_token;
         }
 
-        object_keys.push(recursive_prefix.clone());
+        object_keys.push(prepared.recursive_prefix.clone());
 
         let normalized_object_keys = normalize_delete_object_keys(object_keys);
-        Self::delete_object_keys(&s3_client, &bucket_name, &normalized_object_keys).await?;
+        Self::delete_object_keys(&s3_client, &prepared.bucket_name, &normalized_object_keys)
+            .await?;
 
         Ok(AwsDeleteResult {
             deleted_object_count: normalized_object_keys.len() as i64,
@@ -2925,6 +3011,73 @@ mod tests {
         assert!(!should_use_single_request_upload(
             MULTIPART_UPLOAD_CHUNK_SIZE as u64 + 1
         ));
+    }
+
+    #[test]
+    fn prepares_listing_and_delete_requests() {
+        let list_prepared = prepare_list_bucket_items_request(
+            AwsConnectionTestInput {
+                access_key_id: " access-key ".to_string(),
+                secret_access_key: " secret-key ".to_string(),
+                restricted_bucket_name: Some(" bucket-a ".to_string()),
+            },
+            " bucket-a ".to_string(),
+            Some("docs".to_string()),
+            Some("cursor-1".to_string()),
+            Some(0),
+        );
+        assert_eq!(list_prepared.access_key_id, "access-key");
+        assert_eq!(list_prepared.secret_access_key, "secret-key");
+        assert_eq!(list_prepared.bucket_name, "bucket-a");
+        assert_eq!(list_prepared.prefix, "docs");
+        assert_eq!(list_prepared.continuation_token.as_deref(), Some("cursor-1"));
+        assert_eq!(list_prepared.page_size, 1);
+        assert_eq!(
+            list_prepared.restricted_bucket_name.as_deref(),
+            Some("bucket-a")
+        );
+
+        let delete_prepared = prepare_delete_objects_request(
+            AwsConnectionTestInput {
+                access_key_id: " access-key ".to_string(),
+                secret_access_key: " secret-key ".to_string(),
+                restricted_bucket_name: None,
+            },
+            " bucket-a ".to_string(),
+            vec![" docs/file.txt ".to_string(), "/docs/file.txt".to_string()],
+        )
+        .unwrap();
+        assert_eq!(delete_prepared.bucket_name, "bucket-a");
+        assert_eq!(delete_prepared.normalized_object_keys, vec!["docs/file.txt"]);
+
+        let prefix_prepared = prepare_delete_prefix_request(
+            AwsConnectionTestInput {
+                access_key_id: " access-key ".to_string(),
+                secret_access_key: " secret-key ".to_string(),
+                restricted_bucket_name: Some(" bucket-a ".to_string()),
+            },
+            " bucket-a ".to_string(),
+            " /docs/reports/ ".to_string(),
+        )
+        .unwrap();
+        assert_eq!(prefix_prepared.bucket_name, "bucket-a");
+        assert_eq!(prefix_prepared.recursive_prefix, "docs/reports/");
+        assert_eq!(
+            prefix_prepared.restricted_bucket_name.as_deref(),
+            Some("bucket-a")
+        );
+        assert!(prepare_delete_objects_request(
+            aws_test_input(),
+            "   ".to_string(),
+            vec!["docs/file.txt".to_string()],
+        )
+        .is_err());
+        assert!(prepare_delete_prefix_request(
+            aws_test_input(),
+            "bucket-a".to_string(),
+            " / ".to_string(),
+        )
+        .is_err());
     }
 
     #[test]

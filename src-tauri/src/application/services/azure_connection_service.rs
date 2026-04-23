@@ -204,43 +204,28 @@ impl AzureConnectionService {
         continuation_token: Option<String>,
         page_size: Option<i32>,
     ) -> Result<AzureContainerItemsResult, String> {
-        let storage_account_name = normalize_storage_account_name(&input.storage_account_name)?;
-        let normalized_container_name = container_name.trim().to_string();
-
-        if normalized_container_name.is_empty() {
-            return Err("The Azure container name is required.".to_string());
-        }
-
+        let prepared = prepare_list_container_items_request(
+            input,
+            container_name,
+            prefix,
+            continuation_token,
+            page_size,
+        )?;
         let client = Client::new();
-        let page_size = normalize_listing_page_size(page_size);
-        let mut query = vec![
-            ("restype".to_string(), "container".to_string()),
-            ("comp".to_string(), "list".to_string()),
-            ("delimiter".to_string(), "/".to_string()),
-            ("include".to_string(), "metadata".to_string()),
-            ("maxresults".to_string(), page_size.to_string()),
-        ];
-
-        let normalized_prefix = normalize_prefix(prefix);
-
-        if let Some(prefix_value) = normalized_prefix.clone() {
-            query.push(("prefix".to_string(), prefix_value));
-        }
-
-        if let Some(marker_value) = continuation_token.filter(|value| !value.trim().is_empty()) {
-            query.push(("marker".to_string(), marker_value));
-        }
-
-        let url = build_container_url(&storage_account_name, &normalized_container_name, &query)?;
+        let url = build_container_url(
+            &prepared.storage_account_name,
+            &prepared.normalized_container_name,
+            &prepared.query,
+        )?;
         let response_text = execute_signed_get(
             &client,
-            &storage_account_name,
-            &input.account_key,
+            &prepared.storage_account_name,
+            &prepared.account_key,
             url,
-            format!("/{normalized_container_name}"),
+            format!("/{}", prepared.normalized_container_name),
         )
         .await?;
-        parse_blob_listing_response(&response_text, normalized_prefix.as_deref())
+        parse_blob_listing_response(&response_text, prepared.normalized_prefix.as_deref())
     }
 
     pub async fn blob_exists(
@@ -327,27 +312,20 @@ impl AzureConnectionService {
         container_name: String,
         object_keys: Vec<String>,
     ) -> Result<AzureDeleteResult, String> {
-        let storage_account_name = normalize_storage_account_name(&input.storage_account_name)?;
-        let normalized_container_name =
-            normalize_container_name_for_operation(&container_name, "delete requests")?;
-        let normalized_object_keys = normalize_delete_object_keys(object_keys);
-
-        if normalized_object_keys.is_empty() {
-            return Err("At least one blob name is required for delete requests.".to_string());
-        }
+        let prepared = prepare_delete_objects_request(input, container_name, object_keys)?;
 
         let client = Client::new();
         delete_blob_names(
             &client,
-            &storage_account_name,
-            &input.account_key,
-            &normalized_container_name,
-            &normalized_object_keys,
+            &prepared.storage_account_name,
+            &prepared.account_key,
+            &prepared.normalized_container_name,
+            &prepared.normalized_object_keys,
         )
         .await?;
 
         Ok(AzureDeleteResult {
-            deleted_object_count: normalized_object_keys.len() as i64,
+            deleted_object_count: prepared.normalized_object_keys.len() as i64,
             deleted_directory_count: 0,
         })
     }
@@ -357,10 +335,7 @@ impl AzureConnectionService {
         container_name: String,
         prefix: String,
     ) -> Result<AzureDeleteResult, String> {
-        let storage_account_name = normalize_storage_account_name(&input.storage_account_name)?;
-        let normalized_container_name =
-            normalize_container_name_for_operation(&container_name, "delete requests")?;
-        let recursive_prefix = normalize_recursive_delete_prefix(&prefix)?;
+        let prepared = prepare_delete_prefix_request(input, container_name, prefix)?;
 
         let client = Client::new();
         let mut marker = None;
@@ -369,10 +344,10 @@ impl AzureConnectionService {
         loop {
             let (mut batch, next_marker) = list_blob_names_with_prefix(
                 &client,
-                &storage_account_name,
-                &input.account_key,
-                &normalized_container_name,
-                &recursive_prefix,
+                &prepared.storage_account_name,
+                &prepared.account_key,
+                &prepared.normalized_container_name,
+                &prepared.recursive_prefix,
                 marker.clone(),
             )
             .await?;
@@ -385,14 +360,14 @@ impl AzureConnectionService {
             marker = next_marker;
         }
 
-        object_keys.push(recursive_prefix);
+        object_keys.push(prepared.recursive_prefix);
 
         let normalized_object_keys = normalize_delete_object_keys(object_keys);
         delete_blob_names(
             &client,
-            &storage_account_name,
-            &input.account_key,
-            &normalized_container_name,
+            &prepared.storage_account_name,
+            &prepared.account_key,
+            &prepared.normalized_container_name,
             &normalized_object_keys,
         )
         .await?;
@@ -1409,6 +1384,109 @@ fn normalize_prefix(prefix: Option<String>) -> Option<String> {
                 format!("{value}/")
             }
         })
+}
+
+struct PreparedAzureListContainerItemsRequest {
+    storage_account_name: String,
+    account_key: String,
+    normalized_container_name: String,
+    normalized_prefix: Option<String>,
+    query: Vec<(String, String)>,
+}
+
+struct PreparedAzureDeleteObjectsRequest {
+    storage_account_name: String,
+    account_key: String,
+    normalized_container_name: String,
+    normalized_object_keys: Vec<String>,
+}
+
+struct PreparedAzureDeletePrefixRequest {
+    storage_account_name: String,
+    account_key: String,
+    normalized_container_name: String,
+    recursive_prefix: String,
+}
+
+fn prepare_list_container_items_request(
+    input: AzureConnectionTestInput,
+    container_name: String,
+    prefix: Option<String>,
+    continuation_token: Option<String>,
+    page_size: Option<i32>,
+) -> Result<PreparedAzureListContainerItemsRequest, String> {
+    let storage_account_name = normalize_storage_account_name(&input.storage_account_name)?;
+    let normalized_container_name = container_name.trim().to_string();
+
+    if normalized_container_name.is_empty() {
+        return Err("The Azure container name is required.".to_string());
+    }
+
+    let normalized_prefix = normalize_prefix(prefix);
+    let mut query = vec![
+        ("restype".to_string(), "container".to_string()),
+        ("comp".to_string(), "list".to_string()),
+        ("delimiter".to_string(), "/".to_string()),
+        ("include".to_string(), "metadata".to_string()),
+        (
+            "maxresults".to_string(),
+            normalize_listing_page_size(page_size).to_string(),
+        ),
+    ];
+
+    if let Some(prefix_value) = normalized_prefix.clone() {
+        query.push(("prefix".to_string(), prefix_value));
+    }
+
+    if let Some(marker_value) = continuation_token.filter(|value| !value.trim().is_empty()) {
+        query.push(("marker".to_string(), marker_value));
+    }
+
+    Ok(PreparedAzureListContainerItemsRequest {
+        storage_account_name,
+        account_key: input.account_key,
+        normalized_container_name,
+        normalized_prefix,
+        query,
+    })
+}
+
+fn prepare_delete_objects_request(
+    input: AzureConnectionTestInput,
+    container_name: String,
+    object_keys: Vec<String>,
+) -> Result<PreparedAzureDeleteObjectsRequest, String> {
+    let normalized_object_keys = normalize_delete_object_keys(object_keys);
+
+    if normalized_object_keys.is_empty() {
+        return Err("At least one blob name is required for delete requests.".to_string());
+    }
+
+    Ok(PreparedAzureDeleteObjectsRequest {
+        storage_account_name: normalize_storage_account_name(&input.storage_account_name)?,
+        account_key: input.account_key,
+        normalized_container_name: normalize_container_name_for_operation(
+            &container_name,
+            "delete requests",
+        )?,
+        normalized_object_keys,
+    })
+}
+
+fn prepare_delete_prefix_request(
+    input: AzureConnectionTestInput,
+    container_name: String,
+    prefix: String,
+) -> Result<PreparedAzureDeletePrefixRequest, String> {
+    Ok(PreparedAzureDeletePrefixRequest {
+        storage_account_name: normalize_storage_account_name(&input.storage_account_name)?,
+        account_key: input.account_key,
+        normalized_container_name: normalize_container_name_for_operation(
+            &container_name,
+            "delete requests",
+        )?,
+        recursive_prefix: normalize_recursive_delete_prefix(&prefix)?,
+    })
 }
 
 fn normalize_delete_object_keys(object_keys: Vec<String>) -> Vec<String> {
@@ -3132,6 +3210,84 @@ mod tests {
         assert!(has_next_marker(Some("cursor-1")));
         assert!(!has_next_marker(Some("   ")));
         assert!(!has_next_marker(None));
+    }
+
+    #[test]
+    fn prepares_listing_and_delete_requests() {
+        let list_prepared = prepare_list_container_items_request(
+            AzureConnectionTestInput {
+                storage_account_name: " StorageAcct ".to_string(),
+                account_key: "unused-key".to_string(),
+            },
+            " reports ".to_string(),
+            Some(" /docs ".to_string()),
+            Some("cursor-1".to_string()),
+            Some(0),
+        )
+        .unwrap();
+        assert_eq!(list_prepared.storage_account_name, "storageacct");
+        assert_eq!(list_prepared.account_key, "unused-key");
+        assert_eq!(list_prepared.normalized_container_name, "reports");
+        assert_eq!(
+            list_prepared.normalized_prefix.as_deref(),
+            Some("docs/")
+        );
+        assert_eq!(
+            list_prepared.query,
+            vec![
+                ("restype".to_string(), "container".to_string()),
+                ("comp".to_string(), "list".to_string()),
+                ("delimiter".to_string(), "/".to_string()),
+                ("include".to_string(), "metadata".to_string()),
+                ("maxresults".to_string(), "1".to_string()),
+                ("prefix".to_string(), "docs/".to_string()),
+                ("marker".to_string(), "cursor-1".to_string()),
+            ]
+        );
+
+        let delete_prepared = prepare_delete_objects_request(
+            AzureConnectionTestInput {
+                storage_account_name: " StorageAcct ".to_string(),
+                account_key: "unused-key".to_string(),
+            },
+            " reports ".to_string(),
+            vec![" docs/file.txt ".to_string(), "/docs/file.txt".to_string()],
+        )
+        .unwrap();
+        assert_eq!(delete_prepared.normalized_container_name, "reports");
+        assert_eq!(delete_prepared.normalized_object_keys, vec!["docs/file.txt"]);
+
+        let prefix_prepared = prepare_delete_prefix_request(
+            AzureConnectionTestInput {
+                storage_account_name: " StorageAcct ".to_string(),
+                account_key: "unused-key".to_string(),
+            },
+            " reports ".to_string(),
+            " /docs/reports/ ".to_string(),
+        )
+        .unwrap();
+        assert_eq!(prefix_prepared.normalized_container_name, "reports");
+        assert_eq!(prefix_prepared.recursive_prefix, "docs/reports/");
+        assert!(prepare_list_container_items_request(
+            azure_test_input(),
+            "   ".to_string(),
+            None,
+            None,
+            None,
+        )
+        .is_err());
+        assert!(prepare_delete_objects_request(
+            azure_test_input(),
+            "reports".to_string(),
+            vec!["   ".to_string()],
+        )
+        .is_err());
+        assert!(prepare_delete_prefix_request(
+            azure_test_input(),
+            "reports".to_string(),
+            " / ".to_string(),
+        )
+        .is_err());
     }
 
     #[tokio::test]

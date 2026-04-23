@@ -80,7 +80,7 @@ Increase automated test coverage toward the agreed long-term target of `75%` lin
 
 ## Current Priorities
 
-1. **Frontend final coverage target reached** ✅ — Frontend `76.90%`, Rust `70.25%` measured on 2026-04-23
+1. **Frontend final coverage target reached** ✅ — Frontend `76.90%`, Rust `70.94%` measured on 2026-04-23
 2. Frontend coverage now scopes to application source under `src`, excluding generated/build artifacts from the V8 denominator
 3. Next executable priority: expand Rust coverage toward the remaining `75%` final target
 
@@ -136,7 +136,8 @@ Use the checklist below as the next execution guide for the coverage-expansion b
 - [x] Step R22. Expand bootstrap and window-state local helper coverage
 - [x] Step R23. Extract and cover provider upload-cancellation helpers
 - [x] Step R24. Extract and cover provider download-cancellation helpers
-- [ ] Step R25. Continue Rust provider/command coverage toward the remaining `75%` final target
+- [x] Step R25. Extract and cover provider listing/delete preparation helpers
+- [ ] Step R26. Continue Rust provider/command coverage toward the remaining `75%` final target
 
 ### Review Step
 
@@ -146,7 +147,7 @@ Use the checklist below as the next execution guide for the coverage-expansion b
 
 - Milestone D (`50%` frontend, `55%` Rust) is complete.
 - Frontend final target `75%` is complete.
-- Rust has crossed the interim `65%` checkpoint and remains at `70.25%`; next estimate should continue prioritizing the highest-yield Rust provider and command modules.
+- Rust has crossed the interim `65%` checkpoint and remains at `70.94%`; next estimate should continue prioritizing the highest-yield Rust provider and command modules.
 
 ## Current Risks
 
@@ -1255,6 +1256,25 @@ Use the checklist below as the next execution guide for the coverage-expansion b
   - extracted repeated AWS/Azure download-cancellation checks into local helpers
   - covered active-vs-cancelled atomic-flag behavior directly in both provider modules
   - reduced duplicated cancellation checks in tracked and direct download flows while preserving cleanup behavior
+
+## Rust Listing/Delete Preparation Coverage Step
+
+- Targeted Rust test command: `cargo test --manifest-path src-tauri/Cargo.toml application::services::aws_connection_service::tests -- --nocapture`
+  - Tests: `30` passed
+- Targeted Rust test command: `cargo test --manifest-path src-tauri/Cargo.toml application::services::azure_connection_service::tests -- --nocapture`
+  - Tests: `26` passed
+- Rust check command: `cargo check --manifest-path src-tauri/Cargo.toml`
+  - Result: passed
+- Rust coverage command: `npm run test:rust:coverage`
+  - Tests: `106` passed
+  - Rust line coverage: `70.94%`
+  - Rust regions: `67.95%`
+  - Rust functions: `58.90%`
+- Delivered:
+  - completed roadmap Step `R25`
+  - extracted AWS preparation helpers for list-bucket-items, delete-objects, and delete-prefix flows
+  - extracted Azure preparation helpers for list-container-items, delete-objects, and delete-prefix flows
+  - covered normalization, page-size/query building, restriction/account handling, and delete-prefix preparation directly without hitting provider calls
 
 ## Next Steps Toward Final Target
 
