@@ -1,5 +1,6 @@
 use aws_config::Region;
 use aws_credential_types::Credentials;
+use aws_sdk_s3::operation::list_objects_v2::ListObjectsV2Output;
 use aws_sdk_s3::primitives::ByteStream;
 use aws_sdk_s3::types::BucketLocationConstraint;
 use aws_sdk_s3::types::CompletedMultipartUpload;
@@ -317,6 +318,73 @@ fn chunk_delete_object_keys(object_keys: &[String]) -> Vec<Vec<String>> {
 
 fn should_use_single_request_upload(object_size: u64) -> bool {
     object_size <= MULTIPART_UPLOAD_CHUNK_SIZE as u64
+}
+
+fn build_bucket_items_result(
+    bucket_region: String,
+    prefix: &str,
+    response: ListObjectsV2Output,
+) -> AwsBucketItemsResult {
+    let mut seen_directories = HashSet::new();
+    let mut seen_files = HashSet::new();
+    let mut directories = Vec::new();
+    let mut files = Vec::new();
+
+    for directory_path in response
+        .common_prefixes()
+        .iter()
+        .filter_map(|common_prefix| common_prefix.prefix())
+    {
+        if seen_directories.insert(directory_path.to_string()) {
+            directories.push(AwsVirtualDirectorySummary {
+                name: build_directory_name(directory_path),
+                path: directory_path.to_string(),
+            });
+        }
+    }
+
+    for object in response.contents().iter() {
+        let Some(key) = object.key() else {
+            continue;
+        };
+
+        if key == prefix || key.ends_with('/') {
+            continue;
+        }
+
+        if seen_files.insert(key.to_string()) {
+            let restore_status = object.restore_status();
+            files.push(AwsObjectSummary {
+                key: key.to_string(),
+                size: object.size().unwrap_or_default(),
+                e_tag: object.e_tag().map(ToString::to_string),
+                last_modified: object.last_modified().map(ToString::to_string),
+                storage_class: Some(
+                    object
+                        .storage_class()
+                        .map(|storage_class| storage_class.as_str().to_string())
+                        .unwrap_or_else(|| "STANDARD".to_string()),
+                ),
+                restore_in_progress: restore_status
+                    .and_then(|status| status.is_restore_in_progress()),
+                restore_expiry_date: restore_status
+                    .and_then(|status| status.restore_expiry_date())
+                    .map(ToString::to_string),
+            });
+        }
+    }
+
+    let next_continuation_token = response.next_continuation_token().map(ToString::to_string);
+    let has_more =
+        has_more_listing_results(response.is_truncated(), next_continuation_token.as_deref());
+
+    AwsBucketItemsResult {
+        bucket_region,
+        directories,
+        files,
+        continuation_token: next_continuation_token,
+        has_more,
+    }
 }
 
 impl AwsConnectionService {
@@ -903,10 +971,6 @@ impl AwsConnectionService {
         let (_, s3_client) =
             Self::build_clients(&resolved_bucket_region, access_key_id, secret_access_key).await;
 
-        let mut seen_directories = HashSet::new();
-        let mut seen_files = HashSet::new();
-        let mut directories = Vec::new();
-        let mut files = Vec::new();
         let response = s3_client
             .list_objects_v2()
             .bucket(bucket_name.clone())
@@ -931,61 +995,11 @@ impl AwsConnectionService {
                 error_message
             })?;
 
-        for directory_path in response
-            .common_prefixes()
-            .iter()
-            .filter_map(|common_prefix| common_prefix.prefix())
-        {
-            if seen_directories.insert(directory_path.to_string()) {
-                directories.push(AwsVirtualDirectorySummary {
-                    name: build_directory_name(directory_path),
-                    path: directory_path.to_string(),
-                });
-            }
-        }
-
-        for object in response.contents().iter() {
-            let Some(key) = object.key() else {
-                continue;
-            };
-
-            if key == prefix || key.ends_with('/') {
-                continue;
-            }
-
-            if seen_files.insert(key.to_string()) {
-                let restore_status = object.restore_status();
-                files.push(AwsObjectSummary {
-                    key: key.to_string(),
-                    size: object.size().unwrap_or_default(),
-                    e_tag: object.e_tag().map(ToString::to_string),
-                    last_modified: object.last_modified().map(ToString::to_string),
-                    storage_class: Some(
-                        object
-                            .storage_class()
-                            .map(|storage_class| storage_class.as_str().to_string())
-                            .unwrap_or_else(|| "STANDARD".to_string()),
-                    ),
-                    restore_in_progress: restore_status
-                        .and_then(|status| status.is_restore_in_progress()),
-                    restore_expiry_date: restore_status
-                        .and_then(|status| status.restore_expiry_date())
-                        .map(ToString::to_string),
-                });
-            }
-        }
-
-        let next_continuation_token = response.next_continuation_token().map(ToString::to_string);
-        let has_more =
-            has_more_listing_results(response.is_truncated(), next_continuation_token.as_deref());
-
-        Ok(AwsBucketItemsResult {
-            bucket_region: resolved_bucket_region,
-            directories,
-            files,
-            continuation_token: next_continuation_token,
-            has_more,
-        })
+        Ok(build_bucket_items_result(
+            resolved_bucket_region,
+            &prefix,
+            response,
+        ))
     }
 
     pub async fn request_object_restore(
@@ -2867,6 +2881,48 @@ mod tests {
         assert!(!should_use_single_request_upload(
             MULTIPART_UPLOAD_CHUNK_SIZE as u64 + 1
         ));
+    }
+
+    #[test]
+    fn builds_bucket_items_result_from_s3_listing_response() {
+        use aws_sdk_s3::types::{CommonPrefix, Object, ObjectStorageClass};
+
+        let response = ListObjectsV2Output::builder()
+            .common_prefixes(CommonPrefix::builder().prefix("docs/reports/").build())
+            .common_prefixes(CommonPrefix::builder().prefix("docs/reports/").build())
+            .contents(
+                Object::builder()
+                    .key("docs/report.txt")
+                    .size(42)
+                    .e_tag("etag-1")
+                    .storage_class(ObjectStorageClass::StandardIa)
+                    .build(),
+            )
+            .contents(
+                Object::builder()
+                    .key("docs/report.txt")
+                    .size(100)
+                    .storage_class(ObjectStorageClass::Glacier)
+                    .build(),
+            )
+            .contents(Object::builder().key("docs/").size(0).build())
+            .next_continuation_token("next-page")
+            .is_truncated(true)
+            .build();
+
+        let result = build_bucket_items_result("us-west-2".to_string(), "docs/", response);
+
+        assert_eq!(result.bucket_region, "us-west-2");
+        assert_eq!(result.directories.len(), 1);
+        assert_eq!(result.directories[0].name, "reports");
+        assert_eq!(result.directories[0].path, "docs/reports/");
+        assert_eq!(result.files.len(), 1);
+        assert_eq!(result.files[0].key, "docs/report.txt");
+        assert_eq!(result.files[0].size, 42);
+        assert_eq!(result.files[0].e_tag.as_deref(), Some("etag-1"));
+        assert_eq!(result.files[0].storage_class.as_deref(), Some("STANDARD_IA"));
+        assert_eq!(result.continuation_token.as_deref(), Some("next-page"));
+        assert!(result.has_more);
     }
 
     #[tokio::test]
