@@ -471,13 +471,13 @@ impl AzureConnectionService {
         let mut written_bytes = 0_i64;
         let final_path_string = final_path.to_string_lossy().to_string();
 
-        if cancellation_flag.load(Ordering::SeqCst) {
+        if ensure_download_not_cancelled(&cancellation_flag).is_err() {
             Self::remove_temp_file_if_exists(&temp_path).await?;
             return Err(AZURE_DOWNLOAD_CANCELLED_ERROR.to_string());
         }
 
         while let Some(chunk) = response.chunk().await.map_err(|error| error.to_string())? {
-            if cancellation_flag.load(Ordering::SeqCst) {
+            if ensure_download_not_cancelled(&cancellation_flag).is_err() {
                 drop(file);
                 Self::remove_temp_file_if_exists(&temp_path).await?;
                 return Err(AZURE_DOWNLOAD_CANCELLED_ERROR.to_string());
@@ -494,7 +494,7 @@ impl AzureConnectionService {
         file.flush().await.map_err(|error| error.to_string())?;
         drop(file);
 
-        if cancellation_flag.load(Ordering::SeqCst) {
+        if ensure_download_not_cancelled(&cancellation_flag).is_err() {
             Self::remove_temp_file_if_exists(&temp_path).await?;
             return Err(AZURE_DOWNLOAD_CANCELLED_ERROR.to_string());
         }
@@ -565,13 +565,13 @@ impl AzureConnectionService {
         let mut response = response;
         let mut written_bytes = 0_i64;
 
-        if cancellation_flag.load(Ordering::SeqCst) {
+        if ensure_download_not_cancelled(&cancellation_flag).is_err() {
             Self::remove_temp_file_if_exists(&temp_path).await?;
             return Err(AZURE_DOWNLOAD_CANCELLED_ERROR.to_string());
         }
 
         while let Some(chunk) = response.chunk().await.map_err(|error| error.to_string())? {
-            if cancellation_flag.load(Ordering::SeqCst) {
+            if ensure_download_not_cancelled(&cancellation_flag).is_err() {
                 drop(file);
                 Self::remove_temp_file_if_exists(&temp_path).await?;
                 return Err(AZURE_DOWNLOAD_CANCELLED_ERROR.to_string());
@@ -588,7 +588,7 @@ impl AzureConnectionService {
         file.flush().await.map_err(|error| error.to_string())?;
         drop(file);
 
-        if cancellation_flag.load(Ordering::SeqCst) {
+        if ensure_download_not_cancelled(&cancellation_flag).is_err() {
             Self::remove_temp_file_if_exists(&temp_path).await?;
             return Err(AZURE_DOWNLOAD_CANCELLED_ERROR.to_string());
         }
@@ -1944,6 +1944,14 @@ fn ensure_upload_not_cancelled(cancellation_flag: &AtomicBool) -> Result<(), Str
     Ok(())
 }
 
+fn ensure_download_not_cancelled(cancellation_flag: &AtomicBool) -> Result<(), String> {
+    if cancellation_flag.load(Ordering::SeqCst) {
+        return Err(AZURE_DOWNLOAD_CANCELLED_ERROR.to_string());
+    }
+
+    Ok(())
+}
+
 fn build_block_id(index: usize) -> String {
     BASE64_STANDARD.encode(format!("{index:08}"))
 }
@@ -2771,6 +2779,18 @@ mod tests {
         assert_eq!(
             ensure_upload_not_cancelled(&cancelled).unwrap_err(),
             AZURE_UPLOAD_CANCELLED_ERROR
+        );
+    }
+
+    #[test]
+    fn detects_cancelled_downloads_from_atomic_flags() {
+        let active = AtomicBool::new(false);
+        let cancelled = AtomicBool::new(true);
+
+        assert!(ensure_download_not_cancelled(&active).is_ok());
+        assert_eq!(
+            ensure_download_not_cancelled(&cancelled).unwrap_err(),
+            AZURE_DOWNLOAD_CANCELLED_ERROR
         );
     }
 
