@@ -26,6 +26,7 @@ Increase automated test coverage toward the agreed long-term target of `75%` lin
 - [x] Milestone B: Frontend `20%`, Rust `25%`
 - [x] Milestone C (Rust): Rust `40%` reached — `46.83%` measured after Step R2
 - [x] Milestone C (Frontend): Frontend `35%` reached — `36.39%` measured after component render tests
+- [x] Milestone D: Frontend `50%`, Rust `55%` reached — Frontend `53.08%`, Rust `58.99%` measured after Step R6
 - [ ] Final target: Frontend `75%`, Rust `75%`
 
 ## Phases
@@ -76,9 +77,9 @@ Increase automated test coverage toward the agreed long-term target of `75%` lin
 
 ## Current Priorities
 
-1. **Rust provider mutation guard coverage added** ✅ — Frontend `53.08%`, Rust `54.20%` measured on 2026-04-22
-2. Frontend has crossed the interim `50%` threshold; Rust still needs expansion toward `55%`
-3. Next executable priority: one more focused Rust provider/command step to cross `55%`
+1. **Milestone D complete** ✅ — Frontend `53.08%`, Rust `58.99%` measured on 2026-04-23
+2. Rust crossed the `55%` threshold after command-wrapper guard coverage
+3. Next executable priority: resume frontend coverage toward the next interim `65%` target
 
 ## Operational Roadmap
 
@@ -106,7 +107,7 @@ Use the checklist below as the next execution guide for the coverage-expansion b
 - [x] Step R3. Expand Rust app/provider helper coverage for bootstrap reload decisions, window-state JSON contracts, and AWS provider error formatting
 - [x] Step R4. Expand remaining Rust provider mutation/error-path coverage toward `55%`
 - [x] Step R5. Continue Rust provider mutation/error-path coverage toward `55%`
-- [ ] Step R6. Cross Rust `55%` with one more provider/command coverage step
+- [x] Step R6. Cross Rust `55%` with one more provider/command coverage step
 
 ### Review Step
 
@@ -755,11 +756,30 @@ Use the checklist below as the next execution guide for the coverage-expansion b
   - `aws_connection_service.rs` line coverage is now `48.63%`
   - `azure_connection_service.rs` line coverage is now `58.40%`
 
+## Rust Command Wrapper Guard Coverage Step
+
+- Targeted Rust test command: `cargo test --manifest-path src-tauri/Cargo.toml presentation::commands::tests::provider_mutation_command_wrappers_surface_local_guard_errors -- --nocapture`
+  - Tests: `1` passed
+- Rust check command: `cargo check --manifest-path src-tauri/Cargo.toml`
+  - Result: passed
+- Rust coverage command: `npm run test:rust:coverage`
+  - Tests: `74` passed
+  - Rust line coverage: `58.99%`
+  - Rust regions: `55.88%`
+  - Rust functions: `50.06%`
+- Delivered:
+  - completed roadmap Step `R6`
+  - covered AWS/Azure provider mutation command wrappers that surface local guard errors before network calls
+  - `presentation/commands.rs` line coverage is now `71.04%`
+  - `aws_connection_service.rs` line coverage is now `49.25%`
+  - `azure_connection_service.rs` line coverage is now `59.43%`
+  - **Milestone D reached**: Frontend `53.08%` ✅ (target `50%`), Rust `58.99%` ✅ (target `55%`)
+
 ## Next Steps Toward Next Milestone
 
 Ordered by likely value:
 
-1. Add one more focused Rust provider/command coverage step to cross `55%`.
-2. Add Rust coverage around command wrappers that still only have partial `Window`-driven coverage.
-3. Re-run `npm run test:rust:coverage` and update this tracker after each Rust step.
-4. Resume frontend toward Milestone E `65%` after Rust reaches `55%`.
+1. Resume frontend coverage toward the next interim `65%` target.
+2. Prefer remaining high-risk `ConnectionNavigator` workflows and extracted navigation helpers before low-value component snapshots.
+3. Re-run `npm run test:frontend:coverage` and update this tracker after each frontend step.
+4. Revisit Rust after frontend reaches the next threshold or if provider/command changes introduce new risk.

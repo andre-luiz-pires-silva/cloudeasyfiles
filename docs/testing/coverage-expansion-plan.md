@@ -125,11 +125,10 @@ Intermediate milestones for this initiative:
 
 These milestones are for planning and progress tracking only. They are not CI failure thresholds at this stage.
 
-Current milestone status as of 2026-04-22:
+Current milestone status as of 2026-04-23:
 
-- Frontend has crossed the Milestone D frontend threshold at `53.08%`
-- Rust is progressing toward the Milestone D backend threshold at `54.20%`
-- The next planned step should add one focused Rust provider/command coverage slice to cross `55%`
+- Milestone D is complete: Frontend `53.08%`, Rust `58.99%`
+- The next planned work should resume frontend coverage toward the next interim `65%` target
 
 ## Prioritization Rules
 

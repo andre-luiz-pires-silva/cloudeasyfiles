@@ -2130,8 +2130,11 @@ mod tests {
         build_azure_cache_download_terminal_event, build_azure_direct_download_progress_event,
         build_azure_direct_download_terminal_event, build_azure_download_event,
         build_azure_upload_event, build_azure_upload_progress_event,
-        build_azure_upload_terminal_event, calculate_progress_percent, cancel_aws_download,
-        cancel_aws_upload, cancel_azure_download, cancel_azure_upload,
+        aws_object_exists, build_azure_upload_terminal_event, calculate_progress_percent,
+        cancel_aws_download, cancel_aws_upload, cancel_azure_download, cancel_azure_upload,
+        change_aws_object_storage_class, change_azure_blob_access_tier, create_aws_folder,
+        create_azure_folder, delete_aws_objects, delete_aws_prefix, delete_azure_objects,
+        delete_azure_prefix,
         dispatch_aws_cache_download_progress, dispatch_aws_direct_download_progress,
         dispatch_aws_upload_progress, dispatch_azure_cache_download_progress,
         dispatch_azure_direct_download_progress, dispatch_azure_upload_progress,
@@ -2139,8 +2142,9 @@ mod tests {
         is_cancelled_azure_download_error, is_cancelled_azure_upload_error,
         is_cancelled_download_error, is_cancelled_upload_error, open_aws_cached_object,
         open_aws_cached_object_parent, open_azure_cached_object, open_azure_cached_object_parent,
-        open_external_url, resolve_cache_download_outcome, resolve_direct_download_outcome,
-        resolve_upload_outcome, upload_terminal_state, validate_local_mapping_directory,
+        open_external_url, rehydrate_azure_blob, request_aws_object_restore,
+        resolve_cache_download_outcome, resolve_direct_download_outcome, resolve_upload_outcome,
+        upload_terminal_state, validate_local_mapping_directory, azure_blob_exists,
         AZURE_DOWNLOAD_CANCELLED_ERROR, AZURE_UPLOAD_CANCELLED_ERROR, DOWNLOAD_CANCELLED_ERROR,
         UPLOAD_CANCELLED_ERROR,
     };
@@ -2823,6 +2827,163 @@ mod tests {
         cancel_azure_upload("missing-azure-upload".to_string())
             .await
             .expect("missing azure upload should still succeed");
+    }
+
+    #[tokio::test]
+    async fn provider_mutation_command_wrappers_surface_local_guard_errors() {
+        assert_eq!(
+            aws_object_exists(
+                "access-key".to_string(),
+                "secret-key".to_string(),
+                "bucket-a".to_string(),
+                "   ".to_string(),
+                None,
+                None,
+            )
+            .await
+            .unwrap_err(),
+            "Object key is required."
+        );
+        assert_eq!(
+            request_aws_object_restore(
+                "access-key".to_string(),
+                "secret-key".to_string(),
+                "bucket-a".to_string(),
+                "docs/archive.zip".to_string(),
+                Some("GLACIER".to_string()),
+                None,
+                "Standard".to_string(),
+                0,
+                None,
+            )
+            .await
+            .unwrap_err(),
+            "Restore retention days must be between 1 and 365."
+        );
+        assert_eq!(
+            create_aws_folder(
+                "access-key".to_string(),
+                "secret-key".to_string(),
+                "bucket-a".to_string(),
+                None,
+                "bad/name".to_string(),
+                None,
+                None,
+            )
+            .await
+            .unwrap_err(),
+            "Folder name cannot contain path separators."
+        );
+        assert_eq!(
+            delete_aws_objects(
+                "access-key".to_string(),
+                "secret-key".to_string(),
+                "bucket-a".to_string(),
+                vec!["   ".to_string()],
+                None,
+                None,
+            )
+            .await
+            .unwrap_err(),
+            "At least one object key is required for delete requests."
+        );
+        assert_eq!(
+            delete_aws_prefix(
+                "access-key".to_string(),
+                "secret-key".to_string(),
+                "bucket-a".to_string(),
+                " / ".to_string(),
+                None,
+                None,
+            )
+            .await
+            .unwrap_err(),
+            "Directory prefix is required for recursive delete requests."
+        );
+        assert_eq!(
+            change_aws_object_storage_class(
+                "access-key".to_string(),
+                "secret-key".to_string(),
+                "bucket-a".to_string(),
+                "   ".to_string(),
+                "STANDARD_IA".to_string(),
+                None,
+                None,
+            )
+            .await
+            .unwrap_err(),
+            "Object key is required for storage class changes."
+        );
+
+        assert!(
+            !azure_blob_exists(
+                "storageacct".to_string(),
+                "unused-key".to_string(),
+                "container-a".to_string(),
+                "   ".to_string(),
+            )
+            .await
+            .expect("blank azure blob name should return false")
+        );
+        assert_eq!(
+            create_azure_folder(
+                "storageacct".to_string(),
+                "unused-key".to_string(),
+                "container-a".to_string(),
+                None,
+                "bad/name".to_string(),
+            )
+            .await
+            .unwrap_err(),
+            "Folder name cannot contain path separators."
+        );
+        assert_eq!(
+            delete_azure_objects(
+                "storageacct".to_string(),
+                "unused-key".to_string(),
+                "container-a".to_string(),
+                vec!["   ".to_string()],
+            )
+            .await
+            .unwrap_err(),
+            "At least one blob name is required for delete requests."
+        );
+        assert_eq!(
+            delete_azure_prefix(
+                "storageacct".to_string(),
+                "unused-key".to_string(),
+                "container-a".to_string(),
+                " / ".to_string(),
+            )
+            .await
+            .unwrap_err(),
+            "Directory prefix is required for recursive delete requests."
+        );
+        assert_eq!(
+            change_azure_blob_access_tier(
+                "storageacct".to_string(),
+                "unused-key".to_string(),
+                "container-a".to_string(),
+                "docs/blob.txt".to_string(),
+                "Premium".to_string(),
+            )
+            .await
+            .unwrap_err(),
+            "Unsupported Azure upload access tier."
+        );
+        assert_eq!(
+            rehydrate_azure_blob(
+                "storageacct".to_string(),
+                "unused-key".to_string(),
+                "container-a".to_string(),
+                "docs/archive.zip".to_string(),
+                "Archive".to_string(),
+                "High".to_string(),
+            )
+            .await
+            .unwrap_err(),
+            "Unsupported Azure rehydration target tier."
+        );
     }
 
     #[tokio::test]
