@@ -2994,6 +2994,20 @@ mod tests {
             "Object key is required."
         );
         assert_eq!(
+            AwsConnectionService::object_exists(
+                AwsConnectionTestInput {
+                    restricted_bucket_name: Some("allowed-bucket".to_string()),
+                    ..input.clone()
+                },
+                "other-bucket".to_string(),
+                "docs/file.txt".to_string(),
+                Some("us-east-1".to_string())
+            )
+            .await
+            .unwrap_err(),
+            RESTRICTED_BUCKET_MISMATCH_ERROR
+        );
+        assert_eq!(
             AwsConnectionService::delete_objects(
                 input.clone(),
                 "   ".to_string(),

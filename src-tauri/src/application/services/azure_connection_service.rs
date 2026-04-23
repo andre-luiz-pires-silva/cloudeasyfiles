@@ -2391,6 +2391,11 @@ mod tests {
             resource,
             "/acct/container/blob.txt\ncomp:list\nprefix:docs/,logs/\nrestype:container"
         );
+        assert_eq!(
+            build_canonicalized_resource("acct", "/container/blob.txt", Some("comp=%ZZ"))
+                .unwrap(),
+            "/acct/container/blob.txt\ncomp:%ZZ"
+        );
     }
 
     #[test]
@@ -2592,6 +2597,11 @@ mod tests {
 
     #[test]
     fn builds_azure_urls_with_expected_normalization() {
+        assert_eq!(
+            build_account_url("acct"),
+            "https://acct.blob.core.windows.net"
+        );
+
         let service_url = build_service_url(
             "acct",
             &[
@@ -2627,6 +2637,47 @@ mod tests {
             blob_url.as_str(),
             "https://acct.blob.core.windows.net/reports/annual%20files/report%20%231.csv?timeout=30"
         );
+
+        let folder_blob_url = build_blob_url("acct", "reports", "nested/folder/", &[]).unwrap();
+        assert_eq!(
+            folder_blob_url.as_str(),
+            "https://acct.blob.core.windows.net/reports/nested/folder/?"
+        );
+    }
+
+    #[test]
+    fn builds_shared_key_authorization_and_rejects_invalid_keys() {
+        let authorization = build_shared_key_authorization(
+            "acct",
+            "dGVzdC1rZXk=",
+            "GET",
+            &[
+                (
+                    "x-ms-date".to_string(),
+                    "Tue, 14 Apr 2026 00:00:00 GMT".to_string(),
+                ),
+                ("x-ms-version".to_string(), AZURE_BLOB_API_VERSION.to_string()),
+            ],
+            None,
+            None,
+            "/reports/blob.txt",
+            Some("comp=metadata"),
+        )
+        .expect("shared key authorization should be generated");
+
+        assert!(authorization.starts_with("SharedKey acct:"));
+        assert!(authorization.len() > "SharedKey acct:".len());
+        assert!(build_shared_key_authorization(
+            "acct",
+            "not-base64",
+            "GET",
+            &[],
+            None,
+            None,
+            "/reports/blob.txt",
+            None,
+        )
+        .is_err());
     }
 
     #[test]
@@ -2719,6 +2770,15 @@ mod tests {
     async fn rejects_provider_mutation_inputs_before_network() {
         let input = azure_test_input();
 
+        assert!(
+            !AzureConnectionService::blob_exists(
+                input.clone(),
+                "   ".to_string(),
+                "docs/file.txt".to_string()
+            )
+            .await
+            .expect("blank container should return false")
+        );
         assert_eq!(
             AzureConnectionService::delete_objects(
                 input.clone(),

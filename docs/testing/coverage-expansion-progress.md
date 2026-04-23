@@ -80,7 +80,7 @@ Increase automated test coverage toward the agreed long-term target of `75%` lin
 
 ## Current Priorities
 
-1. **Frontend final coverage target reached** ✅ — Frontend `76.90%`, Rust `68.87%` measured on 2026-04-23
+1. **Frontend final coverage target reached** ✅ — Frontend `76.90%`, Rust `69.48%` measured on 2026-04-23
 2. Frontend coverage now scopes to application source under `src`, excluding generated/build artifacts from the V8 denominator
 3. Next executable priority: expand Rust coverage toward the remaining `75%` final target
 
@@ -131,7 +131,8 @@ Use the checklist below as the next execution guide for the coverage-expansion b
 - [x] Step R17. Cover AWS/Azure provider upload-path guards before network
 - [x] Step R18. Cover AWS/Azure provider upload-bytes guards before network
 - [x] Step R19. Cover remaining pure provider mapping/parser guard branches
-- [ ] Step R20. Continue Rust provider/command coverage toward the remaining `75%` final target
+- [x] Step R20. Cover provider auth/url helpers and local existence guards
+- [ ] Step R21. Continue Rust provider/command coverage toward the remaining `75%` final target
 
 ### Review Step
 
@@ -141,7 +142,7 @@ Use the checklist below as the next execution guide for the coverage-expansion b
 
 - Milestone D (`50%` frontend, `55%` Rust) is complete.
 - Frontend final target `75%` is complete.
-- Rust has crossed the interim `65%` checkpoint and remains at `68.87%`; next estimate should continue prioritizing the highest-yield Rust provider and command modules.
+- Rust has crossed the interim `65%` checkpoint and remains at `69.48%`; next estimate should continue prioritizing the highest-yield Rust provider and command modules.
 
 ## Current Risks
 
@@ -1155,6 +1156,25 @@ Use the checklist below as the next execution guide for the coverage-expansion b
   - covered AWS bucket-region resolution when a region is already supplied and when a restriction blocks before network
   - covered additional S3 listing mapper branches for missing object keys and default storage class
   - covered invalid XML errors for Azure container and blob listing parsers
+
+## Rust Provider Auth/URL Helper Coverage Step
+
+- Targeted Rust test command: `cargo test --manifest-path src-tauri/Cargo.toml application::services::aws_connection_service::tests -- --nocapture`
+  - Tests: `27` passed
+- Targeted Rust test command: `cargo test --manifest-path src-tauri/Cargo.toml application::services::azure_connection_service::tests -- --nocapture`
+  - Tests: `23` passed
+- Rust check command: `cargo check --manifest-path src-tauri/Cargo.toml`
+  - Result: passed
+- Rust coverage command: `npm run test:rust:coverage`
+  - Tests: `97` passed
+  - Rust line coverage: `69.48%`
+  - Rust regions: `66.18%`
+  - Rust functions: `57.65%`
+- Delivered:
+  - completed roadmap Step `R20`
+  - covered AWS `object_exists` restricted-bucket guard with a provided region before network
+  - covered Azure shared-key authorization, account/blob URL normalization, and canonicalized-resource edge handling
+  - covered Azure `blob_exists` blank-container local guard before any provider request
 
 ## Next Steps Toward Final Target
 
