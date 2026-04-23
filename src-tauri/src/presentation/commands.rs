@@ -2138,12 +2138,14 @@ mod tests {
         dispatch_aws_cache_download_progress, dispatch_aws_direct_download_progress,
         dispatch_aws_upload_progress, dispatch_azure_cache_download_progress,
         dispatch_azure_direct_download_progress, dispatch_azure_upload_progress,
-        download_terminal_state, find_aws_cached_objects, find_azure_cached_objects, get_greeting,
-        is_cancelled_azure_download_error, is_cancelled_azure_upload_error,
-        is_cancelled_download_error, is_cancelled_upload_error, open_aws_cached_object,
-        open_aws_cached_object_parent, open_azure_cached_object, open_azure_cached_object_parent,
-        open_external_url, rehydrate_azure_blob, request_aws_object_restore,
-        resolve_cache_download_outcome, resolve_direct_download_outcome, resolve_upload_outcome,
+        download_terminal_state, find_aws_cached_objects, find_azure_cached_objects,
+        get_aws_bucket_region, get_greeting, is_cancelled_azure_download_error,
+        is_cancelled_azure_upload_error, is_cancelled_download_error, is_cancelled_upload_error,
+        list_aws_bucket_items, list_azure_container_items, list_azure_containers,
+        open_aws_cached_object, open_aws_cached_object_parent, open_azure_cached_object,
+        open_azure_cached_object_parent, open_external_url, rehydrate_azure_blob,
+        request_aws_object_restore, resolve_cache_download_outcome,
+        resolve_direct_download_outcome, resolve_upload_outcome, test_azure_connection,
         upload_terminal_state, validate_local_mapping_directory, azure_blob_exists,
         AZURE_DOWNLOAD_CANCELLED_ERROR, AZURE_UPLOAD_CANCELLED_ERROR, DOWNLOAD_CANCELLED_ERROR,
         UPLOAD_CANCELLED_ERROR,
@@ -2983,6 +2985,75 @@ mod tests {
             .await
             .unwrap_err(),
             "Unsupported Azure rehydration target tier."
+        );
+    }
+
+    #[tokio::test]
+    async fn read_command_wrappers_surface_local_guard_errors_before_network() {
+        assert_eq!(
+            get_aws_bucket_region(
+                "access-key".to_string(),
+                "secret-key".to_string(),
+                "other-bucket".to_string(),
+                Some("allowed-bucket".to_string()),
+            )
+            .await
+            .unwrap_err(),
+            "AWS_S3_RESTRICTED_BUCKET_MISMATCH"
+        );
+        assert_eq!(
+            list_aws_bucket_items(
+                "access-key".to_string(),
+                "secret-key".to_string(),
+                "other-bucket".to_string(),
+                None,
+                Some("us-east-1".to_string()),
+                None,
+                Some("allowed-bucket".to_string()),
+                Some(25),
+            )
+            .await
+            .unwrap_err(),
+            "AWS_S3_RESTRICTED_BUCKET_MISMATCH"
+        );
+
+        assert_eq!(
+            test_azure_connection("   ".to_string(), "unused-key".to_string())
+                .await
+                .unwrap_err(),
+            "The Azure storage account name is required."
+        );
+        assert_eq!(
+            list_azure_containers("   ".to_string(), "unused-key".to_string())
+                .await
+                .unwrap_err(),
+            "The Azure storage account name is required."
+        );
+        assert_eq!(
+            list_azure_container_items(
+                "storageacct".to_string(),
+                "unused-key".to_string(),
+                "   ".to_string(),
+                None,
+                None,
+                Some(25),
+            )
+            .await
+            .unwrap_err(),
+            "The Azure container name is required."
+        );
+        assert_eq!(
+            list_azure_container_items(
+                "   ".to_string(),
+                "unused-key".to_string(),
+                "container-a".to_string(),
+                None,
+                None,
+                Some(25),
+            )
+            .await
+            .unwrap_err(),
+            "The Azure storage account name is required."
         );
     }
 

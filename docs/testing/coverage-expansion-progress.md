@@ -28,6 +28,7 @@ Increase automated test coverage toward the agreed long-term target of `75%` lin
 - [x] Milestone C (Frontend): Frontend `35%` reached — `36.39%` measured after component render tests
 - [x] Milestone D: Frontend `50%`, Rust `55%` reached — Frontend `53.08%`, Rust `58.99%` measured after Step R6
 - [x] Frontend interim `65%` reached — Frontend `66.00%` measured after Step F10
+- [x] Rust interim `65%` reached — Rust `65.10%` measured after Step R14
 - [x] Frontend final target `75%` reached — Frontend `76.90%` measured after Step V2
 - [ ] Final target: Frontend `75%`, Rust `75%`
 
@@ -79,7 +80,7 @@ Increase automated test coverage toward the agreed long-term target of `75%` lin
 
 ## Current Priorities
 
-1. **Frontend final coverage target reached** ✅ — Frontend `76.90%`, Rust `62.63%` measured on 2026-04-23
+1. **Frontend final coverage target reached** ✅ — Frontend `76.90%`, Rust `65.10%` measured on 2026-04-23
 2. Frontend coverage now scopes to application source under `src`, excluding generated/build artifacts from the V8 denominator
 3. Next executable priority: expand Rust coverage toward the remaining `75%` final target
 
@@ -124,7 +125,8 @@ Use the checklist below as the next execution guide for the coverage-expansion b
 - [x] Step R11. Extract and cover AWS S3 list-object response mapping
 - [x] Step R12. Extract and cover Azure container listing XML mapping
 - [x] Step R13. Extract and cover AWS S3 list-bucket response mapping
-- [ ] Step R14. Continue Rust provider/command coverage toward the remaining `75%` final target
+- [x] Step R14. Cover read command-wrapper local guard paths before network
+- [ ] Step R15. Continue Rust provider/command coverage toward the remaining `75%` final target
 
 ### Review Step
 
@@ -134,7 +136,7 @@ Use the checklist below as the next execution guide for the coverage-expansion b
 
 - Milestone D (`50%` frontend, `55%` Rust) is complete.
 - Frontend final target `75%` is complete.
-- Rust remains at `62.63%`; next estimate should continue prioritizing the highest-yield Rust provider and command modules.
+- Rust has crossed the interim `65%` checkpoint and remains at `65.10%`; next estimate should continue prioritizing the highest-yield Rust provider and command modules.
 
 ## Current Risks
 
@@ -1045,6 +1047,23 @@ Use the checklist below as the next execution guide for the coverage-expansion b
   - extracted S3 `ListBucketsOutput` mapping into a pure helper
   - covered bucket-name mapping and ignored unnamed SDK bucket entries
   - kept the network bucket-list command path unchanged while making response transformation testable without AWS calls
+
+## Rust Read Command Guard Coverage Step
+
+- Targeted Rust test command: `cargo test --manifest-path src-tauri/Cargo.toml presentation::commands::tests::read_command_wrappers_surface_local_guard_errors_before_network -- --nocapture`
+  - Tests: `1` passed
+- Rust check command: `cargo check --manifest-path src-tauri/Cargo.toml`
+  - Result: passed
+- Rust coverage command: `npm run test:rust:coverage`
+  - Tests: `88` passed
+  - Rust line coverage: `65.10%`
+  - Rust regions: `61.70%`
+  - Rust functions: `56.23%`
+- Delivered:
+  - completed roadmap Step `R14`
+  - covered AWS read command wrappers for restricted-bucket mismatch before network
+  - covered Azure read command wrappers for blank storage-account and blank container guards before network
+  - crossed the Rust interim `65%` checkpoint while keeping CI coverage monitor-only
 
 ## Next Steps Toward Final Target
 
