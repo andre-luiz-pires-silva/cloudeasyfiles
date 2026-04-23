@@ -1053,24 +1053,7 @@ impl AzureConnectionService {
             "/".to_string(),
         )
         .await?;
-        let parsed: ListContainersEnvelope = from_str(&response_text)
-            .map_err(|error| format!("Failed to parse Azure container listing XML: {error}"))?;
-        let containers = parsed
-            .containers
-            .map(|node| {
-                node.containers
-                    .into_iter()
-                    .map(|container| AzureContainerSummary {
-                        name: container.name,
-                    })
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
-
-        Ok((
-            containers,
-            parsed.next_marker.filter(|value| !value.is_empty()),
-        ))
+        parse_container_listing_response(&response_text)
     }
 
     fn register_upload_cancellation(
@@ -1520,6 +1503,29 @@ fn build_folder_blob_name(parent_path: Option<&str>, folder_name: &str) -> Resul
             "{normalized_parent_path}/{normalized_folder_name}/"
         ))
     }
+}
+
+fn parse_container_listing_response(
+    response_text: &str,
+) -> Result<(Vec<AzureContainerSummary>, Option<String>), String> {
+    let parsed: ListContainersEnvelope = from_str(response_text)
+        .map_err(|error| format!("Failed to parse Azure container listing XML: {error}"))?;
+    let containers = parsed
+        .containers
+        .map(|node| {
+            node.containers
+                .into_iter()
+                .map(|container| AzureContainerSummary {
+                    name: container.name,
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
+    Ok((
+        containers,
+        parsed.next_marker.filter(|value| !value.is_empty()),
+    ))
 }
 
 fn parse_blob_listing_response(
@@ -2255,6 +2261,39 @@ mod tests {
         ]);
 
         assert_eq!(normalized, vec!["photos/a.jpg", "photos/b.jpg"]);
+    }
+
+    #[test]
+    fn parses_container_listing_response_with_marker_and_empty_results() {
+        let xml = r#"<?xml version="1.0" encoding="utf-8"?>
+<EnumerationResults>
+  <Containers>
+    <Container>
+      <Name>documents</Name>
+    </Container>
+    <Container>
+      <Name>archive</Name>
+    </Container>
+  </Containers>
+  <NextMarker>cursor-1</NextMarker>
+</EnumerationResults>"#;
+
+        let (containers, marker) = parse_container_listing_response(xml).unwrap();
+
+        assert_eq!(containers.len(), 2);
+        assert_eq!(containers[0].name, "documents");
+        assert_eq!(containers[1].name, "archive");
+        assert_eq!(marker.as_deref(), Some("cursor-1"));
+
+        let empty_xml = r#"<?xml version="1.0" encoding="utf-8"?>
+<EnumerationResults>
+  <NextMarker></NextMarker>
+</EnumerationResults>"#;
+
+        let (containers, marker) = parse_container_listing_response(empty_xml).unwrap();
+
+        assert!(containers.is_empty());
+        assert_eq!(marker, None);
     }
 
     #[test]

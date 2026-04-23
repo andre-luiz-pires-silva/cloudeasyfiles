@@ -79,7 +79,7 @@ Increase automated test coverage toward the agreed long-term target of `75%` lin
 
 ## Current Priorities
 
-1. **Frontend final coverage target reached** ✅ — Frontend `76.90%`, Rust `62.17%` measured on 2026-04-23
+1. **Frontend final coverage target reached** ✅ — Frontend `76.90%`, Rust `62.49%` measured on 2026-04-23
 2. Frontend coverage now scopes to application source under `src`, excluding generated/build artifacts from the V8 denominator
 3. Next executable priority: expand Rust coverage toward the remaining `75%` final target
 
@@ -122,7 +122,8 @@ Use the checklist below as the next execution guide for the coverage-expansion b
 - [x] Step R9. Cover Azure secret-store success, idempotent delete, and error paths
 - [x] Step R10. Cover AWS/Azure cache path validation guard branches
 - [x] Step R11. Extract and cover AWS S3 list-object response mapping
-- [ ] Step R12. Continue Rust provider/command coverage toward the remaining `75%` final target
+- [x] Step R12. Extract and cover Azure container listing XML mapping
+- [ ] Step R13. Continue Rust provider/command coverage toward the remaining `75%` final target
 
 ### Review Step
 
@@ -132,7 +133,7 @@ Use the checklist below as the next execution guide for the coverage-expansion b
 
 - Milestone D (`50%` frontend, `55%` Rust) is complete.
 - Frontend final target `75%` is complete.
-- Rust remains at `62.17%`; next estimate should continue prioritizing the highest-yield Rust provider and command modules.
+- Rust remains at `62.49%`; next estimate should continue prioritizing the highest-yield Rust provider and command modules.
 
 ## Current Risks
 
@@ -1009,6 +1010,23 @@ Use the checklist below as the next execution guide for the coverage-expansion b
   - extracted S3 `ListObjectsV2Output` mapping into a pure helper
   - covered directory deduplication, file deduplication, folder placeholder filtering, storage-class mapping, eTag mapping, and pagination metadata
   - kept the network command path unchanged while making the response transformation testable without AWS calls
+
+## Rust Azure Container Listing Coverage Step
+
+- Targeted Rust test command: `cargo test --manifest-path src-tauri/Cargo.toml application::services::azure_connection_service::tests::parses_container_listing_response_with_marker_and_empty_results -- --nocapture`
+  - Tests: `1` passed
+- Rust check command: `cargo check --manifest-path src-tauri/Cargo.toml`
+  - Result: passed
+- Rust coverage command: `npm run test:rust:coverage`
+  - Tests: `86` passed
+  - Rust line coverage: `62.49%`
+  - Rust regions: `59.96%`
+  - Rust functions: `53.19%`
+- Delivered:
+  - completed roadmap Step `R12`
+  - extracted Azure container-listing XML mapping into a pure helper
+  - covered container names, continuation marker mapping, and empty container/marker results
+  - kept the signed Azure request path unchanged while making response parsing testable without Azure calls
 
 ## Next Steps Toward Final Target
 
