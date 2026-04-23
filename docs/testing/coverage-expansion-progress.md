@@ -80,7 +80,7 @@ Increase automated test coverage toward the agreed long-term target of `75%` lin
 
 ## Current Priorities
 
-1. **Frontend final coverage target reached** ✅ — Frontend `76.90%`, Rust `67.67%` measured on 2026-04-23
+1. **Frontend final coverage target reached** ✅ — Frontend `76.90%`, Rust `68.29%` measured on 2026-04-23
 2. Frontend coverage now scopes to application source under `src`, excluding generated/build artifacts from the V8 denominator
 3. Next executable priority: expand Rust coverage toward the remaining `75%` final target
 
@@ -128,7 +128,8 @@ Use the checklist below as the next execution guide for the coverage-expansion b
 - [x] Step R14. Cover read command-wrapper local guard paths before network
 - [x] Step R15. Cover mutation command-wrapper restriction/account guard paths before network
 - [x] Step R16. Cover AWS/Azure provider download guards before network
-- [ ] Step R17. Continue Rust provider/command coverage toward the remaining `75%` final target
+- [x] Step R17. Cover AWS/Azure provider upload-path guards before network
+- [ ] Step R18. Continue Rust provider/command coverage toward the remaining `75%` final target
 
 ### Review Step
 
@@ -138,7 +139,7 @@ Use the checklist below as the next execution guide for the coverage-expansion b
 
 - Milestone D (`50%` frontend, `55%` Rust) is complete.
 - Frontend final target `75%` is complete.
-- Rust has crossed the interim `65%` checkpoint and remains at `67.67%`; next estimate should continue prioritizing the highest-yield Rust provider and command modules.
+- Rust has crossed the interim `65%` checkpoint and remains at `68.29%`; next estimate should continue prioritizing the highest-yield Rust provider and command modules.
 
 ## Current Risks
 
@@ -1100,6 +1101,23 @@ Use the checklist below as the next execution guide for the coverage-expansion b
   - covered AWS tracked/direct download local guard failures before network
   - covered AWS restricted-bucket mismatch in provider download flow before network
   - covered Azure tracked/direct download local guard failures before network
+
+## Rust Provider Upload Path Guard Coverage Step
+
+- Targeted Rust test command: `cargo test --manifest-path src-tauri/Cargo.toml rejects_provider_upload_path_inputs_before_network -- --nocapture`
+  - Tests: `2` passed
+- Rust check command: `cargo check --manifest-path src-tauri/Cargo.toml`
+  - Result: passed
+- Rust coverage command: `npm run test:rust:coverage`
+  - Tests: `93` passed
+  - Rust line coverage: `68.29%`
+  - Rust regions: `64.95%`
+  - Rust functions: `56.97%`
+- Delivered:
+  - completed roadmap Step `R17`
+  - covered AWS upload-from-path local directory rejection and restricted-bucket mismatch after local metadata validation
+  - covered Azure upload-from-path local directory rejection, blank storage account after metadata validation, and blank container guard
+  - used temporary local files/directories to exercise filesystem validation without reaching provider calls
 
 ## Next Steps Toward Final Target
 

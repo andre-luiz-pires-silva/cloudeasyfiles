@@ -3153,6 +3153,54 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn rejects_provider_upload_path_inputs_before_network() {
+        let input = aws_test_input();
+        let temp_root = std::env::temp_dir().join(format!(
+            "cloudeasyfiles-aws-upload-guard-test-{}",
+            std::process::id()
+        ));
+        let upload_file = temp_root.join("report.txt");
+        fs::create_dir_all(&temp_root).await.unwrap();
+        fs::write(&upload_file, b"report").await.unwrap();
+
+        assert_eq!(
+            AwsConnectionService::upload_object_from_path(
+                "aws-upload-r17-a".to_string(),
+                input.clone(),
+                "bucket-a".to_string(),
+                "docs/report.txt".to_string(),
+                temp_root.to_string_lossy().to_string(),
+                None,
+                Some("us-east-1".to_string()),
+                |_, _| Ok(())
+            )
+            .await
+            .unwrap_err(),
+            "The selected local path is not a regular file."
+        );
+        assert_eq!(
+            AwsConnectionService::upload_object_from_path(
+                "aws-upload-r17-b".to_string(),
+                AwsConnectionTestInput {
+                    restricted_bucket_name: Some("allowed-bucket".to_string()),
+                    ..input
+                },
+                "other-bucket".to_string(),
+                "docs/report.txt".to_string(),
+                upload_file.to_string_lossy().to_string(),
+                None,
+                Some("us-east-1".to_string()),
+                |_, _| Ok(())
+            )
+            .await
+            .unwrap_err(),
+            RESTRICTED_BUCKET_MISMATCH_ERROR
+        );
+
+        fs::remove_dir_all(&temp_root).await.unwrap();
+    }
+
+    #[tokio::test]
     async fn resolves_cached_object_path_and_cleans_up_temp_files() {
         let temp_root = std::env::temp_dir().join(format!(
             "cloudeasyfiles-aws-cache-test-{}",

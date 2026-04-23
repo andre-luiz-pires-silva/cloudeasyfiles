@@ -2883,6 +2883,66 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn rejects_provider_upload_path_inputs_before_network() {
+        let input = azure_test_input();
+        let temp_root = std::env::temp_dir().join(format!(
+            "cloudeasyfiles-azure-upload-guard-test-{}",
+            std::process::id()
+        ));
+        let upload_file = temp_root.join("report.txt");
+        fs::create_dir_all(&temp_root).await.unwrap();
+        fs::write(&upload_file, b"report").await.unwrap();
+
+        assert_eq!(
+            AzureConnectionService::upload_blob_from_path(
+                "azure-upload-r17-a".to_string(),
+                input.clone(),
+                "container-a".to_string(),
+                "docs/report.txt".to_string(),
+                temp_root.to_string_lossy().to_string(),
+                None,
+                |_, _| Ok(())
+            )
+            .await
+            .unwrap_err(),
+            "The selected local path is not a regular file."
+        );
+        assert_eq!(
+            AzureConnectionService::upload_blob_from_path(
+                "azure-upload-r17-b".to_string(),
+                AzureConnectionTestInput {
+                    storage_account_name: "   ".to_string(),
+                    account_key: "unused-key".to_string(),
+                },
+                "container-a".to_string(),
+                "docs/report.txt".to_string(),
+                upload_file.to_string_lossy().to_string(),
+                None,
+                |_, _| Ok(())
+            )
+            .await
+            .unwrap_err(),
+            "The Azure storage account name is required."
+        );
+        assert_eq!(
+            AzureConnectionService::upload_blob_from_path(
+                "azure-upload-r17-c".to_string(),
+                input,
+                "   ".to_string(),
+                "docs/report.txt".to_string(),
+                upload_file.to_string_lossy().to_string(),
+                None,
+                |_, _| Ok(())
+            )
+            .await
+            .unwrap_err(),
+            "The Azure container name is required."
+        );
+
+        fs::remove_dir_all(&temp_root).await.unwrap();
+    }
+
     #[test]
     fn builds_listing_queries_and_marker_rules() {
         assert_eq!(
