@@ -1,5 +1,6 @@
 use aws_config::Region;
 use aws_credential_types::Credentials;
+use aws_sdk_s3::operation::list_buckets::ListBucketsOutput;
 use aws_sdk_s3::operation::list_objects_v2::ListObjectsV2Output;
 use aws_sdk_s3::primitives::ByteStream;
 use aws_sdk_s3::types::BucketLocationConstraint;
@@ -318,6 +319,22 @@ fn chunk_delete_object_keys(object_keys: &[String]) -> Vec<Vec<String>> {
 
 fn should_use_single_request_upload(object_size: u64) -> bool {
     object_size <= MULTIPART_UPLOAD_CHUNK_SIZE as u64
+}
+
+fn build_bucket_summaries(response: ListBucketsOutput) -> Vec<AwsBucketSummary> {
+    let mut buckets = Vec::new();
+
+    for bucket in response.buckets() {
+        let Some(bucket_name) = bucket.name() else {
+            continue;
+        };
+
+        buckets.push(AwsBucketSummary {
+            name: bucket_name.to_string(),
+        });
+    }
+
+    buckets
 }
 
 fn build_bucket_items_result(
@@ -890,19 +907,7 @@ impl AwsConnectionService {
                 error_message
             })?;
 
-        let mut buckets = Vec::new();
-
-        for bucket in response.buckets() {
-            let Some(bucket_name) = bucket.name() else {
-                continue;
-            };
-
-            buckets.push(AwsBucketSummary {
-                name: bucket_name.to_string(),
-            });
-        }
-
-        Ok(buckets)
+        Ok(build_bucket_summaries(response))
     }
 
     pub async fn get_bucket_region(
@@ -2881,6 +2886,23 @@ mod tests {
         assert!(!should_use_single_request_upload(
             MULTIPART_UPLOAD_CHUNK_SIZE as u64 + 1
         ));
+    }
+
+    #[test]
+    fn builds_bucket_summaries_from_s3_list_buckets_response() {
+        use aws_sdk_s3::types::Bucket;
+
+        let response = ListBucketsOutput::builder()
+            .buckets(Bucket::builder().name("documents").build())
+            .buckets(Bucket::builder().build())
+            .buckets(Bucket::builder().name("archive").build())
+            .build();
+
+        let buckets = build_bucket_summaries(response);
+
+        assert_eq!(buckets.len(), 2);
+        assert_eq!(buckets[0].name, "documents");
+        assert_eq!(buckets[1].name, "archive");
     }
 
     #[test]

@@ -79,7 +79,7 @@ Increase automated test coverage toward the agreed long-term target of `75%` lin
 
 ## Current Priorities
 
-1. **Frontend final coverage target reached** ✅ — Frontend `76.90%`, Rust `62.49%` measured on 2026-04-23
+1. **Frontend final coverage target reached** ✅ — Frontend `76.90%`, Rust `62.63%` measured on 2026-04-23
 2. Frontend coverage now scopes to application source under `src`, excluding generated/build artifacts from the V8 denominator
 3. Next executable priority: expand Rust coverage toward the remaining `75%` final target
 
@@ -123,7 +123,8 @@ Use the checklist below as the next execution guide for the coverage-expansion b
 - [x] Step R10. Cover AWS/Azure cache path validation guard branches
 - [x] Step R11. Extract and cover AWS S3 list-object response mapping
 - [x] Step R12. Extract and cover Azure container listing XML mapping
-- [ ] Step R13. Continue Rust provider/command coverage toward the remaining `75%` final target
+- [x] Step R13. Extract and cover AWS S3 list-bucket response mapping
+- [ ] Step R14. Continue Rust provider/command coverage toward the remaining `75%` final target
 
 ### Review Step
 
@@ -133,7 +134,7 @@ Use the checklist below as the next execution guide for the coverage-expansion b
 
 - Milestone D (`50%` frontend, `55%` Rust) is complete.
 - Frontend final target `75%` is complete.
-- Rust remains at `62.49%`; next estimate should continue prioritizing the highest-yield Rust provider and command modules.
+- Rust remains at `62.63%`; next estimate should continue prioritizing the highest-yield Rust provider and command modules.
 
 ## Current Risks
 
@@ -1027,6 +1028,23 @@ Use the checklist below as the next execution guide for the coverage-expansion b
   - extracted Azure container-listing XML mapping into a pure helper
   - covered container names, continuation marker mapping, and empty container/marker results
   - kept the signed Azure request path unchanged while making response parsing testable without Azure calls
+
+## Rust AWS Bucket Listing Coverage Step
+
+- Targeted Rust test command: `cargo test --manifest-path src-tauri/Cargo.toml application::services::aws_connection_service::tests::builds_bucket_summaries_from_s3_list_buckets_response -- --nocapture`
+  - Tests: `1` passed
+- Rust check command: `cargo check --manifest-path src-tauri/Cargo.toml`
+  - Result: passed
+- Rust coverage command: `npm run test:rust:coverage`
+  - Tests: `87` passed
+  - Rust line coverage: `62.63%`
+  - Rust regions: `60.16%`
+  - Rust functions: `53.31%`
+- Delivered:
+  - completed roadmap Step `R13`
+  - extracted S3 `ListBucketsOutput` mapping into a pure helper
+  - covered bucket-name mapping and ignored unnamed SDK bucket entries
+  - kept the network bucket-list command path unchanged while making response transformation testable without AWS calls
 
 ## Next Steps Toward Final Target
 
