@@ -235,12 +235,47 @@ describe("ConnectionNavigator", () => {
     fireEvent.click(connectionButton);
     fireEvent.doubleClick(connectionButton);
 
-    expect(await screen.findByText("Access denied")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getAllByTitle("Access denied")).toHaveLength(2);
+    });
+    fireEvent.click(connectionButton);
+
+    expect(screen.getByText("Access denied")).toBeInTheDocument();
     expect(screen.getByText("content.list.connect_to_load")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "navigation.menu.connect" })).toBeInTheDocument();
-    expect(screen.getAllByTitle("Access denied")).toHaveLength(2);
     expect(mockedListContainersForSavedConnection).not.toHaveBeenCalled();
     expect(mockedConnectionService.getAwsConnectionDraft).not.toHaveBeenCalled();
     expect(mockedGetAwsBucketRegion).not.toHaveBeenCalled();
+  });
+
+  it("surfaces bucket content loading errors after a successful connection", async () => {
+    const awsConnection = {
+      id: "connection-aws",
+      name: "Production AWS",
+      provider: "aws" as const,
+      connectOnStartup: false,
+      defaultUploadStorageClass: "STANDARD" as const
+    };
+    mockedConnectionService.listConnections.mockResolvedValue([awsConnection]);
+    mockedListContainersForSavedConnection.mockResolvedValue([{ name: "archive", region: null }]);
+    mockedListContainerItemsForSavedConnection.mockRejectedValue(new Error("Bucket unavailable"));
+
+    render(<ConnectionNavigator locale="en-US" onLocaleChange={vi.fn()} />);
+
+    fireEvent.doubleClick(await screen.findByRole("button", { name: /Production AWS/i }));
+
+    const archiveBucketButton = await screen.findByRole("button", { name: /archive/i });
+    fireEvent.click(archiveBucketButton);
+
+    expect(await screen.findByText("Bucket unavailable")).toBeInTheDocument();
+    expect(screen.getAllByTitle("navigation.connection_status.connected")).toHaveLength(2);
+    expect(mockedListContainerItemsForSavedConnection).toHaveBeenCalledWith(
+      awsConnection,
+      "archive",
+      expect.objectContaining({
+        path: undefined,
+        pageSize: expect.any(Number)
+      })
+    );
   });
 });
