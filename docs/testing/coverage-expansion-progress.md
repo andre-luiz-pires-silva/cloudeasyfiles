@@ -79,7 +79,7 @@ Increase automated test coverage toward the agreed long-term target of `75%` lin
 
 ## Current Priorities
 
-1. **Frontend final coverage target reached** ✅ — Frontend `76.90%`, Rust `61.01%` measured on 2026-04-23
+1. **Frontend final coverage target reached** ✅ — Frontend `76.90%`, Rust `61.48%` measured on 2026-04-23
 2. Frontend coverage now scopes to application source under `src`, excluding generated/build artifacts from the V8 denominator
 3. Next executable priority: expand Rust coverage toward the remaining `75%` final target
 
@@ -120,7 +120,8 @@ Use the checklist below as the next execution guide for the coverage-expansion b
 - [x] Step R7. Expand Rust app state I/O coverage toward the remaining `75%` final target
 - [x] Step R8. Cover AWS secret-store success, rollback, and idempotent delete paths
 - [x] Step R9. Cover Azure secret-store success, idempotent delete, and error paths
-- [ ] Step R10. Continue Rust provider/command coverage toward the remaining `75%` final target
+- [x] Step R10. Cover AWS/Azure cache path validation guard branches
+- [ ] Step R11. Continue Rust provider/command coverage toward the remaining `75%` final target
 
 ### Review Step
 
@@ -130,7 +131,7 @@ Use the checklist below as the next execution guide for the coverage-expansion b
 
 - Milestone D (`50%` frontend, `55%` Rust) is complete.
 - Frontend final target `75%` is complete.
-- Rust remains at `61.01%`; next estimate should continue prioritizing the highest-yield Rust provider and command modules.
+- Rust remains at `61.48%`; next estimate should continue prioritizing the highest-yield Rust provider and command modules.
 
 ## Current Risks
 
@@ -973,6 +974,23 @@ Use the checklist below as the next execution guide for the coverage-expansion b
   - introduced an internal Azure secret-store adapter mirroring the AWS keyring test seam
   - covered Azure account-key save/load success, idempotent missing-entry delete, and save/load error propagation
   - kept the public `AzureConnectionSecretService` API backed by the real `keyring` adapter
+
+## Rust Provider Cache Guard Coverage Step
+
+- Targeted Rust test command: `cargo test --manifest-path src-tauri/Cargo.toml normalizes_cache_paths_and_rejects_empty -- --nocapture`
+  - Tests: `2` passed
+- Rust check command: `cargo check --manifest-path src-tauri/Cargo.toml`
+  - Result: passed
+- Rust coverage command: `npm run test:rust:coverage`
+  - Tests: `84` passed
+  - Rust line coverage: `61.48%`
+  - Rust regions: `58.68%`
+  - Rust functions: `52.35%`
+- Delivered:
+  - completed roadmap Step `R10`
+  - covered empty connection-name guards in AWS and Azure cache-root/temp-path helpers
+  - covered empty object-key/blob-name guards in primary, legacy raw, legacy encoded, recent legacy, and candidate cache path helpers
+  - kept the cache path behavior unchanged while reducing uncovered filesystem guard branches
 
 ## Next Steps Toward Final Target
 

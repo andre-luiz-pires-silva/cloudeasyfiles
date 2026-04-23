@@ -2381,6 +2381,60 @@ mod tests {
             "",
         )
         .is_err());
+        assert_eq!(
+            AzureConnectionService::build_connection_cache_root("/tmp/cache", "   ").unwrap_err(),
+            "Connection name is required for local cache operations."
+        );
+        assert_eq!(
+            AzureConnectionService::build_legacy_raw_cache_object_path(
+                "/tmp/cache",
+                "connection-123",
+                "container-a",
+                "",
+            )
+            .unwrap_err(),
+            "Blob name is required for local cache operations."
+        );
+        assert_eq!(
+            AzureConnectionService::build_legacy_encoded_cache_object_path(
+                "/tmp/cache",
+                "connection-123",
+                "container-a",
+                "",
+            )
+            .unwrap_err(),
+            "Blob name is required for local cache operations."
+        );
+        assert_eq!(
+            AzureConnectionService::build_recent_legacy_cache_object_path(
+                "/tmp/cache",
+                "container-a",
+                "",
+            )
+            .unwrap_err(),
+            "Blob name is required for local cache operations."
+        );
+        assert_eq!(
+            AzureConnectionService::build_cache_object_path_candidates(
+                "/tmp/cache",
+                "connection-123",
+                "Primary Connection",
+                "container-a",
+                "",
+            )
+            .unwrap_err(),
+            "Blob name is required for local cache operations."
+        );
+        assert_eq!(
+            AzureConnectionService::build_cache_temp_object_path(
+                "/tmp/cache",
+                "   ",
+                "container-a",
+                "docs/report.txt",
+            )
+            .unwrap_err(),
+            "Connection name is required for local cache operations."
+        );
     }
 
     #[test]
