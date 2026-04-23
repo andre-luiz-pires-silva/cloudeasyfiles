@@ -77,9 +77,9 @@ Increase automated test coverage toward the agreed long-term target of `75%` lin
 
 ## Current Priorities
 
-1. **Milestone D complete** ✅ — Frontend `53.08%`, Rust `58.99%` measured on 2026-04-23
-2. Rust crossed the `55%` threshold after command-wrapper guard coverage
-3. Next executable priority: resume frontend coverage toward the next interim `65%` target
+1. **Frontend app shell/i18n coverage added** ✅ — Frontend `53.98%`, Rust `58.99%` measured on 2026-04-23
+2. Milestone D remains complete; frontend is now progressing toward the next interim `65%` target
+3. Next executable priority: begin `ConnectionNavigator.tsx` render/guard coverage without introducing broad snapshots
 
 ## Operational Roadmap
 
@@ -99,6 +99,8 @@ Use the checklist below as the next execution guide for the coverage-expansion b
 - [x] Step F5. Extract delete success/error state transitions from `ConnectionNavigator.tsx`
 - [x] Step F6. Finish cache-directory picker and local file-input orchestration cleanup
 - [x] Step F7. Revisit remaining content filter/counter glue still embedded in `ConnectionNavigator.tsx`
+- [x] Step F8. Add app shell, provider, error-boundary, and i18n coverage
+- [ ] Step F9. Begin `ConnectionNavigator.tsx` render/guard coverage toward frontend `65%`
 
 ### Near-Term Rust Steps
 
@@ -775,11 +777,29 @@ Use the checklist below as the next execution guide for the coverage-expansion b
   - `azure_connection_service.rs` line coverage is now `59.43%`
   - **Milestone D reached**: Frontend `53.08%` ✅ (target `50%`), Rust `58.99%` ✅ (target `55%`)
 
+## Frontend App Shell/i18n Coverage Step
+
+- Targeted frontend test command: `npx vitest run src/app/App.test.tsx src/app/ErrorBoundary.test.tsx src/app/providers.test.tsx src/lib/i18n/I18nProvider.test.tsx src/lib/i18n/useI18n.test.tsx`
+  - Tests: `8` passed across `5` files
+- Frontend coverage command: `npm run test:frontend:coverage`
+  - Tests: `339` passed across `52` files
+  - Frontend line coverage: `53.98%`
+  - Frontend statements: `53.98%`
+  - Frontend branches: `87.47%`
+  - Frontend functions: `83.57%`
+- Build command: `npm run build`
+  - Result: passed
+- Delivered:
+  - completed roadmap Step `F8`
+  - added coverage for `App`, `AppProviders`, `ErrorBoundary`, `I18nProvider`, and `useI18n`
+  - moved `src/app/App.tsx`, `src/app/ErrorBoundary.tsx`, `src/app/providers.tsx`, and `src/lib/i18n/useI18n.ts` to `100%` line coverage
+  - moved `src/lib/i18n/I18nProvider.tsx` to `96.36%` line coverage
+
 ## Next Steps Toward Next Milestone
 
 Ordered by likely value:
 
-1. Resume frontend coverage toward the next interim `65%` target.
+1. Begin focused `ConnectionNavigator.tsx` render/guard coverage, using mocks for Tauri/provider IO.
 2. Prefer remaining high-risk `ConnectionNavigator` workflows and extracted navigation helpers before low-value component snapshots.
 3. Re-run `npm run test:frontend:coverage` and update this tracker after each frontend step.
 4. Revisit Rust after frontend reaches the next threshold or if provider/command changes introduce new risk.
