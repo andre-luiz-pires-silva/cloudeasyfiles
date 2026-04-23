@@ -72,7 +72,11 @@ pub fn handle_window_event<R: Runtime>(window: &Window<R>, event: &WindowEvent) 
 
 fn load_window_state<R: Runtime>(app: &AppHandle<R>) -> Option<SavedWindowState> {
     let state_path = window_state_path(app)?;
-    let raw_contents = fs::read_to_string(&state_path).ok()?;
+    load_window_state_from_path(&state_path)
+}
+
+fn load_window_state_from_path(state_path: &Path) -> Option<SavedWindowState> {
+    let raw_contents = fs::read_to_string(state_path).ok()?;
 
     match parse_window_state(&raw_contents) {
         Ok(saved_state) => Some(saved_state),
@@ -92,6 +96,11 @@ fn save_window_state<R: Runtime>(app: &AppHandle<R>, width: f64, height: f64) {
         return;
     };
 
+    let saved_state = SavedWindowState { width, height };
+    save_window_state_to_path(&state_path, &saved_state);
+}
+
+fn save_window_state_to_path(state_path: &Path, saved_state: &SavedWindowState) {
     if let Some(parent_directory) = state_path.parent() {
         if let Err(error) = fs::create_dir_all(parent_directory) {
             eprintln!(
@@ -103,11 +112,9 @@ fn save_window_state<R: Runtime>(app: &AppHandle<R>, width: f64, height: f64) {
         }
     }
 
-    let saved_state = SavedWindowState { width, height };
-
-    match serialize_window_state(&saved_state) {
+    match serialize_window_state(saved_state) {
         Ok(serialized_state) => {
-            if let Err(error) = fs::write(&state_path, serialized_state) {
+            if let Err(error) = fs::write(state_path, serialized_state) {
                 eprintln!(
                     "[window_state] failed to write state file path={} error={}",
                     state_path.display(),
@@ -118,7 +125,7 @@ fn save_window_state<R: Runtime>(app: &AppHandle<R>, width: f64, height: f64) {
         Err(error) => {
             eprintln!(
                 "[window_state] failed to serialize window state width={} height={} error={}",
-                width, height, error
+                saved_state.width, saved_state.height, error
             );
         }
     }
@@ -152,6 +159,7 @@ fn build_window_state_path(config_dir: &Path) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
     fn parses_saved_window_state_from_json() {
@@ -216,5 +224,66 @@ mod tests {
             path,
             PathBuf::from("/tmp/cloudeasyfiles-config").join(WINDOW_STATE_FILE_NAME)
         );
+    }
+
+    #[test]
+    fn saves_window_state_to_disk_creating_parent_directory() {
+        let config_dir = unique_temp_config_dir();
+        let state_path = build_window_state_path(&config_dir);
+        let saved_state = SavedWindowState {
+            width: 1600.0,
+            height: 900.0,
+        };
+
+        save_window_state_to_path(&state_path, &saved_state);
+
+        let persisted_state =
+            load_window_state_from_path(&state_path).expect("saved state should load");
+        assert_eq!(persisted_state.width, saved_state.width);
+        assert_eq!(persisted_state.height, saved_state.height);
+
+        fs::remove_dir_all(&config_dir).ok();
+    }
+
+    #[test]
+    fn loads_window_state_from_existing_file() {
+        let config_dir = unique_temp_config_dir();
+        fs::create_dir_all(&config_dir).expect("test config directory");
+        let state_path = build_window_state_path(&config_dir);
+        fs::write(&state_path, r#"{"width":1366,"height":768}"#).expect("window state file");
+
+        let saved_state = load_window_state_from_path(&state_path).expect("saved state should load");
+
+        assert_eq!(saved_state.width, 1366.0);
+        assert_eq!(saved_state.height, 768.0);
+
+        fs::remove_dir_all(&config_dir).ok();
+    }
+
+    #[test]
+    fn returns_none_when_window_state_file_is_missing_or_invalid() {
+        let config_dir = unique_temp_config_dir();
+        let state_path = build_window_state_path(&config_dir);
+
+        assert!(load_window_state_from_path(&state_path).is_none());
+
+        fs::create_dir_all(&config_dir).expect("test config directory");
+        fs::write(&state_path, "not json").expect("invalid window state file");
+
+        assert!(load_window_state_from_path(&state_path).is_none());
+
+        fs::remove_dir_all(&config_dir).ok();
+    }
+
+    fn unique_temp_config_dir() -> PathBuf {
+        let unique_id = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock should be after unix epoch")
+            .as_nanos();
+
+        std::env::temp_dir().join(format!(
+            "cloudeasyfiles-window-state-test-{}-{unique_id}",
+            std::process::id()
+        ))
     }
 }

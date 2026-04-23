@@ -79,7 +79,7 @@ Increase automated test coverage toward the agreed long-term target of `75%` lin
 
 ## Current Priorities
 
-1. **Frontend final coverage target reached** ✅ — Frontend `76.90%`, Rust `58.99%` measured on 2026-04-23
+1. **Frontend final coverage target reached** ✅ — Frontend `76.90%`, Rust `59.39%` measured on 2026-04-23
 2. Frontend coverage now scopes to application source under `src`, excluding generated/build artifacts from the V8 denominator
 3. Next executable priority: expand Rust coverage toward the remaining `75%` final target
 
@@ -117,7 +117,8 @@ Use the checklist below as the next execution guide for the coverage-expansion b
 - [x] Step R4. Expand remaining Rust provider mutation/error-path coverage toward `55%`
 - [x] Step R5. Continue Rust provider mutation/error-path coverage toward `55%`
 - [x] Step R6. Cross Rust `55%` with one more provider/command coverage step
-- [ ] Step R7. Expand Rust coverage toward the remaining `75%` final target
+- [x] Step R7. Expand Rust app state I/O coverage toward the remaining `75%` final target
+- [ ] Step R8. Continue Rust provider/command coverage toward the remaining `75%` final target
 
 ### Review Step
 
@@ -127,7 +128,7 @@ Use the checklist below as the next execution guide for the coverage-expansion b
 
 - Milestone D (`50%` frontend, `55%` Rust) is complete.
 - Frontend final target `75%` is complete.
-- Rust remains at `58.99%`; next estimate should be refined after identifying the highest-yield Rust modules.
+- Rust remains at `59.39%`; next estimate should continue prioritizing the highest-yield Rust provider and command modules.
 
 ## Current Risks
 
@@ -918,10 +919,27 @@ Use the checklist below as the next execution guide for the coverage-expansion b
   - confirmed the frontend final `75%` line-coverage target is reached
   - selected Rust as the remaining focus for closing the overall final target
 
+## Rust App State I/O Coverage Step
+
+- Targeted Rust test command: `cargo test --manifest-path src-tauri/Cargo.toml app::window_state::tests -- --nocapture`
+  - Tests: `9` passed
+- Rust check command: `cargo check --manifest-path src-tauri/Cargo.toml`
+  - Result: passed
+- Rust coverage command: `npm run test:rust:coverage`
+  - Tests: `77` passed
+  - Rust line coverage: `59.39%`
+  - Rust regions: `56.43%`
+  - Rust functions: `50.45%`
+- Delivered:
+  - completed roadmap Step `R7`
+  - extracted path-based `window_state` load/save helpers so filesystem behavior can be covered without a Tauri runtime
+  - covered state-file creation, persisted JSON reload, missing-file handling, and invalid-file parse handling
+  - kept the public window-state integration behavior unchanged
+
 ## Next Steps Toward Final Target
 
 Ordered by likely value:
 
-1. Expand Rust coverage toward `75%`, starting with the highest-yield provider or command modules.
+1. Continue Rust coverage toward `75%`, starting with the highest-yield provider or command modules.
 2. Prefer provider command wrappers and service helpers that protect file operations before lower-value branches.
 3. Re-run `npm run test:rust:coverage` and update this tracker after each Rust step.
