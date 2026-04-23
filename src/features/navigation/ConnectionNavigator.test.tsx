@@ -217,4 +217,30 @@ describe("ConnectionNavigator", () => {
     });
     expect(await screen.findByText("content.list.empty_container")).toBeInTheDocument();
   });
+
+  it("surfaces connection errors without loading containers", async () => {
+    const awsConnection = {
+      id: "connection-aws",
+      name: "Production AWS",
+      provider: "aws" as const,
+      connectOnStartup: false,
+      defaultUploadStorageClass: "STANDARD" as const
+    };
+    mockedConnectionService.listConnections.mockResolvedValue([awsConnection]);
+    mockedTestConnectionForSavedConnection.mockRejectedValue(new Error("Access denied"));
+
+    render(<ConnectionNavigator locale="en-US" onLocaleChange={vi.fn()} />);
+
+    const connectionButton = await screen.findByRole("button", { name: /Production AWS/i });
+    fireEvent.click(connectionButton);
+    fireEvent.doubleClick(connectionButton);
+
+    expect(await screen.findByText("Access denied")).toBeInTheDocument();
+    expect(screen.getByText("content.list.connect_to_load")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "navigation.menu.connect" })).toBeInTheDocument();
+    expect(screen.getAllByTitle("Access denied")).toHaveLength(2);
+    expect(mockedListContainersForSavedConnection).not.toHaveBeenCalled();
+    expect(mockedConnectionService.getAwsConnectionDraft).not.toHaveBeenCalled();
+    expect(mockedGetAwsBucketRegion).not.toHaveBeenCalled();
+  });
 });
