@@ -233,28 +233,31 @@ impl AzureConnectionService {
         container_name: String,
         blob_name: String,
     ) -> Result<bool, String> {
-        let storage_account_name = normalize_storage_account_name(&input.storage_account_name)?;
-        let normalized_container_name = container_name.trim().to_string();
-        let normalized_blob_name = blob_name.trim().to_string();
-
-        if normalized_container_name.is_empty() || normalized_blob_name.is_empty() {
-            return Ok(false);
-        }
+        let prepared = match prepare_blob_exists_request(input, container_name, blob_name) {
+            Ok(prepared) => prepared,
+            Err(error) if error == "The Azure container and blob names are required." => {
+                return Ok(false);
+            }
+            Err(error) => return Err(error),
+        };
 
         let client = Client::new();
         let url = build_blob_url(
-            &storage_account_name,
-            &normalized_container_name,
-            &normalized_blob_name,
+            &prepared.storage_account_name,
+            &prepared.normalized_container_name,
+            &prepared.normalized_blob_name,
             &[],
         )?;
         let response = execute_signed_request(
             &client,
             Method::HEAD,
-            &storage_account_name,
-            &input.account_key,
+            &prepared.storage_account_name,
+            &prepared.account_key,
             url,
-            format!("/{normalized_container_name}/{normalized_blob_name}"),
+            format!(
+                "/{}/{}",
+                prepared.normalized_container_name, prepared.normalized_blob_name
+            ),
             None,
             Vec::new(),
         )
@@ -281,22 +284,16 @@ impl AzureConnectionService {
         parent_path: Option<String>,
         folder_name: String,
     ) -> Result<(), String> {
-        let storage_account_name = normalize_storage_account_name(&input.storage_account_name)?;
-        let normalized_container_name = container_name.trim().to_string();
-
-        if normalized_container_name.is_empty() {
-            return Err("The Azure container name is required.".to_string());
-        }
-
-        let folder_blob_name = build_folder_blob_name(parent_path.as_deref(), &folder_name)?;
+        let prepared =
+            prepare_create_folder_request(input, container_name, parent_path, folder_name)?;
 
         let client = Client::new();
         upload_blob_single_request(
             &client,
-            &storage_account_name,
-            &input.account_key,
-            &normalized_container_name,
-            &folder_blob_name,
+            &prepared.storage_account_name,
+            &prepared.account_key,
+            &prepared.normalized_container_name,
+            &prepared.folder_blob_name,
             Vec::new(),
             None,
             Some(vec![(
@@ -590,22 +587,17 @@ impl AzureConnectionService {
         blob_name: String,
         target_tier: String,
     ) -> Result<(), String> {
-        let storage_account_name = normalize_storage_account_name(&input.storage_account_name)?;
-        let normalized_container_name =
-            normalize_container_name_for_operation(&container_name, "access tier changes")?;
-        let normalized_blob_name =
-            normalize_blob_name_for_operation(&blob_name, "access tier changes")?;
-        let normalized_target_tier = parse_access_tier(Some(target_tier.as_str()))?
-            .ok_or_else(|| "A target Azure access tier is required.".to_string())?;
+        let prepared =
+            prepare_change_access_tier_request(input, container_name, blob_name, target_tier)?;
         let client = Client::new();
 
         set_blob_access_tier(
             &client,
-            &storage_account_name,
-            &input.account_key,
-            &normalized_container_name,
-            &normalized_blob_name,
-            &normalized_target_tier,
+            &prepared.storage_account_name,
+            &prepared.account_key,
+            &prepared.normalized_container_name,
+            &prepared.normalized_blob_name,
+            &prepared.normalized_target_tier,
             None,
         )
         .await
@@ -618,23 +610,23 @@ impl AzureConnectionService {
         target_tier: String,
         priority: String,
     ) -> Result<(), String> {
-        let storage_account_name = normalize_storage_account_name(&input.storage_account_name)?;
-        let normalized_container_name =
-            normalize_container_name_for_operation(&container_name, "rehydration requests")?;
-        let normalized_blob_name =
-            normalize_blob_name_for_operation(&blob_name, "rehydration requests")?;
-        let normalized_target_tier = parse_rehydration_target_tier(target_tier.as_str())?;
-        let normalized_priority = parse_rehydration_priority(priority.as_str())?;
+        let prepared = prepare_rehydrate_blob_request(
+            input,
+            container_name,
+            blob_name,
+            target_tier,
+            priority,
+        )?;
         let client = Client::new();
 
         set_blob_access_tier(
             &client,
-            &storage_account_name,
-            &input.account_key,
-            &normalized_container_name,
-            &normalized_blob_name,
-            &normalized_target_tier,
-            Some(normalized_priority.as_str()),
+            &prepared.storage_account_name,
+            &prepared.account_key,
+            &prepared.normalized_container_name,
+            &prepared.normalized_blob_name,
+            &prepared.normalized_target_tier,
+            Some(prepared.normalized_priority.as_str()),
         )
         .await
     }
@@ -1408,6 +1400,37 @@ struct PreparedAzureDeletePrefixRequest {
     recursive_prefix: String,
 }
 
+struct PreparedAzureBlobExistsRequest {
+    storage_account_name: String,
+    account_key: String,
+    normalized_container_name: String,
+    normalized_blob_name: String,
+}
+
+struct PreparedAzureCreateFolderRequest {
+    storage_account_name: String,
+    account_key: String,
+    normalized_container_name: String,
+    folder_blob_name: String,
+}
+
+struct PreparedAzureChangeAccessTierRequest {
+    storage_account_name: String,
+    account_key: String,
+    normalized_container_name: String,
+    normalized_blob_name: String,
+    normalized_target_tier: String,
+}
+
+struct PreparedAzureRehydrateBlobRequest {
+    storage_account_name: String,
+    account_key: String,
+    normalized_container_name: String,
+    normalized_blob_name: String,
+    normalized_target_tier: String,
+    normalized_priority: String,
+}
+
 fn prepare_list_container_items_request(
     input: AzureConnectionTestInput,
     container_name: String,
@@ -1486,6 +1509,88 @@ fn prepare_delete_prefix_request(
             "delete requests",
         )?,
         recursive_prefix: normalize_recursive_delete_prefix(&prefix)?,
+    })
+}
+
+fn prepare_blob_exists_request(
+    input: AzureConnectionTestInput,
+    container_name: String,
+    blob_name: String,
+) -> Result<PreparedAzureBlobExistsRequest, String> {
+    let normalized_container_name = container_name.trim().to_string();
+    let normalized_blob_name = blob_name.trim().to_string();
+
+    if normalized_container_name.is_empty() || normalized_blob_name.is_empty() {
+        return Err("The Azure container and blob names are required.".to_string());
+    }
+
+    Ok(PreparedAzureBlobExistsRequest {
+        storage_account_name: normalize_storage_account_name(&input.storage_account_name)?,
+        account_key: input.account_key,
+        normalized_container_name,
+        normalized_blob_name,
+    })
+}
+
+fn prepare_create_folder_request(
+    input: AzureConnectionTestInput,
+    container_name: String,
+    parent_path: Option<String>,
+    folder_name: String,
+) -> Result<PreparedAzureCreateFolderRequest, String> {
+    let normalized_container_name = container_name.trim().to_string();
+
+    if normalized_container_name.is_empty() {
+        return Err("The Azure container name is required.".to_string());
+    }
+
+    Ok(PreparedAzureCreateFolderRequest {
+        storage_account_name: normalize_storage_account_name(&input.storage_account_name)?,
+        account_key: input.account_key,
+        normalized_container_name,
+        folder_blob_name: build_folder_blob_name(parent_path.as_deref(), &folder_name)?,
+    })
+}
+
+fn prepare_change_access_tier_request(
+    input: AzureConnectionTestInput,
+    container_name: String,
+    blob_name: String,
+    target_tier: String,
+) -> Result<PreparedAzureChangeAccessTierRequest, String> {
+    Ok(PreparedAzureChangeAccessTierRequest {
+        storage_account_name: normalize_storage_account_name(&input.storage_account_name)?,
+        account_key: input.account_key,
+        normalized_container_name: normalize_container_name_for_operation(
+            &container_name,
+            "access tier changes",
+        )?,
+        normalized_blob_name: normalize_blob_name_for_operation(&blob_name, "access tier changes")?,
+        normalized_target_tier: parse_access_tier(Some(target_tier.as_str()))?
+            .ok_or_else(|| "A target Azure access tier is required.".to_string())?,
+    })
+}
+
+fn prepare_rehydrate_blob_request(
+    input: AzureConnectionTestInput,
+    container_name: String,
+    blob_name: String,
+    target_tier: String,
+    priority: String,
+) -> Result<PreparedAzureRehydrateBlobRequest, String> {
+    Ok(PreparedAzureRehydrateBlobRequest {
+        storage_account_name: normalize_storage_account_name(&input.storage_account_name)?,
+        account_key: input.account_key,
+        normalized_container_name: normalize_container_name_for_operation(
+            &container_name,
+            "rehydration requests",
+        )?,
+        normalized_blob_name: normalize_blob_name_for_operation(
+            &blob_name,
+            "rehydration requests",
+        )?,
+        normalized_target_tier: parse_rehydration_target_tier(target_tier.as_str())?,
+        normalized_priority: parse_rehydration_priority(priority.as_str())?,
     })
 }
 
@@ -2474,8 +2579,7 @@ mod tests {
             "/acct/container/blob.txt\ncomp:list\nprefix:docs/,logs/\nrestype:container"
         );
         assert_eq!(
-            build_canonicalized_resource("acct", "/container/blob.txt", Some("comp=%ZZ"))
-                .unwrap(),
+            build_canonicalized_resource("acct", "/container/blob.txt", Some("comp=%ZZ")).unwrap(),
             "/acct/container/blob.txt\ncomp:%ZZ"
         );
     }
@@ -2738,7 +2842,10 @@ mod tests {
                     "x-ms-date".to_string(),
                     "Tue, 14 Apr 2026 00:00:00 GMT".to_string(),
                 ),
-                ("x-ms-version".to_string(), AZURE_BLOB_API_VERSION.to_string()),
+                (
+                    "x-ms-version".to_string(),
+                    AZURE_BLOB_API_VERSION.to_string(),
+                ),
             ],
             None,
             None,
@@ -2843,7 +2950,9 @@ mod tests {
             "<?xml version=\"1.0\" encoding=\"utf-8\"?><BlockList><Latest>block-a</Latest><Latest>block-b</Latest></BlockList>"
         );
         assert!(should_use_single_request_upload(AZURE_UPLOAD_BLOCK_SIZE));
-        assert!(!should_use_single_request_upload(AZURE_UPLOAD_BLOCK_SIZE + 1));
+        assert!(!should_use_single_request_upload(
+            AZURE_UPLOAD_BLOCK_SIZE + 1
+        ));
         assert_eq!(build_block_id(0), "MDAwMDAwMDA=");
         assert_eq!(build_block_id(42), "MDAwMDAwNDI=");
     }
@@ -2876,15 +2985,13 @@ mod tests {
     async fn rejects_provider_mutation_inputs_before_network() {
         let input = azure_test_input();
 
-        assert!(
-            !AzureConnectionService::blob_exists(
-                input.clone(),
-                "   ".to_string(),
-                "docs/file.txt".to_string()
-            )
-            .await
-            .expect("blank container should return false")
-        );
+        assert!(!AzureConnectionService::blob_exists(
+            input.clone(),
+            "   ".to_string(),
+            "docs/file.txt".to_string()
+        )
+        .await
+        .expect("blank container should return false"));
         assert_eq!(
             AzureConnectionService::create_folder(
                 input.clone(),
@@ -3228,10 +3335,7 @@ mod tests {
         assert_eq!(list_prepared.storage_account_name, "storageacct");
         assert_eq!(list_prepared.account_key, "unused-key");
         assert_eq!(list_prepared.normalized_container_name, "reports");
-        assert_eq!(
-            list_prepared.normalized_prefix.as_deref(),
-            Some("docs/")
-        );
+        assert_eq!(list_prepared.normalized_prefix.as_deref(), Some("docs/"));
         assert_eq!(
             list_prepared.query,
             vec![
@@ -3255,7 +3359,10 @@ mod tests {
         )
         .unwrap();
         assert_eq!(delete_prepared.normalized_container_name, "reports");
-        assert_eq!(delete_prepared.normalized_object_keys, vec!["docs/file.txt"]);
+        assert_eq!(
+            delete_prepared.normalized_object_keys,
+            vec!["docs/file.txt"]
+        );
 
         let prefix_prepared = prepare_delete_prefix_request(
             AzureConnectionTestInput {
@@ -3286,6 +3393,93 @@ mod tests {
             azure_test_input(),
             "reports".to_string(),
             " / ".to_string(),
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn prepares_mutation_and_existence_requests() {
+        let blob_exists_prepared = prepare_blob_exists_request(
+            AzureConnectionTestInput {
+                storage_account_name: " StorageAcct ".to_string(),
+                account_key: "unused-key".to_string(),
+            },
+            " reports ".to_string(),
+            " docs/file.txt ".to_string(),
+        )
+        .unwrap();
+        assert_eq!(blob_exists_prepared.storage_account_name, "storageacct");
+        assert_eq!(blob_exists_prepared.normalized_container_name, "reports");
+        assert_eq!(blob_exists_prepared.normalized_blob_name, "docs/file.txt");
+
+        let folder_prepared = prepare_create_folder_request(
+            AzureConnectionTestInput {
+                storage_account_name: " StorageAcct ".to_string(),
+                account_key: "unused-key".to_string(),
+            },
+            " reports ".to_string(),
+            Some(" /docs ".to_string()),
+            " archive ".to_string(),
+        )
+        .unwrap();
+        assert_eq!(folder_prepared.normalized_container_name, "reports");
+        assert_eq!(folder_prepared.folder_blob_name, "docs/archive/");
+
+        let access_tier_prepared = prepare_change_access_tier_request(
+            AzureConnectionTestInput {
+                storage_account_name: " StorageAcct ".to_string(),
+                account_key: "unused-key".to_string(),
+            },
+            " reports ".to_string(),
+            " docs/file.txt ".to_string(),
+            " Cool ".to_string(),
+        )
+        .unwrap();
+        assert_eq!(access_tier_prepared.normalized_container_name, "reports");
+        assert_eq!(access_tier_prepared.normalized_blob_name, "docs/file.txt");
+        assert_eq!(access_tier_prepared.normalized_target_tier, "Cool");
+
+        let rehydrate_prepared = prepare_rehydrate_blob_request(
+            AzureConnectionTestInput {
+                storage_account_name: " StorageAcct ".to_string(),
+                account_key: "unused-key".to_string(),
+            },
+            " reports ".to_string(),
+            " docs/archive.zip ".to_string(),
+            " Hot ".to_string(),
+            " High ".to_string(),
+        )
+        .unwrap();
+        assert_eq!(rehydrate_prepared.normalized_container_name, "reports");
+        assert_eq!(rehydrate_prepared.normalized_blob_name, "docs/archive.zip");
+        assert_eq!(rehydrate_prepared.normalized_target_tier, "Hot");
+        assert_eq!(rehydrate_prepared.normalized_priority, "High");
+        assert!(prepare_blob_exists_request(
+            azure_test_input(),
+            "reports".to_string(),
+            "   ".to_string(),
+        )
+        .is_err());
+        assert!(prepare_create_folder_request(
+            azure_test_input(),
+            "   ".to_string(),
+            None,
+            "archive".to_string(),
+        )
+        .is_err());
+        assert!(prepare_change_access_tier_request(
+            azure_test_input(),
+            "reports".to_string(),
+            "docs/file.txt".to_string(),
+            "Premium".to_string(),
+        )
+        .is_err());
+        assert!(prepare_rehydrate_blob_request(
+            azure_test_input(),
+            "reports".to_string(),
+            "docs/archive.zip".to_string(),
+            "Archive".to_string(),
+            "High".to_string(),
         )
         .is_err());
     }

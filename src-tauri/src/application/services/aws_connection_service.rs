@@ -363,6 +363,45 @@ struct PreparedAwsDeletePrefixRequest {
     restricted_bucket_name: Option<String>,
 }
 
+struct PreparedAwsObjectExistsRequest {
+    access_key_id: String,
+    secret_access_key: String,
+    bucket_name: String,
+    object_key: String,
+    bucket_region: Option<String>,
+    restricted_bucket_name: Option<String>,
+}
+
+struct PreparedAwsRestoreObjectRequest {
+    access_key_id: String,
+    secret_access_key: String,
+    bucket_name: String,
+    object_key: String,
+    bucket_region: Option<String>,
+    restore_tier: Tier,
+    days: i32,
+    restricted_bucket_name: Option<String>,
+}
+
+struct PreparedAwsCreateFolderRequest {
+    access_key_id: String,
+    secret_access_key: String,
+    bucket_name: String,
+    folder_key: String,
+    bucket_region: Option<String>,
+    restricted_bucket_name: Option<String>,
+}
+
+struct PreparedAwsChangeStorageClassRequest {
+    access_key_id: String,
+    secret_access_key: String,
+    bucket_name: String,
+    object_key: String,
+    bucket_region: Option<String>,
+    storage_class: StorageClass,
+    restricted_bucket_name: Option<String>,
+}
+
 fn prepare_list_bucket_items_request(
     input: AwsConnectionTestInput,
     bucket_name: String,
@@ -425,6 +464,112 @@ fn prepare_delete_prefix_request(
         secret_access_key: input.secret_access_key.trim().to_string(),
         bucket_name,
         recursive_prefix: normalize_recursive_delete_prefix(&prefix)?,
+        restricted_bucket_name: AwsConnectionService::normalize_restricted_bucket_name(
+            input.restricted_bucket_name,
+        ),
+    })
+}
+
+fn prepare_object_exists_request(
+    input: AwsConnectionTestInput,
+    bucket_name: String,
+    object_key: String,
+    bucket_region: Option<String>,
+) -> Result<PreparedAwsObjectExistsRequest, String> {
+    let object_key = object_key.trim().to_string();
+
+    if object_key.is_empty() {
+        return Err("Object key is required.".to_string());
+    }
+
+    Ok(PreparedAwsObjectExistsRequest {
+        access_key_id: input.access_key_id.trim().to_string(),
+        secret_access_key: input.secret_access_key.trim().to_string(),
+        bucket_name: bucket_name.trim().to_string(),
+        object_key,
+        bucket_region,
+        restricted_bucket_name: AwsConnectionService::normalize_restricted_bucket_name(
+            input.restricted_bucket_name,
+        ),
+    })
+}
+
+fn prepare_restore_object_request(
+    input: AwsConnectionTestInput,
+    bucket_name: String,
+    object_key: String,
+    storage_class: Option<String>,
+    bucket_region: Option<String>,
+    restore_tier: String,
+    days: i32,
+) -> Result<PreparedAwsRestoreObjectRequest, String> {
+    let bucket_name = bucket_name.trim().to_string();
+    let object_key = object_key.trim().to_string();
+
+    validate_mutation_bucket_and_object(&bucket_name, &object_key, "restore requests")?;
+    validate_restore_retention_days(days)?;
+
+    let restore_tier = parse_restore_tier(&restore_tier)?;
+    validate_restore_tier_for_storage_class(storage_class.as_deref(), &restore_tier)?;
+
+    Ok(PreparedAwsRestoreObjectRequest {
+        access_key_id: input.access_key_id.trim().to_string(),
+        secret_access_key: input.secret_access_key.trim().to_string(),
+        bucket_name,
+        object_key,
+        bucket_region,
+        restore_tier,
+        days,
+        restricted_bucket_name: AwsConnectionService::normalize_restricted_bucket_name(
+            input.restricted_bucket_name,
+        ),
+    })
+}
+
+fn prepare_create_folder_request(
+    input: AwsConnectionTestInput,
+    bucket_name: String,
+    parent_path: Option<String>,
+    folder_name: String,
+    bucket_region: Option<String>,
+) -> Result<PreparedAwsCreateFolderRequest, String> {
+    let bucket_name = bucket_name.trim().to_string();
+
+    if bucket_name.is_empty() {
+        return Err("Bucket name is required for folder creation.".to_string());
+    }
+
+    Ok(PreparedAwsCreateFolderRequest {
+        access_key_id: input.access_key_id.trim().to_string(),
+        secret_access_key: input.secret_access_key.trim().to_string(),
+        bucket_name,
+        folder_key: build_folder_marker_key(parent_path.as_deref(), &folder_name)?,
+        bucket_region,
+        restricted_bucket_name: AwsConnectionService::normalize_restricted_bucket_name(
+            input.restricted_bucket_name,
+        ),
+    })
+}
+
+fn prepare_change_storage_class_request(
+    input: AwsConnectionTestInput,
+    bucket_name: String,
+    object_key: String,
+    target_storage_class: String,
+    bucket_region: Option<String>,
+) -> Result<PreparedAwsChangeStorageClassRequest, String> {
+    let bucket_name = bucket_name.trim().to_string();
+    let object_key = object_key.trim().to_string();
+
+    validate_mutation_bucket_and_object(&bucket_name, &object_key, "storage class changes")?;
+
+    Ok(PreparedAwsChangeStorageClassRequest {
+        access_key_id: input.access_key_id.trim().to_string(),
+        secret_access_key: input.secret_access_key.trim().to_string(),
+        bucket_name,
+        object_key,
+        bucket_region,
+        storage_class: parse_required_storage_class(&target_storage_class)?,
         restricted_bucket_name: AwsConnectionService::normalize_restricted_bucket_name(
             input.restricted_bucket_name,
         ),
@@ -1130,49 +1275,50 @@ impl AwsConnectionService {
         restore_tier: String,
         days: i32,
     ) -> Result<(), String> {
-        let access_key_id = input.access_key_id.trim().to_string();
-        let secret_access_key = input.secret_access_key.trim().to_string();
-        let bucket_name = bucket_name.trim().to_string();
-        let object_key = object_key.trim().to_string();
-        let restricted_bucket_name =
-            Self::normalize_restricted_bucket_name(input.restricted_bucket_name);
-
-        validate_mutation_bucket_and_object(&bucket_name, &object_key, "restore requests")?;
-        validate_restore_retention_days(days)?;
-
-        let tier = parse_restore_tier(&restore_tier)?;
-        validate_restore_tier_for_storage_class(storage_class.as_deref(), &tier)?;
+        let prepared = prepare_restore_object_request(
+            input,
+            bucket_name,
+            object_key,
+            storage_class,
+            bucket_region,
+            restore_tier.clone(),
+            days,
+        )?;
 
         eprintln!(
             "[aws_connection_service] requesting S3 restore for bucket={} object_key={} tier={} days={}",
-            bucket_name, object_key, restore_tier, days
+            prepared.bucket_name, prepared.object_key, restore_tier, prepared.days
         );
 
         let resolved_bucket_region = Self::resolve_bucket_region(
-            &access_key_id,
-            &secret_access_key,
-            &bucket_name,
-            bucket_region,
-            restricted_bucket_name,
+            &prepared.access_key_id,
+            &prepared.secret_access_key,
+            &prepared.bucket_name,
+            prepared.bucket_region,
+            prepared.restricted_bucket_name,
         )
         .await?;
 
-        let (_, s3_client) =
-            Self::build_clients(&resolved_bucket_region, access_key_id, secret_access_key).await;
+        let (_, s3_client) = Self::build_clients(
+            &resolved_bucket_region,
+            prepared.access_key_id,
+            prepared.secret_access_key,
+        )
+        .await;
 
         let glacier_job_parameters = GlacierJobParameters::builder()
-            .tier(tier)
+            .tier(prepared.restore_tier)
             .build()
             .map_err(|error| error.to_string())?;
         let restore_request = RestoreRequest::builder()
-            .days(days)
+            .days(prepared.days)
             .glacier_job_parameters(glacier_job_parameters)
             .build();
 
         s3_client
             .restore_object()
-            .bucket(bucket_name.clone())
-            .key(object_key.clone())
+            .bucket(prepared.bucket_name.clone())
+            .key(prepared.object_key.clone())
             .restore_request(restore_request)
             .send()
             .await
@@ -1184,7 +1330,7 @@ impl AwsConnectionService {
 
                 eprintln!(
                     "[aws_connection_service] failed to request S3 restore for bucket={} object_key={} error={}",
-                    bucket_name, object_key, error_message
+                    prepared.bucket_name, prepared.object_key, error_message
                 );
 
                 error_message
@@ -1200,39 +1346,39 @@ impl AwsConnectionService {
         folder_name: String,
         bucket_region: Option<String>,
     ) -> Result<(), String> {
-        let access_key_id = input.access_key_id.trim().to_string();
-        let secret_access_key = input.secret_access_key.trim().to_string();
-        let bucket_name = bucket_name.trim().to_string();
-        let restricted_bucket_name =
-            Self::normalize_restricted_bucket_name(input.restricted_bucket_name);
-
-        if bucket_name.is_empty() {
-            return Err("Bucket name is required for folder creation.".to_string());
-        }
-
-        let folder_key = build_folder_marker_key(parent_path.as_deref(), &folder_name)?;
+        let prepared = prepare_create_folder_request(
+            input,
+            bucket_name,
+            parent_path,
+            folder_name,
+            bucket_region,
+        )?;
 
         eprintln!(
             "[aws_connection_service] creating S3 folder marker for bucket={} key={}",
-            bucket_name, folder_key
+            prepared.bucket_name, prepared.folder_key
         );
 
         let resolved_bucket_region = Self::resolve_bucket_region(
-            &access_key_id,
-            &secret_access_key,
-            &bucket_name,
-            bucket_region,
-            restricted_bucket_name,
+            &prepared.access_key_id,
+            &prepared.secret_access_key,
+            &prepared.bucket_name,
+            prepared.bucket_region,
+            prepared.restricted_bucket_name,
         )
         .await?;
 
-        let (_, s3_client) =
-            Self::build_clients(&resolved_bucket_region, access_key_id, secret_access_key).await;
+        let (_, s3_client) = Self::build_clients(
+            &resolved_bucket_region,
+            prepared.access_key_id,
+            prepared.secret_access_key,
+        )
+        .await;
 
         s3_client
             .put_object()
-            .bucket(bucket_name.clone())
-            .key(folder_key.clone())
+            .bucket(prepared.bucket_name.clone())
+            .key(prepared.folder_key.clone())
             .body(ByteStream::from(Vec::<u8>::new()))
             .send()
             .await
@@ -1244,7 +1390,7 @@ impl AwsConnectionService {
 
                 eprintln!(
                     "[aws_connection_service] failed to create S3 folder marker for bucket={} key={} error={}",
-                    bucket_name, folder_key, error_message
+                    prepared.bucket_name, prepared.folder_key, error_message
                 );
 
                 error_message
@@ -1260,38 +1406,39 @@ impl AwsConnectionService {
         target_storage_class: String,
         bucket_region: Option<String>,
     ) -> Result<(), String> {
-        let access_key_id = input.access_key_id.trim().to_string();
-        let secret_access_key = input.secret_access_key.trim().to_string();
-        let bucket_name = bucket_name.trim().to_string();
-        let object_key = object_key.trim().to_string();
-        let restricted_bucket_name =
-            Self::normalize_restricted_bucket_name(input.restricted_bucket_name);
-
-        validate_mutation_bucket_and_object(&bucket_name, &object_key, "storage class changes")?;
-
-        let storage_class = parse_required_storage_class(&target_storage_class)?;
+        let prepared = prepare_change_storage_class_request(
+            input,
+            bucket_name,
+            object_key,
+            target_storage_class.clone(),
+            bucket_region,
+        )?;
 
         eprintln!(
             "[aws_connection_service] changing S3 storage class for bucket={} object_key={} target_storage_class={}",
-            bucket_name, object_key, target_storage_class
+            prepared.bucket_name, prepared.object_key, target_storage_class
         );
 
         let resolved_bucket_region = Self::resolve_bucket_region(
-            &access_key_id,
-            &secret_access_key,
-            &bucket_name,
-            bucket_region,
-            restricted_bucket_name,
+            &prepared.access_key_id,
+            &prepared.secret_access_key,
+            &prepared.bucket_name,
+            prepared.bucket_region,
+            prepared.restricted_bucket_name,
         )
         .await?;
 
-        let (_, s3_client) =
-            Self::build_clients(&resolved_bucket_region, access_key_id, secret_access_key).await;
+        let (_, s3_client) = Self::build_clients(
+            &resolved_bucket_region,
+            prepared.access_key_id,
+            prepared.secret_access_key,
+        )
+        .await;
 
         let head_object_output = s3_client
             .head_object()
-            .bucket(bucket_name.clone())
-            .key(object_key.clone())
+            .bucket(prepared.bucket_name.clone())
+            .key(prepared.object_key.clone())
             .send()
             .await
             .map_err(|error| {
@@ -1302,7 +1449,7 @@ impl AwsConnectionService {
 
                 eprintln!(
                     "[aws_connection_service] failed to read S3 object metadata for bucket={} object_key={} error={}",
-                    bucket_name, object_key, error_message
+                    prepared.bucket_name, prepared.object_key, error_message
                 );
 
                 error_message
@@ -1318,10 +1465,10 @@ impl AwsConnectionService {
         if object_size <= S3_COPY_OBJECT_MAX_SIZE {
             s3_client
                 .copy_object()
-                .bucket(bucket_name.clone())
-                .key(object_key.clone())
-                .copy_source(build_copy_source(&bucket_name, &object_key))
-                .storage_class(storage_class)
+                .bucket(prepared.bucket_name.clone())
+                .key(prepared.object_key.clone())
+                .copy_source(build_copy_source(&prepared.bucket_name, &prepared.object_key))
+                .storage_class(prepared.storage_class.clone())
                 .metadata_directive(aws_sdk_s3::types::MetadataDirective::Copy)
                 .send()
                 .await
@@ -1333,7 +1480,7 @@ impl AwsConnectionService {
 
                     eprintln!(
                         "[aws_connection_service] failed to change S3 storage class for bucket={} object_key={} error={}",
-                        bucket_name, object_key, error_message
+                        prepared.bucket_name, prepared.object_key, error_message
                     );
 
                     error_message
@@ -1344,8 +1491,8 @@ impl AwsConnectionService {
 
         let existing_tagging = s3_client
             .get_object_tagging()
-            .bucket(bucket_name.clone())
-            .key(object_key.clone())
+            .bucket(prepared.bucket_name.clone())
+            .key(prepared.object_key.clone())
             .send()
             .await
             .map(|output| build_tagging_header(output.tag_set()))
@@ -1357,7 +1504,7 @@ impl AwsConnectionService {
 
                 eprintln!(
                     "[aws_connection_service] failed to read S3 object tags for bucket={} object_key={} error={}",
-                    bucket_name, object_key, error_message
+                    prepared.bucket_name, prepared.object_key, error_message
                 );
 
                 error_message
@@ -1365,9 +1512,9 @@ impl AwsConnectionService {
 
         let mut create_multipart_upload_request = s3_client
             .create_multipart_upload()
-            .bucket(bucket_name.clone())
-            .key(object_key.clone())
-            .storage_class(storage_class);
+            .bucket(prepared.bucket_name.clone())
+            .key(prepared.object_key.clone())
+            .storage_class(prepared.storage_class);
 
         if !existing_tagging.is_empty() {
             create_multipart_upload_request =
@@ -1417,7 +1564,7 @@ impl AwsConnectionService {
 
                 eprintln!(
                     "[aws_connection_service] failed to change S3 storage class for bucket={} object_key={} error={}",
-                    bucket_name, object_key, error_message
+                    prepared.bucket_name, prepared.object_key, error_message
                 );
 
                 error_message
@@ -1429,7 +1576,7 @@ impl AwsConnectionService {
             .ok_or_else(|| {
                 "AWS S3 did not return an upload identifier for multipart copy.".to_string()
             })?;
-        let copy_source = build_copy_source(&bucket_name, &object_key);
+        let copy_source = build_copy_source(&prepared.bucket_name, &prepared.object_key);
         let part_size = calculate_multipart_copy_chunk_size(object_size);
         let mut completed_parts = Vec::new();
         let mut part_number = 1_i32;
@@ -1441,8 +1588,8 @@ impl AwsConnectionService {
 
             let upload_part_copy_output = match s3_client
                 .upload_part_copy()
-                .bucket(bucket_name.clone())
-                .key(object_key.clone())
+                .bucket(prepared.bucket_name.clone())
+                .key(prepared.object_key.clone())
                 .upload_id(upload_id.clone())
                 .part_number(part_number)
                 .copy_source(copy_source.clone())
@@ -1454,8 +1601,8 @@ impl AwsConnectionService {
                 Err(error) => {
                     let _ = s3_client
                         .abort_multipart_upload()
-                        .bucket(bucket_name.clone())
-                        .key(object_key.clone())
+                        .bucket(prepared.bucket_name.clone())
+                        .key(prepared.object_key.clone())
                         .upload_id(upload_id.clone())
                         .send()
                         .await;
@@ -1467,7 +1614,7 @@ impl AwsConnectionService {
 
                     eprintln!(
                         "[aws_connection_service] failed to copy multipart chunk for bucket={} object_key={} part_number={} error={}",
-                        bucket_name, object_key, part_number, error_message
+                        prepared.bucket_name, prepared.object_key, part_number, error_message
                     );
 
                     return Err(error_message);
@@ -1499,8 +1646,8 @@ impl AwsConnectionService {
 
         if let Err(error) = s3_client
             .complete_multipart_upload()
-            .bucket(bucket_name.clone())
-            .key(object_key.clone())
+            .bucket(prepared.bucket_name.clone())
+            .key(prepared.object_key.clone())
             .upload_id(upload_id.clone())
             .multipart_upload(completed_upload)
             .send()
@@ -1508,8 +1655,8 @@ impl AwsConnectionService {
         {
             let _ = s3_client
                 .abort_multipart_upload()
-                .bucket(bucket_name.clone())
-                .key(object_key.clone())
+                .bucket(prepared.bucket_name.clone())
+                .key(prepared.object_key.clone())
                 .upload_id(upload_id)
                 .send()
                 .await;
@@ -1521,7 +1668,7 @@ impl AwsConnectionService {
 
             eprintln!(
                 "[aws_connection_service] failed to complete multipart copy for bucket={} object_key={} error={}",
-                bucket_name, object_key, error_message
+                prepared.bucket_name, prepared.object_key, error_message
             );
 
             return Err(error_message);
@@ -1611,8 +1758,12 @@ impl AwsConnectionService {
         )
         .await;
 
-        Self::delete_object_keys(&s3_client, &prepared.bucket_name, &prepared.normalized_object_keys)
-            .await?;
+        Self::delete_object_keys(
+            &s3_client,
+            &prepared.bucket_name,
+            &prepared.normalized_object_keys,
+        )
+        .await?;
 
         Ok(AwsDeleteResult {
             deleted_object_count: prepared.normalized_object_keys.len() as i64,
@@ -1944,33 +2095,29 @@ impl AwsConnectionService {
         object_key: String,
         bucket_region: Option<String>,
     ) -> Result<bool, String> {
-        let access_key_id = input.access_key_id.trim().to_string();
-        let secret_access_key = input.secret_access_key.trim().to_string();
-        let bucket_name = bucket_name.trim().to_string();
-        let object_key = object_key.trim().to_string();
-        let restricted_bucket_name =
-            Self::normalize_restricted_bucket_name(input.restricted_bucket_name);
-
-        if object_key.is_empty() {
-            return Err("Object key is required.".to_string());
-        }
+        let prepared =
+            prepare_object_exists_request(input, bucket_name, object_key, bucket_region)?;
 
         let resolved_bucket_region = Self::resolve_bucket_region(
-            &access_key_id,
-            &secret_access_key,
-            &bucket_name,
-            bucket_region,
-            restricted_bucket_name,
+            &prepared.access_key_id,
+            &prepared.secret_access_key,
+            &prepared.bucket_name,
+            prepared.bucket_region,
+            prepared.restricted_bucket_name,
         )
         .await?;
 
-        let (_, s3_client) =
-            Self::build_clients(&resolved_bucket_region, access_key_id, secret_access_key).await;
+        let (_, s3_client) = Self::build_clients(
+            &resolved_bucket_region,
+            prepared.access_key_id,
+            prepared.secret_access_key,
+        )
+        .await;
 
         match s3_client
             .head_object()
-            .bucket(bucket_name)
-            .key(object_key)
+            .bucket(prepared.bucket_name)
+            .key(prepared.object_key)
             .send()
             .await
         {
@@ -3030,7 +3177,10 @@ mod tests {
         assert_eq!(list_prepared.secret_access_key, "secret-key");
         assert_eq!(list_prepared.bucket_name, "bucket-a");
         assert_eq!(list_prepared.prefix, "docs");
-        assert_eq!(list_prepared.continuation_token.as_deref(), Some("cursor-1"));
+        assert_eq!(
+            list_prepared.continuation_token.as_deref(),
+            Some("cursor-1")
+        );
         assert_eq!(list_prepared.page_size, 1);
         assert_eq!(
             list_prepared.restricted_bucket_name.as_deref(),
@@ -3048,7 +3198,10 @@ mod tests {
         )
         .unwrap();
         assert_eq!(delete_prepared.bucket_name, "bucket-a");
-        assert_eq!(delete_prepared.normalized_object_keys, vec!["docs/file.txt"]);
+        assert_eq!(
+            delete_prepared.normalized_object_keys,
+            vec!["docs/file.txt"]
+        );
 
         let prefix_prepared = prepare_delete_prefix_request(
             AwsConnectionTestInput {
@@ -3076,6 +3229,115 @@ mod tests {
             aws_test_input(),
             "bucket-a".to_string(),
             " / ".to_string(),
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn prepares_mutation_and_existence_requests() {
+        let object_exists_prepared = prepare_object_exists_request(
+            AwsConnectionTestInput {
+                access_key_id: " access-key ".to_string(),
+                secret_access_key: " secret-key ".to_string(),
+                restricted_bucket_name: Some(" bucket-a ".to_string()),
+            },
+            " bucket-a ".to_string(),
+            " docs/file.txt ".to_string(),
+            Some("us-east-1".to_string()),
+        )
+        .unwrap();
+        assert_eq!(object_exists_prepared.access_key_id, "access-key");
+        assert_eq!(object_exists_prepared.secret_access_key, "secret-key");
+        assert_eq!(object_exists_prepared.bucket_name, "bucket-a");
+        assert_eq!(object_exists_prepared.object_key, "docs/file.txt");
+        assert_eq!(
+            object_exists_prepared.restricted_bucket_name.as_deref(),
+            Some("bucket-a")
+        );
+
+        let restore_prepared = prepare_restore_object_request(
+            AwsConnectionTestInput {
+                access_key_id: " access-key ".to_string(),
+                secret_access_key: " secret-key ".to_string(),
+                restricted_bucket_name: Some(" bucket-a ".to_string()),
+            },
+            " bucket-a ".to_string(),
+            " docs/archive.zip ".to_string(),
+            Some("GLACIER".to_string()),
+            Some("us-east-1".to_string()),
+            " Bulk ".to_string(),
+            7,
+        )
+        .unwrap();
+        assert_eq!(restore_prepared.bucket_name, "bucket-a");
+        assert_eq!(restore_prepared.object_key, "docs/archive.zip");
+        assert_eq!(restore_prepared.days, 7);
+        assert_eq!(restore_prepared.restore_tier, Tier::Bulk);
+
+        let folder_prepared = prepare_create_folder_request(
+            AwsConnectionTestInput {
+                access_key_id: " access-key ".to_string(),
+                secret_access_key: " secret-key ".to_string(),
+                restricted_bucket_name: Some(" bucket-a ".to_string()),
+            },
+            " bucket-a ".to_string(),
+            Some(" /docs ".to_string()),
+            " reports ".to_string(),
+            Some("us-east-1".to_string()),
+        )
+        .unwrap();
+        assert_eq!(folder_prepared.bucket_name, "bucket-a");
+        assert_eq!(folder_prepared.folder_key, "docs/reports/");
+
+        let storage_class_prepared = prepare_change_storage_class_request(
+            AwsConnectionTestInput {
+                access_key_id: " access-key ".to_string(),
+                secret_access_key: " secret-key ".to_string(),
+                restricted_bucket_name: Some(" bucket-a ".to_string()),
+            },
+            " bucket-a ".to_string(),
+            " docs/archive.zip ".to_string(),
+            " GLACIER_IR ".to_string(),
+            Some("us-east-1".to_string()),
+        )
+        .unwrap();
+        assert_eq!(storage_class_prepared.bucket_name, "bucket-a");
+        assert_eq!(storage_class_prepared.object_key, "docs/archive.zip");
+        assert_eq!(
+            storage_class_prepared.storage_class,
+            StorageClass::GlacierIr
+        );
+        assert!(prepare_object_exists_request(
+            aws_test_input(),
+            "bucket-a".to_string(),
+            "   ".to_string(),
+            None,
+        )
+        .is_err());
+        assert!(prepare_restore_object_request(
+            aws_test_input(),
+            "bucket-a".to_string(),
+            "docs/archive.zip".to_string(),
+            Some("DEEP_ARCHIVE".to_string()),
+            None,
+            "Expedited".to_string(),
+            7,
+        )
+        .is_err());
+        assert!(prepare_create_folder_request(
+            aws_test_input(),
+            "   ".to_string(),
+            None,
+            "reports".to_string(),
+            None,
+        )
+        .is_err());
+        assert!(prepare_change_storage_class_request(
+            aws_test_input(),
+            "bucket-a".to_string(),
+            "docs/archive.zip".to_string(),
+            "INVALID".to_string(),
+            None,
         )
         .is_err());
     }
@@ -3160,7 +3422,10 @@ mod tests {
         assert_eq!(result.files[0].key, "docs/report.txt");
         assert_eq!(result.files[0].size, 42);
         assert_eq!(result.files[0].e_tag.as_deref(), Some("etag-1"));
-        assert_eq!(result.files[0].storage_class.as_deref(), Some("STANDARD_IA"));
+        assert_eq!(
+            result.files[0].storage_class.as_deref(),
+            Some("STANDARD_IA")
+        );
         assert_eq!(result.files[1].key, "docs/default.txt");
         assert_eq!(result.files[1].storage_class.as_deref(), Some("STANDARD"));
         assert_eq!(result.continuation_token.as_deref(), Some("next-page"));
