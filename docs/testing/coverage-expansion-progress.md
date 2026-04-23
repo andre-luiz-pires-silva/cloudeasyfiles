@@ -27,6 +27,7 @@ Increase automated test coverage toward the agreed long-term target of `75%` lin
 - [x] Milestone C (Rust): Rust `40%` reached — `46.83%` measured after Step R2
 - [x] Milestone C (Frontend): Frontend `35%` reached — `36.39%` measured after component render tests
 - [x] Milestone D: Frontend `50%`, Rust `55%` reached — Frontend `53.08%`, Rust `58.99%` measured after Step R6
+- [x] Frontend interim `65%` reached — Frontend `66.00%` measured after Step F10
 - [ ] Final target: Frontend `75%`, Rust `75%`
 
 ## Phases
@@ -77,9 +78,9 @@ Increase automated test coverage toward the agreed long-term target of `75%` lin
 
 ## Current Priorities
 
-1. **Frontend ConnectionNavigator home coverage added** ✅ — Frontend `62.77%`, Rust `58.99%` measured on 2026-04-23
-2. Frontend is close to the next interim `65%` target after initial `ConnectionNavigator.tsx` render/guard coverage
-3. Next executable priority: add one focused `ConnectionNavigator.tsx` connected-state render/guard step to cross `65%`
+1. **Frontend ConnectionNavigator connected-state coverage added** ✅ — Frontend `66.00%`, Rust `58.99%` measured on 2026-04-23
+2. Frontend crossed the interim `65%` target after focused `ConnectionNavigator.tsx` render/guard coverage
+3. Next executable priority: choose the next high-risk `ConnectionNavigator.tsx` workflow toward the long-term `75%` frontend target
 
 ## Operational Roadmap
 
@@ -101,7 +102,8 @@ Use the checklist below as the next execution guide for the coverage-expansion b
 - [x] Step F7. Revisit remaining content filter/counter glue still embedded in `ConnectionNavigator.tsx`
 - [x] Step F8. Add app shell, provider, error-boundary, and i18n coverage
 - [x] Step F9. Begin `ConnectionNavigator.tsx` render/guard coverage toward frontend `65%`
-- [ ] Step F10. Add `ConnectionNavigator.tsx` connected-state render/guard coverage to cross frontend `65%`
+- [x] Step F10. Add `ConnectionNavigator.tsx` connected-state render/guard coverage to cross frontend `65%`
+- [ ] Step F11. Select the next high-risk `ConnectionNavigator.tsx` workflow toward frontend `75%`
 
 ### Near-Term Rust Steps
 
@@ -118,8 +120,9 @@ Use the checklist below as the next execution guide for the coverage-expansion b
 
 ## Estimated Remaining Work
 
-- Milestone C (`35%` frontend, `40%` Rust) is complete.
-- Next estimate should be set after choosing the next milestone target.
+- Milestone D (`50%` frontend, `55%` Rust) is complete.
+- Frontend interim `65%` is complete.
+- Next estimate should be set after choosing the next `ConnectionNavigator.tsx` workflow toward the final `75%` frontend target.
 
 ## Current Risks
 
@@ -814,11 +817,30 @@ Use the checklist below as the next execution guide for the coverage-expansion b
   - covered empty connection loading, home shell controls, create-modal opening, locale dispatch, and connection-load error display
   - moved `ConnectionNavigator.tsx` from `0%` to `29.57%` line coverage
 
-## Next Steps Toward Next Milestone
+## Frontend ConnectionNavigator Connected-State Coverage Step
+
+- Targeted frontend test command: `npx vitest run src/features/navigation/ConnectionNavigator.test.tsx --reporter verbose --test-timeout 5000 --hook-timeout 5000`
+  - Tests: `3` passed
+- Frontend coverage command: `npm run test:frontend:coverage`
+  - Tests: `342` passed across `53` files
+  - Frontend line coverage: `66.00%`
+  - Frontend statements: `66.00%`
+  - Frontend branches: `85.57%`
+  - Frontend functions: `68.90%`
+- Build command: `npm run build`
+  - Result: passed
+- Delivered:
+  - completed roadmap Step `F10`
+  - added connected-state render/guard coverage for a saved AWS connection in `ConnectionNavigator.tsx`
+  - covered connection test dispatch, container listing, connected indicator rendering, AWS bucket-region hydration, bucket selection, and empty bucket content loading
+  - moved `ConnectionNavigator.tsx` to `40.19%` line coverage
+  - crossed the frontend interim `65%` target
+
+## Next Steps Toward Final Target
 
 Ordered by likely value:
 
-1. Add one focused `ConnectionNavigator.tsx` connected-state render/guard step to cross frontend `65%`.
+1. Select the next high-risk `ConnectionNavigator.tsx` workflow, likely error-path or user-triggered mutation guard coverage.
 2. Prefer remaining high-risk `ConnectionNavigator` workflows and extracted navigation helpers before low-value component snapshots.
 3. Re-run `npm run test:frontend:coverage` and update this tracker after each frontend step.
-4. Revisit Rust after frontend reaches the next threshold or if provider/command changes introduce new risk.
+4. Revisit Rust after the next frontend workflow step or if provider/command changes introduce new risk.

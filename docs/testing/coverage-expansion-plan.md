@@ -128,8 +128,8 @@ These milestones are for planning and progress tracking only. They are not CI fa
 Current milestone status as of 2026-04-23:
 
 - Milestone D is complete: Frontend `53.08%`, Rust `58.99%`
-- Frontend has progressed to `62.77%` after initial `ConnectionNavigator.tsx` home render/guard coverage
-- The next planned work should add focused `ConnectionNavigator.tsx` connected-state coverage to cross the next interim `65%` target
+- Frontend has progressed to `66.00%` after initial and connected-state `ConnectionNavigator.tsx` render/guard coverage
+- The frontend interim `65%` target is complete; the next planned work should select another high-risk `ConnectionNavigator.tsx` workflow toward the long-term `75%` frontend target
 
 ## Prioritization Rules
 
