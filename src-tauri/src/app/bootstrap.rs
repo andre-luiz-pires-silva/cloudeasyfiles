@@ -78,7 +78,7 @@ fn prepare_main_window<R: Runtime>(app: &AppHandle<R>) {
     window_state::restore_main_window_size(app);
 
     let Some(window) = app.get_webview_window("main") else {
-        eprintln!("[bootstrap] main window not found while preparing startup flow");
+        eprintln!("{}", missing_main_window_message());
         return;
     };
 
@@ -108,10 +108,7 @@ fn prepare_main_window<R: Runtime>(app: &AppHandle<R>) {
             return;
         };
 
-        eprintln!(
-            "[bootstrap] frontend ready event timed out after {}s; reloading webview once",
-            FRONTEND_READY_TIMEOUT.as_secs()
-        );
+        eprintln!("{}", frontend_reload_timeout_message(FRONTEND_READY_TIMEOUT));
 
         if let Err(error) = window.eval(FRONTEND_RELOAD_SCRIPT) {
             eprintln!("[bootstrap] failed to reload webview after startup timeout error={error}");
@@ -122,6 +119,17 @@ fn prepare_main_window<R: Runtime>(app: &AppHandle<R>) {
 
 fn should_reload_frontend_after_timeout(frontend_boot_resolved: &AtomicBool) -> bool {
     !frontend_boot_resolved.load(Ordering::SeqCst)
+}
+
+fn missing_main_window_message() -> &'static str {
+    "[bootstrap] main window not found while preparing startup flow"
+}
+
+fn frontend_reload_timeout_message(timeout: Duration) -> String {
+    format!(
+        "[bootstrap] frontend ready event timed out after {}s; reloading webview once",
+        timeout.as_secs()
+    )
 }
 
 fn apply_main_window_icon<R: Runtime>(window: &tauri::WebviewWindow<R>) {
@@ -149,5 +157,21 @@ mod tests {
 
         assert!(should_reload_frontend_after_timeout(&unresolved));
         assert!(!should_reload_frontend_after_timeout(&resolved));
+    }
+
+    #[test]
+    fn exposes_bootstrap_log_messages() {
+        assert_eq!(
+            missing_main_window_message(),
+            "[bootstrap] main window not found while preparing startup flow"
+        );
+        assert_eq!(
+            frontend_reload_timeout_message(Duration::from_secs(6)),
+            "[bootstrap] frontend ready event timed out after 6s; reloading webview once"
+        );
+        assert_eq!(
+            frontend_reload_timeout_message(Duration::from_secs(12)),
+            "[bootstrap] frontend ready event timed out after 12s; reloading webview once"
+        );
     }
 }

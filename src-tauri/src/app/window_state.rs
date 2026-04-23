@@ -275,6 +275,49 @@ mod tests {
         fs::remove_dir_all(&config_dir).ok();
     }
 
+    #[test]
+    fn save_window_state_to_path_returns_when_parent_directory_cannot_be_created() {
+        let temp_root = unique_temp_config_dir();
+        fs::create_dir_all(&temp_root).expect("temp root should exist");
+
+        let blocking_file = temp_root.join("blocking-file");
+        fs::write(&blocking_file, b"not-a-directory").expect("blocking file should exist");
+
+        let state_path = blocking_file.join(WINDOW_STATE_FILE_NAME);
+        save_window_state_to_path(
+            &state_path,
+            &SavedWindowState {
+                width: 800.0,
+                height: 600.0,
+            },
+        );
+
+        assert!(!state_path.exists());
+
+        fs::remove_dir_all(&temp_root).ok();
+    }
+
+    #[test]
+    fn save_window_state_to_path_handles_write_errors_when_target_is_a_directory() {
+        let config_dir = unique_temp_config_dir();
+        let state_path = build_window_state_path(&config_dir);
+
+        fs::create_dir_all(&state_path).expect("state path directory should exist");
+
+        save_window_state_to_path(
+            &state_path,
+            &SavedWindowState {
+                width: 1024.0,
+                height: 768.0,
+            },
+        );
+
+        assert!(state_path.is_dir());
+        assert!(load_window_state_from_path(&state_path).is_none());
+
+        fs::remove_dir_all(&config_dir).ok();
+    }
+
     fn unique_temp_config_dir() -> PathBuf {
         let unique_id = SystemTime::now()
             .duration_since(UNIX_EPOCH)

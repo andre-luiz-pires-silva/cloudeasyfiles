@@ -80,7 +80,7 @@ Increase automated test coverage toward the agreed long-term target of `75%` lin
 
 ## Current Priorities
 
-1. **Frontend final coverage target reached** ✅ — Frontend `76.90%`, Rust `69.71%` measured on 2026-04-23
+1. **Frontend final coverage target reached** ✅ — Frontend `76.90%`, Rust `69.96%` measured on 2026-04-23
 2. Frontend coverage now scopes to application source under `src`, excluding generated/build artifacts from the V8 denominator
 3. Next executable priority: expand Rust coverage toward the remaining `75%` final target
 
@@ -133,7 +133,8 @@ Use the checklist below as the next execution guide for the coverage-expansion b
 - [x] Step R19. Cover remaining pure provider mapping/parser guard branches
 - [x] Step R20. Cover provider auth/url helpers and local existence guards
 - [x] Step R21. Cover remaining provider mutation validation branches before network
-- [ ] Step R22. Continue Rust provider/command coverage toward the remaining `75%` final target
+- [x] Step R22. Expand bootstrap and window-state local helper coverage
+- [ ] Step R23. Continue Rust provider/command coverage toward the remaining `75%` final target
 
 ### Review Step
 
@@ -143,7 +144,7 @@ Use the checklist below as the next execution guide for the coverage-expansion b
 
 - Milestone D (`50%` frontend, `55%` Rust) is complete.
 - Frontend final target `75%` is complete.
-- Rust has crossed the interim `65%` checkpoint and remains at `69.71%`; next estimate should continue prioritizing the highest-yield Rust provider and command modules.
+- Rust has crossed the interim `65%` checkpoint and remains at `69.96%`; next estimate should continue prioritizing the highest-yield Rust provider and command modules.
 
 ## Current Risks
 
@@ -1195,6 +1196,25 @@ Use the checklist below as the next execution guide for the coverage-expansion b
   - covered AWS restore validation for Deep Archive expedited requests, unsupported restore tiers, and invalid target storage classes
   - covered Azure folder creation blank-container guard plus access-tier and rehydration validation branches
   - kept the new coverage on service-level validation paths that fail before any provider request
+
+## Rust Bootstrap/Window-State Helper Coverage Step
+
+- Targeted Rust test command: `cargo test --manifest-path src-tauri/Cargo.toml app::bootstrap::tests -- --nocapture`
+  - Tests: `2` passed
+- Targeted Rust test command: `cargo test --manifest-path src-tauri/Cargo.toml app::window_state::tests -- --nocapture`
+  - Tests: `11` passed
+- Rust check command: `cargo check --manifest-path src-tauri/Cargo.toml`
+  - Result: passed
+- Rust coverage command: `npm run test:rust:coverage`
+  - Tests: `100` passed
+  - Rust line coverage: `69.96%`
+  - Rust regions: `66.77%`
+  - Rust functions: `58.01%`
+- Delivered:
+  - completed roadmap Step `R22`
+  - extracted bootstrap timeout and missing-window log-message helpers and covered them directly
+  - covered window-state save failures when parent creation fails or the destination path is already a directory
+  - improved low-coverage app-support modules without introducing UI-runtime test scaffolding
 
 ## Next Steps Toward Final Target
 
