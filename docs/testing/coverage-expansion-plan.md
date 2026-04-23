@@ -127,9 +127,9 @@ These milestones are for planning and progress tracking only. They are not CI fa
 
 Current milestone status as of 2026-04-23:
 
-- Milestone D is complete: Frontend `53.08%`, Rust `60.53%`
+- Milestone D is complete: Frontend `53.08%`, Rust `61.01%`
 - Frontend final target is complete: `76.90%` after scoping V8 coverage to application source under `src`
-- Rust remains at `60.53%`; the next planned work should continue expanding provider and command coverage toward the remaining `75%` final target
+- Rust remains at `61.01%`; the next planned work should continue expanding provider and command coverage toward the remaining `75%` final target
 
 ## Prioritization Rules
 
