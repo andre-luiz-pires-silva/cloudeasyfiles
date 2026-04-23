@@ -2831,6 +2831,58 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn rejects_provider_download_inputs_before_network() {
+        let input = azure_test_input();
+
+        assert_eq!(
+            AzureConnectionService::download_blob_to_cache(
+                "azure-download-r16-a".to_string(),
+                AzureConnectionTestInput {
+                    storage_account_name: "   ".to_string(),
+                    account_key: "unused-key".to_string(),
+                },
+                "connection-123".to_string(),
+                "Primary Connection".to_string(),
+                "container-a".to_string(),
+                "docs/report.txt".to_string(),
+                "/tmp/cache".to_string(),
+                |_, _, _| Ok(())
+            )
+            .await
+            .unwrap_err(),
+            "The Azure storage account name is required."
+        );
+        assert_eq!(
+            AzureConnectionService::download_blob_to_cache(
+                "azure-download-r16-b".to_string(),
+                input.clone(),
+                "connection-123".to_string(),
+                "Primary Connection".to_string(),
+                "container-a".to_string(),
+                "docs/report.txt".to_string(),
+                "   ".to_string(),
+                |_, _, _| Ok(())
+            )
+            .await
+            .unwrap_err(),
+            "Local cache directory is required for tracked downloads."
+        );
+        assert_eq!(
+            AzureConnectionService::download_blob_to_path(
+                "azure-download-r16-c".to_string(),
+                input,
+                "container-a".to_string(),
+                "docs/report.txt".to_string(),
+                "   ".to_string(),
+                |_, _, _| Ok(())
+            )
+            .await
+            .unwrap_err(),
+            "Destination path is required for direct downloads."
+        );
+    }
+
     #[test]
     fn builds_listing_queries_and_marker_rules() {
         assert_eq!(

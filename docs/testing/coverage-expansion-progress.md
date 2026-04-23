@@ -80,7 +80,7 @@ Increase automated test coverage toward the agreed long-term target of `75%` lin
 
 ## Current Priorities
 
-1. **Frontend final coverage target reached** ✅ — Frontend `76.90%`, Rust `66.15%` measured on 2026-04-23
+1. **Frontend final coverage target reached** ✅ — Frontend `76.90%`, Rust `67.67%` measured on 2026-04-23
 2. Frontend coverage now scopes to application source under `src`, excluding generated/build artifacts from the V8 denominator
 3. Next executable priority: expand Rust coverage toward the remaining `75%` final target
 
@@ -127,7 +127,8 @@ Use the checklist below as the next execution guide for the coverage-expansion b
 - [x] Step R13. Extract and cover AWS S3 list-bucket response mapping
 - [x] Step R14. Cover read command-wrapper local guard paths before network
 - [x] Step R15. Cover mutation command-wrapper restriction/account guard paths before network
-- [ ] Step R16. Continue Rust provider/command coverage toward the remaining `75%` final target
+- [x] Step R16. Cover AWS/Azure provider download guards before network
+- [ ] Step R17. Continue Rust provider/command coverage toward the remaining `75%` final target
 
 ### Review Step
 
@@ -137,7 +138,7 @@ Use the checklist below as the next execution guide for the coverage-expansion b
 
 - Milestone D (`50%` frontend, `55%` Rust) is complete.
 - Frontend final target `75%` is complete.
-- Rust has crossed the interim `65%` checkpoint and remains at `66.15%`; next estimate should continue prioritizing the highest-yield Rust provider and command modules.
+- Rust has crossed the interim `65%` checkpoint and remains at `67.67%`; next estimate should continue prioritizing the highest-yield Rust provider and command modules.
 
 ## Current Risks
 
@@ -1082,6 +1083,23 @@ Use the checklist below as the next execution guide for the coverage-expansion b
   - covered AWS mutation command wrappers for restricted-bucket mismatch with otherwise valid inputs
   - covered Azure mutation command wrappers for blank storage-account guards before network
   - pushed Rust coverage further past the interim `65%` checkpoint while keeping CI coverage monitor-only
+
+## Rust Provider Download Guard Coverage Step
+
+- Targeted Rust test command: `cargo test --manifest-path src-tauri/Cargo.toml rejects_provider_download_inputs_before_network -- --nocapture`
+  - Tests: `2` passed
+- Rust check command: `cargo check --manifest-path src-tauri/Cargo.toml`
+  - Result: passed
+- Rust coverage command: `npm run test:rust:coverage`
+  - Tests: `91` passed
+  - Rust line coverage: `67.67%`
+  - Rust regions: `64.11%`
+  - Rust functions: `57.11%`
+- Delivered:
+  - completed roadmap Step `R16`
+  - covered AWS tracked/direct download local guard failures before network
+  - covered AWS restricted-bucket mismatch in provider download flow before network
+  - covered Azure tracked/direct download local guard failures before network
 
 ## Next Steps Toward Final Target
 

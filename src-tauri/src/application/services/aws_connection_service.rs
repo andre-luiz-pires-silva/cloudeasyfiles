@@ -3098,6 +3098,61 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn rejects_provider_download_inputs_before_network() {
+        let input = aws_test_input();
+
+        assert_eq!(
+            AwsConnectionService::download_object_to_cache(
+                "aws-download-r16-a".to_string(),
+                input.clone(),
+                "connection-123".to_string(),
+                "Primary Connection".to_string(),
+                "bucket-a".to_string(),
+                "docs/report.txt".to_string(),
+                Some("us-east-1".to_string()),
+                "   ".to_string(),
+                |_, _, _| Ok(())
+            )
+            .await
+            .unwrap_err(),
+            "Local cache directory is required for tracked downloads."
+        );
+        assert_eq!(
+            AwsConnectionService::download_object_to_path(
+                "aws-download-r16-b".to_string(),
+                input.clone(),
+                "bucket-a".to_string(),
+                "docs/report.txt".to_string(),
+                Some("us-east-1".to_string()),
+                "   ".to_string(),
+                |_, _, _| Ok(())
+            )
+            .await
+            .unwrap_err(),
+            "Destination path is required for direct downloads."
+        );
+        assert_eq!(
+            AwsConnectionService::download_object_to_cache(
+                "aws-download-r16-c".to_string(),
+                AwsConnectionTestInput {
+                    restricted_bucket_name: Some("allowed-bucket".to_string()),
+                    ..input
+                },
+                "connection-123".to_string(),
+                "Primary Connection".to_string(),
+                "other-bucket".to_string(),
+                "docs/report.txt".to_string(),
+                Some("us-east-1".to_string()),
+                "/tmp/cache".to_string(),
+                |_, _, _| Ok(())
+            )
+            .await
+            .unwrap_err(),
+            RESTRICTED_BUCKET_MISMATCH_ERROR
+        );
+    }
+
+    #[tokio::test]
     async fn resolves_cached_object_path_and_cleans_up_temp_files() {
         let temp_root = std::env::temp_dir().join(format!(
             "cloudeasyfiles-aws-cache-test-{}",
