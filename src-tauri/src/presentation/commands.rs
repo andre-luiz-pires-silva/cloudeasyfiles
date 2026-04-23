@@ -3058,6 +3058,140 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn mutation_command_wrappers_surface_restriction_and_account_guards_before_network() {
+        assert_eq!(
+            request_aws_object_restore(
+                "access-key".to_string(),
+                "secret-key".to_string(),
+                "other-bucket".to_string(),
+                "docs/archive.zip".to_string(),
+                Some("GLACIER".to_string()),
+                Some("us-east-1".to_string()),
+                "Standard".to_string(),
+                7,
+                Some("allowed-bucket".to_string()),
+            )
+            .await
+            .unwrap_err(),
+            "AWS_S3_RESTRICTED_BUCKET_MISMATCH"
+        );
+        assert_eq!(
+            create_aws_folder(
+                "access-key".to_string(),
+                "secret-key".to_string(),
+                "other-bucket".to_string(),
+                None,
+                "reports".to_string(),
+                Some("us-east-1".to_string()),
+                Some("allowed-bucket".to_string()),
+            )
+            .await
+            .unwrap_err(),
+            "AWS_S3_RESTRICTED_BUCKET_MISMATCH"
+        );
+        assert_eq!(
+            delete_aws_objects(
+                "access-key".to_string(),
+                "secret-key".to_string(),
+                "other-bucket".to_string(),
+                vec!["docs/report.txt".to_string()],
+                Some("us-east-1".to_string()),
+                Some("allowed-bucket".to_string()),
+            )
+            .await
+            .unwrap_err(),
+            "AWS_S3_RESTRICTED_BUCKET_MISMATCH"
+        );
+        assert_eq!(
+            delete_aws_prefix(
+                "access-key".to_string(),
+                "secret-key".to_string(),
+                "other-bucket".to_string(),
+                "docs".to_string(),
+                Some("us-east-1".to_string()),
+                Some("allowed-bucket".to_string()),
+            )
+            .await
+            .unwrap_err(),
+            "AWS_S3_RESTRICTED_BUCKET_MISMATCH"
+        );
+        assert_eq!(
+            change_aws_object_storage_class(
+                "access-key".to_string(),
+                "secret-key".to_string(),
+                "other-bucket".to_string(),
+                "docs/report.txt".to_string(),
+                "STANDARD_IA".to_string(),
+                Some("us-east-1".to_string()),
+                Some("allowed-bucket".to_string()),
+            )
+            .await
+            .unwrap_err(),
+            "AWS_S3_RESTRICTED_BUCKET_MISMATCH"
+        );
+
+        assert_eq!(
+            create_azure_folder(
+                "   ".to_string(),
+                "unused-key".to_string(),
+                "container-a".to_string(),
+                None,
+                "reports".to_string(),
+            )
+            .await
+            .unwrap_err(),
+            "The Azure storage account name is required."
+        );
+        assert_eq!(
+            delete_azure_objects(
+                "   ".to_string(),
+                "unused-key".to_string(),
+                "container-a".to_string(),
+                vec!["docs/report.txt".to_string()],
+            )
+            .await
+            .unwrap_err(),
+            "The Azure storage account name is required."
+        );
+        assert_eq!(
+            delete_azure_prefix(
+                "   ".to_string(),
+                "unused-key".to_string(),
+                "container-a".to_string(),
+                "docs".to_string(),
+            )
+            .await
+            .unwrap_err(),
+            "The Azure storage account name is required."
+        );
+        assert_eq!(
+            change_azure_blob_access_tier(
+                "   ".to_string(),
+                "unused-key".to_string(),
+                "container-a".to_string(),
+                "docs/report.txt".to_string(),
+                "Cool".to_string(),
+            )
+            .await
+            .unwrap_err(),
+            "The Azure storage account name is required."
+        );
+        assert_eq!(
+            rehydrate_azure_blob(
+                "   ".to_string(),
+                "unused-key".to_string(),
+                "container-a".to_string(),
+                "docs/archive.zip".to_string(),
+                "Cool".to_string(),
+                "Standard".to_string(),
+            )
+            .await
+            .unwrap_err(),
+            "The Azure storage account name is required."
+        );
+    }
+
+    #[tokio::test]
     async fn surfaces_non_http_url_and_blank_cache_errors_from_command_wrappers() {
         let invalid_url_error = open_external_url("ftp://example.com/file.txt".to_string())
             .await

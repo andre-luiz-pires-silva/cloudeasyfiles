@@ -80,7 +80,7 @@ Increase automated test coverage toward the agreed long-term target of `75%` lin
 
 ## Current Priorities
 
-1. **Frontend final coverage target reached** ✅ — Frontend `76.90%`, Rust `65.10%` measured on 2026-04-23
+1. **Frontend final coverage target reached** ✅ — Frontend `76.90%`, Rust `66.15%` measured on 2026-04-23
 2. Frontend coverage now scopes to application source under `src`, excluding generated/build artifacts from the V8 denominator
 3. Next executable priority: expand Rust coverage toward the remaining `75%` final target
 
@@ -126,7 +126,8 @@ Use the checklist below as the next execution guide for the coverage-expansion b
 - [x] Step R12. Extract and cover Azure container listing XML mapping
 - [x] Step R13. Extract and cover AWS S3 list-bucket response mapping
 - [x] Step R14. Cover read command-wrapper local guard paths before network
-- [ ] Step R15. Continue Rust provider/command coverage toward the remaining `75%` final target
+- [x] Step R15. Cover mutation command-wrapper restriction/account guard paths before network
+- [ ] Step R16. Continue Rust provider/command coverage toward the remaining `75%` final target
 
 ### Review Step
 
@@ -136,7 +137,7 @@ Use the checklist below as the next execution guide for the coverage-expansion b
 
 - Milestone D (`50%` frontend, `55%` Rust) is complete.
 - Frontend final target `75%` is complete.
-- Rust has crossed the interim `65%` checkpoint and remains at `65.10%`; next estimate should continue prioritizing the highest-yield Rust provider and command modules.
+- Rust has crossed the interim `65%` checkpoint and remains at `66.15%`; next estimate should continue prioritizing the highest-yield Rust provider and command modules.
 
 ## Current Risks
 
@@ -1064,6 +1065,23 @@ Use the checklist below as the next execution guide for the coverage-expansion b
   - covered AWS read command wrappers for restricted-bucket mismatch before network
   - covered Azure read command wrappers for blank storage-account and blank container guards before network
   - crossed the Rust interim `65%` checkpoint while keeping CI coverage monitor-only
+
+## Rust Mutation Command Guard Coverage Step
+
+- Targeted Rust test command: `cargo test --manifest-path src-tauri/Cargo.toml presentation::commands::tests::mutation_command_wrappers_surface_restriction_and_account_guards_before_network -- --nocapture`
+  - Tests: `1` passed
+- Rust check command: `cargo check --manifest-path src-tauri/Cargo.toml`
+  - Result: passed
+- Rust coverage command: `npm run test:rust:coverage`
+  - Tests: `89` passed
+  - Rust line coverage: `66.15%`
+  - Rust regions: `62.71%`
+  - Rust functions: `56.34%`
+- Delivered:
+  - completed roadmap Step `R15`
+  - covered AWS mutation command wrappers for restricted-bucket mismatch with otherwise valid inputs
+  - covered Azure mutation command wrappers for blank storage-account guards before network
+  - pushed Rust coverage further past the interim `65%` checkpoint while keeping CI coverage monitor-only
 
 ## Next Steps Toward Final Target
 
