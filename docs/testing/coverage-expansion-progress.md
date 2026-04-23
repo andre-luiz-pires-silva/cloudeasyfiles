@@ -80,7 +80,7 @@ Increase automated test coverage toward the agreed long-term target of `75%` lin
 
 ## Current Priorities
 
-1. **Frontend final coverage target reached** ✅ — Frontend `76.90%`, Rust `69.48%` measured on 2026-04-23
+1. **Frontend final coverage target reached** ✅ — Frontend `76.90%`, Rust `69.71%` measured on 2026-04-23
 2. Frontend coverage now scopes to application source under `src`, excluding generated/build artifacts from the V8 denominator
 3. Next executable priority: expand Rust coverage toward the remaining `75%` final target
 
@@ -132,7 +132,8 @@ Use the checklist below as the next execution guide for the coverage-expansion b
 - [x] Step R18. Cover AWS/Azure provider upload-bytes guards before network
 - [x] Step R19. Cover remaining pure provider mapping/parser guard branches
 - [x] Step R20. Cover provider auth/url helpers and local existence guards
-- [ ] Step R21. Continue Rust provider/command coverage toward the remaining `75%` final target
+- [x] Step R21. Cover remaining provider mutation validation branches before network
+- [ ] Step R22. Continue Rust provider/command coverage toward the remaining `75%` final target
 
 ### Review Step
 
@@ -142,7 +143,7 @@ Use the checklist below as the next execution guide for the coverage-expansion b
 
 - Milestone D (`50%` frontend, `55%` Rust) is complete.
 - Frontend final target `75%` is complete.
-- Rust has crossed the interim `65%` checkpoint and remains at `69.48%`; next estimate should continue prioritizing the highest-yield Rust provider and command modules.
+- Rust has crossed the interim `65%` checkpoint and remains at `69.71%`; next estimate should continue prioritizing the highest-yield Rust provider and command modules.
 
 ## Current Risks
 
@@ -1175,6 +1176,25 @@ Use the checklist below as the next execution guide for the coverage-expansion b
   - covered AWS `object_exists` restricted-bucket guard with a provided region before network
   - covered Azure shared-key authorization, account/blob URL normalization, and canonicalized-resource edge handling
   - covered Azure `blob_exists` blank-container local guard before any provider request
+
+## Rust Provider Mutation Validation Coverage Step
+
+- Targeted Rust test command: `cargo test --manifest-path src-tauri/Cargo.toml application::services::aws_connection_service::tests -- --nocapture`
+  - Tests: `27` passed
+- Targeted Rust test command: `cargo test --manifest-path src-tauri/Cargo.toml application::services::azure_connection_service::tests -- --nocapture`
+  - Tests: `23` passed
+- Rust check command: `cargo check --manifest-path src-tauri/Cargo.toml`
+  - Result: passed
+- Rust coverage command: `npm run test:rust:coverage`
+  - Tests: `97` passed
+  - Rust line coverage: `69.71%`
+  - Rust regions: `66.50%`
+  - Rust functions: `57.76%`
+- Delivered:
+  - completed roadmap Step `R21`
+  - covered AWS restore validation for Deep Archive expedited requests, unsupported restore tiers, and invalid target storage classes
+  - covered Azure folder creation blank-container guard plus access-tier and rehydration validation branches
+  - kept the new coverage on service-level validation paths that fail before any provider request
 
 ## Next Steps Toward Final Target
 

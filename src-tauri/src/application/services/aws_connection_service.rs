@@ -3079,6 +3079,34 @@ mod tests {
             "Restore retention days must be between 1 and 365."
         );
         assert_eq!(
+            AwsConnectionService::request_object_restore(
+                input.clone(),
+                "bucket-a".to_string(),
+                "docs/archive.zip".to_string(),
+                Some("DEEP_ARCHIVE".to_string()),
+                None,
+                "Expedited".to_string(),
+                7,
+            )
+            .await
+            .unwrap_err(),
+            "Expedited restore is not supported for S3 Deep Archive objects. Choose Standard or Bulk."
+        );
+        assert_eq!(
+            AwsConnectionService::request_object_restore(
+                input.clone(),
+                "bucket-a".to_string(),
+                "docs/archive.zip".to_string(),
+                Some("GLACIER".to_string()),
+                None,
+                "Instant".to_string(),
+                7,
+            )
+            .await
+            .unwrap_err(),
+            "Unsupported AWS restore tier."
+        );
+        assert_eq!(
             AwsConnectionService::upload_object_from_path(
                 "aws-upload-r5-a".to_string(),
                 input.clone(),
@@ -3127,7 +3155,7 @@ mod tests {
         assert_eq!(
             AwsConnectionService::upload_object_from_bytes(
                 "aws-upload-r5-d".to_string(),
-                input,
+                input.clone(),
                 "bucket-a".to_string(),
                 "docs/report.txt".to_string(),
                 "   ".to_string(),
@@ -3139,6 +3167,18 @@ mod tests {
             .await
             .unwrap_err(),
             "File name is required for uploads."
+        );
+        assert_eq!(
+            AwsConnectionService::change_object_storage_class(
+                input.clone(),
+                "bucket-a".to_string(),
+                "docs/report.txt".to_string(),
+                "NOT_A_CLASS".to_string(),
+                None,
+            )
+            .await
+            .unwrap_err(),
+            "Unsupported AWS storage class."
         );
     }
 

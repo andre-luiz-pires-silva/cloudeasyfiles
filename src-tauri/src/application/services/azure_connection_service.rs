@@ -2780,6 +2780,17 @@ mod tests {
             .expect("blank container should return false")
         );
         assert_eq!(
+            AzureConnectionService::create_folder(
+                input.clone(),
+                "   ".to_string(),
+                None,
+                "reports".to_string(),
+            )
+            .await
+            .unwrap_err(),
+            "The Azure container name is required."
+        );
+        assert_eq!(
             AzureConnectionService::delete_objects(
                 input.clone(),
                 "   ".to_string(),
@@ -2821,6 +2832,17 @@ mod tests {
             "Unsupported Azure upload access tier."
         );
         assert_eq!(
+            AzureConnectionService::change_blob_access_tier(
+                input.clone(),
+                "container-a".to_string(),
+                "docs/file.txt".to_string(),
+                "   ".to_string(),
+            )
+            .await
+            .unwrap_err(),
+            "A target Azure access tier is required."
+        );
+        assert_eq!(
             AzureConnectionService::rehydrate_blob(
                 input.clone(),
                 "container-a".to_string(),
@@ -2831,6 +2853,18 @@ mod tests {
             .await
             .unwrap_err(),
             "Unsupported Azure rehydration target tier."
+        );
+        assert_eq!(
+            AzureConnectionService::rehydrate_blob(
+                input.clone(),
+                "container-a".to_string(),
+                "docs/archive.zip".to_string(),
+                "Cool".to_string(),
+                "Urgent".to_string(),
+            )
+            .await
+            .unwrap_err(),
+            "Unsupported Azure rehydration priority."
         );
         assert_eq!(
             AzureConnectionService::upload_blob_from_path(
