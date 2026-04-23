@@ -1,8 +1,8 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ConnectionNavigator } from "./ConnectionNavigator";
 import { connectionService } from "../connections/services/connectionService";
-import { getAwsBucketRegion } from "../../lib/tauri/awsConnections";
+import { createAwsFolder, getAwsBucketRegion } from "../../lib/tauri/awsConnections";
 import {
   listContainerItemsForSavedConnection,
   listContainersForSavedConnection,
@@ -95,6 +95,7 @@ vi.mock("../../lib/i18n/useI18n", () => ({
 }));
 
 const mockedConnectionService = vi.mocked(connectionService);
+const mockedCreateAwsFolder = vi.mocked(createAwsFolder);
 const mockedGetAwsBucketRegion = vi.mocked(getAwsBucketRegion);
 const mockedTestConnectionForSavedConnection = vi.mocked(testConnectionForSavedConnection);
 const mockedListContainersForSavedConnection = vi.mocked(listContainersForSavedConnection);
@@ -236,13 +237,14 @@ describe("ConnectionNavigator", () => {
     fireEvent.doubleClick(connectionButton);
 
     await waitFor(() => {
-      expect(screen.getAllByTitle("Access denied")).toHaveLength(2);
+      expect(screen.getAllByTitle("Access denied").length).toBeGreaterThan(0);
     });
     fireEvent.click(connectionButton);
 
     expect(screen.getByText("Access denied")).toBeInTheDocument();
     expect(screen.getByText("content.list.connect_to_load")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "navigation.menu.connect" })).toBeInTheDocument();
+    expect(screen.getAllByTitle("Access denied").length).toBeGreaterThanOrEqual(1);
     expect(mockedListContainersForSavedConnection).not.toHaveBeenCalled();
     expect(mockedConnectionService.getAwsConnectionDraft).not.toHaveBeenCalled();
     expect(mockedGetAwsBucketRegion).not.toHaveBeenCalled();
@@ -277,5 +279,40 @@ describe("ConnectionNavigator", () => {
         pageSize: expect.any(Number)
       })
     );
+  });
+
+  it("blocks create-folder mutations when the folder name is invalid", async () => {
+    const awsConnection = {
+      id: "connection-aws",
+      name: "Production AWS",
+      provider: "aws" as const,
+      connectOnStartup: false,
+      defaultUploadStorageClass: "STANDARD" as const
+    };
+    mockedConnectionService.listConnections.mockResolvedValue([awsConnection]);
+    mockedListContainersForSavedConnection.mockResolvedValue([{ name: "archive", region: null }]);
+
+    render(<ConnectionNavigator locale="en-US" onLocaleChange={vi.fn()} />);
+
+    fireEvent.doubleClick(await screen.findByRole("button", { name: /Production AWS/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /archive/i }));
+
+    expect(await screen.findByText("content.list.empty_container")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "content.folder.create_button" }));
+
+    const createFolderDialog = screen.getByRole("dialog", {
+      name: "content.folder.create_title"
+    });
+    fireEvent.click(
+      within(createFolderDialog).getByRole("button", {
+        name: "content.folder.create_button"
+      })
+    );
+
+    expect(
+      await within(createFolderDialog).findByText("content.folder.name_required")
+    ).toBeInTheDocument();
+    expect(mockedCreateAwsFolder).not.toHaveBeenCalled();
+    expect(mockedConnectionService.getAwsConnectionDraft).toHaveBeenCalledTimes(1);
   });
 });

@@ -128,8 +128,8 @@ These milestones are for planning and progress tracking only. They are not CI fa
 Current milestone status as of 2026-04-23:
 
 - Milestone D is complete: Frontend `53.08%`, Rust `58.99%`
-- Frontend has progressed to `66.77%` after initial, connected-state, connection-error, and bucket-content error `ConnectionNavigator.tsx` render/guard coverage
-- The frontend interim `65%` target is complete; the next planned work should cover user-triggered mutation guards in `ConnectionNavigator.tsx` toward the long-term `75%` frontend target
+- Frontend has progressed to `66.92%` after initial, connected-state, connection-error, bucket-content error, and create-folder guard `ConnectionNavigator.tsx` coverage
+- The frontend interim `65%` target is complete; the next planned work should re-measure the final-target gap and choose the highest-yield path toward the long-term `75%` frontend and Rust targets
 
 ## Prioritization Rules
 

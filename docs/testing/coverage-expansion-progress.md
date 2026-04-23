@@ -78,9 +78,9 @@ Increase automated test coverage toward the agreed long-term target of `75%` lin
 
 ## Current Priorities
 
-1. **Frontend ConnectionNavigator bucket-content error coverage added** ✅ — Frontend `66.77%`, Rust `58.99%` measured on 2026-04-23
+1. **Frontend ConnectionNavigator create-folder guard coverage added** ✅ — Frontend `66.92%`, Rust `58.99%` measured on 2026-04-23
 2. Frontend crossed the interim `65%` target and is now progressing toward the long-term `75%` frontend target
-3. Next executable priority: cover user-triggered mutation guards in `ConnectionNavigator.tsx`
+3. Next executable priority: choose the highest-yield path toward the final `75%` frontend/Rust targets
 
 ## Operational Roadmap
 
@@ -105,7 +105,8 @@ Use the checklist below as the next execution guide for the coverage-expansion b
 - [x] Step F10. Add `ConnectionNavigator.tsx` connected-state render/guard coverage to cross frontend `65%`
 - [x] Step F11. Cover `ConnectionNavigator.tsx` connection-error render/guard behavior toward frontend `75%`
 - [x] Step F12. Cover `ConnectionNavigator.tsx` bucket content load error behavior toward frontend `75%`
-- [ ] Step F13. Cover `ConnectionNavigator.tsx` user-triggered mutation guard behavior toward frontend `75%`
+- [x] Step F13. Cover `ConnectionNavigator.tsx` user-triggered mutation guard behavior toward frontend `75%`
+- [ ] Step V2. Re-measure final-target gap and choose the next highest-yield coverage path
 
 ### Near-Term Rust Steps
 
@@ -875,11 +876,28 @@ Use the checklist below as the next execution guide for the coverage-expansion b
   - stabilized the connection-error render assertion by selecting the failed connection after the error indicator is visible
   - moved `ConnectionNavigator.tsx` to `41.72%` line coverage
 
+## Frontend ConnectionNavigator Create-Folder Guard Coverage Step
+
+- Targeted frontend test command: `npx vitest run src/features/navigation/ConnectionNavigator.test.tsx --reporter verbose --test-timeout 5000 --hook-timeout 5000`
+  - Tests: `6` passed
+- Frontend coverage command: `npm run test:frontend:coverage`
+  - Tests: `345` passed across `53` files
+  - Frontend line coverage: `66.92%`
+  - Frontend statements: `66.92%`
+  - Frontend branches: `85.96%`
+  - Frontend functions: `69.45%`
+- Build command: `npm run build`
+  - Result: passed
+- Delivered:
+  - completed roadmap Step `F13`
+  - added create-folder validation guard coverage after selecting a connected AWS bucket
+  - verified invalid folder names block the mutating `createAwsFolder` provider call
+  - moved `ConnectionNavigator.tsx` to `42.46%` line coverage
+
 ## Next Steps Toward Final Target
 
 Ordered by likely value:
 
-1. Cover `ConnectionNavigator.tsx` user-triggered mutation guards.
-2. Prefer remaining high-risk `ConnectionNavigator` workflows and extracted navigation helpers before low-value component snapshots.
-3. Re-run `npm run test:frontend:coverage` and update this tracker after each frontend step.
-4. Revisit Rust after the next frontend workflow step or if provider/command changes introduce new risk.
+1. Re-measure final-target gap and identify whether frontend or Rust has the highest-yield next path.
+2. Prefer remaining high-risk `ConnectionNavigator` workflows, provider command wrappers, and extracted navigation helpers before low-value snapshots.
+3. Re-run the relevant coverage command and update this tracker after each step.
