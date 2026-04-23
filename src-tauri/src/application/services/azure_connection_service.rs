@@ -2943,6 +2943,45 @@ mod tests {
         fs::remove_dir_all(&temp_root).await.unwrap();
     }
 
+    #[tokio::test]
+    async fn rejects_provider_upload_bytes_inputs_before_network() {
+        let input = azure_test_input();
+
+        assert_eq!(
+            AzureConnectionService::upload_blob_from_bytes(
+                "azure-upload-r18-a".to_string(),
+                AzureConnectionTestInput {
+                    storage_account_name: "   ".to_string(),
+                    account_key: "unused-key".to_string(),
+                },
+                "container-a".to_string(),
+                "docs/report.txt".to_string(),
+                "report.txt".to_string(),
+                b"report".to_vec(),
+                None,
+                |_, _| Ok(())
+            )
+            .await
+            .unwrap_err(),
+            "The Azure storage account name is required."
+        );
+        assert_eq!(
+            AzureConnectionService::upload_blob_from_bytes(
+                "azure-upload-r18-b".to_string(),
+                input,
+                "container-a".to_string(),
+                "docs/report.txt".to_string(),
+                "report.txt".to_string(),
+                b"report".to_vec(),
+                Some("Premium".to_string()),
+                |_, _| Ok(())
+            )
+            .await
+            .unwrap_err(),
+            "Unsupported Azure upload access tier."
+        );
+    }
+
     #[test]
     fn builds_listing_queries_and_marker_rules() {
         assert_eq!(

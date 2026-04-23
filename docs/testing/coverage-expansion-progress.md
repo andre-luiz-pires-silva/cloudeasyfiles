@@ -80,7 +80,7 @@ Increase automated test coverage toward the agreed long-term target of `75%` lin
 
 ## Current Priorities
 
-1. **Frontend final coverage target reached** ✅ — Frontend `76.90%`, Rust `68.29%` measured on 2026-04-23
+1. **Frontend final coverage target reached** ✅ — Frontend `76.90%`, Rust `68.70%` measured on 2026-04-23
 2. Frontend coverage now scopes to application source under `src`, excluding generated/build artifacts from the V8 denominator
 3. Next executable priority: expand Rust coverage toward the remaining `75%` final target
 
@@ -129,7 +129,8 @@ Use the checklist below as the next execution guide for the coverage-expansion b
 - [x] Step R15. Cover mutation command-wrapper restriction/account guard paths before network
 - [x] Step R16. Cover AWS/Azure provider download guards before network
 - [x] Step R17. Cover AWS/Azure provider upload-path guards before network
-- [ ] Step R18. Continue Rust provider/command coverage toward the remaining `75%` final target
+- [x] Step R18. Cover AWS/Azure provider upload-bytes guards before network
+- [ ] Step R19. Continue Rust provider/command coverage toward the remaining `75%` final target
 
 ### Review Step
 
@@ -139,7 +140,7 @@ Use the checklist below as the next execution guide for the coverage-expansion b
 
 - Milestone D (`50%` frontend, `55%` Rust) is complete.
 - Frontend final target `75%` is complete.
-- Rust has crossed the interim `65%` checkpoint and remains at `68.29%`; next estimate should continue prioritizing the highest-yield Rust provider and command modules.
+- Rust has crossed the interim `65%` checkpoint and remains at `68.70%`; next estimate should continue prioritizing the highest-yield Rust provider and command modules.
 
 ## Current Risks
 
@@ -1118,6 +1119,22 @@ Use the checklist below as the next execution guide for the coverage-expansion b
   - covered AWS upload-from-path local directory rejection and restricted-bucket mismatch after local metadata validation
   - covered Azure upload-from-path local directory rejection, blank storage account after metadata validation, and blank container guard
   - used temporary local files/directories to exercise filesystem validation without reaching provider calls
+
+## Rust Provider Upload Bytes Guard Coverage Step
+
+- Targeted Rust test command: `cargo test --manifest-path src-tauri/Cargo.toml rejects_provider_upload_bytes_inputs_before_network -- --nocapture`
+  - Tests: `2` passed
+- Rust check command: `cargo check --manifest-path src-tauri/Cargo.toml`
+  - Result: passed
+- Rust coverage command: `npm run test:rust:coverage`
+  - Tests: `95` passed
+  - Rust line coverage: `68.70%`
+  - Rust regions: `65.28%`
+  - Rust functions: `56.91%`
+- Delivered:
+  - completed roadmap Step `R18`
+  - covered AWS upload-bytes invalid storage-class and restricted-bucket guards before network
+  - covered Azure upload-bytes blank storage-account and unsupported access-tier guards before network
 
 ## Next Steps Toward Final Target
 

@@ -3201,6 +3201,47 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn rejects_provider_upload_bytes_inputs_before_network() {
+        let input = aws_test_input();
+
+        assert_eq!(
+            AwsConnectionService::upload_object_from_bytes(
+                "aws-upload-r18-a".to_string(),
+                input.clone(),
+                "bucket-a".to_string(),
+                "docs/report.txt".to_string(),
+                "report.txt".to_string(),
+                b"report".to_vec(),
+                Some("NOT_A_CLASS".to_string()),
+                Some("us-east-1".to_string()),
+                |_, _| Ok(())
+            )
+            .await
+            .unwrap_err(),
+            "Unsupported AWS upload storage class."
+        );
+        assert_eq!(
+            AwsConnectionService::upload_object_from_bytes(
+                "aws-upload-r18-b".to_string(),
+                AwsConnectionTestInput {
+                    restricted_bucket_name: Some("allowed-bucket".to_string()),
+                    ..input
+                },
+                "other-bucket".to_string(),
+                "docs/report.txt".to_string(),
+                "report.txt".to_string(),
+                b"report".to_vec(),
+                None,
+                Some("us-east-1".to_string()),
+                |_, _| Ok(())
+            )
+            .await
+            .unwrap_err(),
+            RESTRICTED_BUCKET_MISMATCH_ERROR
+        );
+    }
+
+    #[tokio::test]
     async fn resolves_cached_object_path_and_cleans_up_temp_files() {
         let temp_root = std::env::temp_dir().join(format!(
             "cloudeasyfiles-aws-cache-test-{}",
