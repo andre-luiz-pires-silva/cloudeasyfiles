@@ -447,4 +447,99 @@ mod tests {
             "Attribute 'account' is longer than platform limit of 128 chars"
         );
     }
+
+    struct RollbackFailingAwsSecretStore;
+
+    impl AwsSecretStore for RollbackFailingAwsSecretStore {
+        fn set_password(
+            &self,
+            _connection_id: &str,
+            field_name: &str,
+            operation: &str,
+            _password: &str,
+        ) -> Result<(), KeyringError> {
+            if operation == "save-secret-key" {
+                return Err(KeyringError::Invalid(
+                    field_name.to_string(),
+                    "rejected".to_string(),
+                ));
+            }
+
+            Ok(())
+        }
+
+        fn get_password(
+            &self,
+            _connection_id: &str,
+            _field_name: &str,
+            _operation: &str,
+        ) -> Result<String, KeyringError> {
+            unreachable!("get_password should not be called in rollback failure test")
+        }
+
+        fn delete_credential(
+            &self,
+            _connection_id: &str,
+            field_name: &str,
+            operation: &str,
+        ) -> Result<(), KeyringError> {
+            assert_eq!(operation, "rollback");
+
+            Err(KeyringError::Invalid(
+                field_name.to_string(),
+                "delete rejected".to_string(),
+            ))
+        }
+    }
+
+    #[test]
+    fn preserves_secret_key_error_when_rollback_also_fails() {
+        let error = AwsConnectionSecretService::save_with_store(
+            AwsConnectionSecretsInput {
+                connection_id: "connection-1".to_string(),
+                access_key_id: "access-key".to_string(),
+                secret_access_key: "secret-key".to_string(),
+            },
+            &RollbackFailingAwsSecretStore,
+        )
+        .expect_err("secret key save should still surface its original error");
+
+        assert_eq!(error, "Attribute secret-access-key is invalid: rejected");
+    }
+
+    #[test]
+    fn surfaces_secret_key_load_errors_after_access_key_succeeds() {
+        let store = FakeAwsSecretStore::default();
+        store.entries.borrow_mut().insert(
+            FakeAwsSecretStore::account_name("connection-1", ACCESS_KEY_ACCOUNT),
+            "access-key".to_string(),
+        );
+        store.fail_next(
+            "load-secret-key",
+            KeyringError::Invalid("secret-access-key".to_string(), "locked".to_string()),
+        );
+
+        let error = AwsConnectionSecretService::load_with_store("connection-1", &store)
+            .expect_err("secret key load failure should be surfaced");
+
+        assert_eq!(error, "Attribute secret-access-key is invalid: locked");
+    }
+
+    #[test]
+    fn surfaces_delete_errors_for_existing_aws_entries() {
+        let store = FakeAwsSecretStore::default();
+        store.entries.borrow_mut().insert(
+            FakeAwsSecretStore::account_name("connection-1", ACCESS_KEY_ACCOUNT),
+            "access-key".to_string(),
+        );
+        store.fail_next(
+            "delete-entry",
+            KeyringError::Invalid("access-key-id".to_string(), "locked".to_string()),
+        );
+
+        let error = AwsConnectionSecretService::delete_with_store("connection-1", &store)
+            .expect_err("delete failure should be surfaced");
+
+        assert_eq!(error, "Attribute access-key-id is invalid: locked");
+    }
 }

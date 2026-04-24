@@ -159,9 +159,9 @@ Use the checklist below as the next execution guide for the coverage-expansion b
 
 ## Policy Decision
 
-- Coverage remains `monitor-only` in CI for now.
-- Reason: frontend and Rust have both crossed Milestone B, but the remaining uncovered surface is still concentrated in high-risk orchestration code rather than broad low-value files, especially `ConnectionNavigator.tsx` and `presentation/commands.rs`.
-- Revisit coverage gating after the next orchestration-focused frontend and command-layer iteration.
+- Coverage is now enforced in CI and local coverage commands.
+- Frontend coverage is gated through Vitest thresholds.
+- Rust coverage is gated through the repository coverage-check script that validates the generated `rust-coverage.json`.
 
 ## Notes
 
@@ -1320,10 +1320,76 @@ Use the checklist below as the next execution guide for the coverage-expansion b
   - extracted Azure preparation helpers for list-container-items, delete-objects, and delete-prefix flows
   - covered normalization, page-size/query building, restriction/account handling, and delete-prefix preparation directly without hitting provider calls
 
+## Rust Download Preparation And Secret-Service Coverage Step
+
+- Targeted Rust test command: `cargo test --manifest-path src-tauri/Cargo.toml application::services::aws_connection_service::tests -- --nocapture`
+  - Tests: `36` passed
+- Targeted Rust test command: `cargo test --manifest-path src-tauri/Cargo.toml application::services::azure_connection_service::tests -- --nocapture`
+  - Tests: `32` passed
+- Targeted Rust test command: `cargo test --manifest-path src-tauri/Cargo.toml application::services::aws_connection_secret_service::tests -- --nocapture`
+  - Tests: `9` passed
+- Targeted Rust test command: `cargo test --manifest-path src-tauri/Cargo.toml application::services::azure_connection_secret_service::tests -- --nocapture`
+  - Tests: `7` passed
+- Rust check command: `cargo check --manifest-path src-tauri/Cargo.toml`
+  - Result: passed
+- Rust coverage command: `npm run test:rust:coverage`
+  - Tests: `123` passed
+  - Rust line coverage: `74.30%`
+  - Rust regions: `72.02%`
+  - Rust functions: `61.43%`
+- Delivered:
+  - completed roadmap Step `R26`
+  - extracted AWS/Azure connection and download preparation helpers so tracked/direct download validation can be covered without provider calls
+  - covered shared AWS/Azure download stream writing paths for success, cancellation cleanup, and overwrite behavior
+  - added AWS secret-service coverage for rollback-failure preservation, second-stage load failures, and delete errors
+  - added Azure secret-service coverage for persisted-entry deletion and surfaced delete failures
+
+## Rust App Helper And Download-Error Coverage Step
+
+- Targeted Rust test command: `cargo test --manifest-path src-tauri/Cargo.toml app::bootstrap::tests -- --nocapture`
+  - Tests: `3` passed
+- Targeted Rust test command: `cargo test --manifest-path src-tauri/Cargo.toml app::window_state::tests -- --nocapture`
+  - Tests: `13` passed
+- Targeted Rust test command: `cargo test --manifest-path src-tauri/Cargo.toml application::services::aws_connection_service::tests -- --nocapture`
+  - Tests: `39` passed
+- Targeted Rust test command: `cargo test --manifest-path src-tauri/Cargo.toml application::services::azure_connection_service::tests -- --nocapture`
+  - Tests: `35` passed
+- Rust check command: `cargo check --manifest-path src-tauri/Cargo.toml`
+  - Result: passed
+- Rust coverage command: `npm run test:rust:coverage`
+  - Tests: `132` passed
+  - Rust line coverage: `74.91%`
+  - Rust regions: `72.72%`
+  - Rust functions: `62.88%`
+- Delivered:
+  - completed roadmap Step `R27`
+  - extracted pure bootstrap and window-state helpers for timeout resolution, size conversion, and log-message formatting
+  - covered AWS/Azure local download helper error branches for stream failures, progress callback failures, invalid parent paths, and temp-file removal failures
+  - reduced the remaining gap to the `75%` Rust target to roughly `10` covered lines
+
+## Rust Final Threshold Push Step
+
+- Targeted Rust test command: `cargo test --manifest-path src-tauri/Cargo.toml app::bootstrap::tests -- --nocapture`
+  - Tests: `5` passed
+- Targeted Rust test command: `cargo test --manifest-path src-tauri/Cargo.toml app::window_state::tests -- --nocapture`
+  - Tests: `16` passed
+- Rust check command: `cargo check --manifest-path src-tauri/Cargo.toml`
+  - Result: passed
+- Rust coverage command: `npm run test:rust:coverage`
+  - Tests: `137` passed
+  - Rust line coverage: `75.03%`
+  - Rust regions: `72.90%`
+  - Rust functions: `63.07%`
+- Delivered:
+  - completed roadmap Step `R28`
+  - added focused bootstrap helper tests for atomic-state transitions and timeout-message resolution
+  - added focused window-state helper tests for fractional serialization, directory-path loading, and overwrite behavior
+  - crossed the Rust line-coverage target of `75%`
+
 ## Next Steps Toward Final Target
 
 Ordered by likely value:
 
-1. Continue Rust coverage toward `75%`, starting with the highest-yield provider or command modules.
-2. Prefer provider command wrappers and service helpers that protect file operations before lower-value branches.
-3. Re-run `npm run test:rust:coverage` and update this tracker after each Rust step.
+1. Preserve the `75%+` Rust baseline while shifting effort to the next weakest quality areas instead of chasing marginal Rust gains.
+2. If additional Rust work is needed later, prefer command-wrapper and provider helper branches with existing local scaffolding.
+3. Re-run `npm run test:rust:coverage` after each future Rust step to ensure the baseline does not regress.

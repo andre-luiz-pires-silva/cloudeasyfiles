@@ -1,9 +1,10 @@
 use serde::{Deserialize, Serialize};
 use std::{
+    fmt::Display,
     fs,
     path::{Path, PathBuf},
 };
-use tauri::{AppHandle, LogicalSize, Manager, Runtime, Window, WindowEvent};
+use tauri::{AppHandle, LogicalSize, Manager, PhysicalSize, Runtime, Window, WindowEvent};
 
 const WINDOW_STATE_FILE_NAME: &str = "window-state.json";
 const MAIN_WINDOW_LABEL: &str = "main";
@@ -16,7 +17,7 @@ struct SavedWindowState {
 
 pub fn restore_main_window_size<R: Runtime>(app: &AppHandle<R>) {
     let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) else {
-        eprintln!("[window_state] main window not found while trying to restore saved size");
+        eprintln!("{}", missing_main_window_restore_message());
         return;
     };
 
@@ -24,10 +25,10 @@ pub fn restore_main_window_size<R: Runtime>(app: &AppHandle<R>) {
         return;
     };
 
-    if let Err(error) = window.set_size(LogicalSize::new(saved_state.width, saved_state.height)) {
+    if let Err(error) = window.set_size(logical_size_from_saved_state(&saved_state)) {
         eprintln!(
-            "[window_state] failed to restore main window size width={} height={} error={}",
-            saved_state.width, saved_state.height, error
+            "{}",
+            restore_size_error_message(saved_state.width, saved_state.height, &error)
         );
     }
 }
@@ -36,7 +37,7 @@ pub fn handle_window_event<R: Runtime>(window: &Window<R>, event: &WindowEvent) 
     match event {
         WindowEvent::Resized(size) => match window.scale_factor() {
             Ok(scale_factor) => {
-                let logical_size = size.to_logical::<f64>(scale_factor);
+                let logical_size = logical_size_from_physical(*size, scale_factor);
                 save_window_state(
                     &window.app_handle(),
                     logical_size.width,
@@ -44,15 +45,12 @@ pub fn handle_window_event<R: Runtime>(window: &Window<R>, event: &WindowEvent) 
                 );
             }
             Err(error) => {
-                eprintln!(
-                    "[window_state] failed to resolve scale factor for resize event error={}",
-                    error
-                );
+                eprintln!("{}", scale_factor_error_message("resize", &error));
             }
         },
         WindowEvent::ScaleFactorChanged { new_inner_size, .. } => match window.scale_factor() {
             Ok(scale_factor) => {
-                let logical_size = new_inner_size.to_logical::<f64>(scale_factor);
+                let logical_size = logical_size_from_physical(*new_inner_size, scale_factor);
                 save_window_state(
                     &window.app_handle(),
                     logical_size.width,
@@ -61,9 +59,9 @@ pub fn handle_window_event<R: Runtime>(window: &Window<R>, event: &WindowEvent) 
             }
             Err(error) => {
                 eprintln!(
-                        "[window_state] failed to resolve scale factor for scale-factor change error={}",
-                        error
-                    );
+                    "{}",
+                    scale_factor_error_message("scale-factor change", &error)
+                );
             }
         },
         _ => {}
@@ -152,6 +150,32 @@ fn serialize_window_state(saved_state: &SavedWindowState) -> serde_json::Result<
     serde_json::to_string_pretty(saved_state)
 }
 
+fn logical_size_from_saved_state(saved_state: &SavedWindowState) -> LogicalSize<f64> {
+    LogicalSize::new(saved_state.width, saved_state.height)
+}
+
+fn logical_size_from_physical(size: PhysicalSize<u32>, scale_factor: f64) -> LogicalSize<f64> {
+    size.to_logical::<f64>(scale_factor)
+}
+
+fn missing_main_window_restore_message() -> &'static str {
+    "[window_state] main window not found while trying to restore saved size"
+}
+
+fn restore_size_error_message(width: f64, height: f64, error: &impl Display) -> String {
+    format!(
+        "[window_state] failed to restore main window size width={} height={} error={}",
+        width, height, error
+    )
+}
+
+fn scale_factor_error_message(event_kind: &str, error: &impl Display) -> String {
+    format!(
+        "[window_state] failed to resolve scale factor for {event_kind} event error={}",
+        error
+    )
+}
+
 fn build_window_state_path(config_dir: &Path) -> PathBuf {
     config_dir.join(WINDOW_STATE_FILE_NAME)
 }
@@ -224,6 +248,92 @@ mod tests {
             path,
             PathBuf::from("/tmp/cloudeasyfiles-config").join(WINDOW_STATE_FILE_NAME)
         );
+    }
+
+    #[test]
+    fn converts_saved_and_physical_sizes_to_logical_dimensions() {
+        let saved_state = SavedWindowState {
+            width: 1600.0,
+            height: 900.0,
+        };
+        let logical_size = logical_size_from_saved_state(&saved_state);
+        assert_eq!(logical_size.width, 1600.0);
+        assert_eq!(logical_size.height, 900.0);
+
+        let resized = logical_size_from_physical(PhysicalSize::new(3200, 1800), 2.0);
+        assert_eq!(resized.width, 1600.0);
+        assert_eq!(resized.height, 900.0);
+
+        let scaled = logical_size_from_physical(PhysicalSize::new(2250, 1500), 1.5);
+        assert_eq!(scaled.width, 1500.0);
+        assert_eq!(scaled.height, 1000.0);
+    }
+
+    #[test]
+    fn exposes_window_state_log_messages() {
+        assert_eq!(
+            missing_main_window_restore_message(),
+            "[window_state] main window not found while trying to restore saved size"
+        );
+        assert_eq!(
+            restore_size_error_message(1280.0, 720.0, &"denied"),
+            "[window_state] failed to restore main window size width=1280 height=720 error=denied"
+        );
+        assert_eq!(
+            scale_factor_error_message("resize", &"unavailable"),
+            "[window_state] failed to resolve scale factor for resize event error=unavailable"
+        );
+        assert_eq!(
+            scale_factor_error_message("scale-factor change", &"unsupported"),
+            "[window_state] failed to resolve scale factor for scale-factor change event error=unsupported"
+        );
+    }
+
+    #[test]
+    fn serializes_window_state_with_fractional_dimensions() {
+        let serialized = serialize_window_state(&SavedWindowState {
+            width: 1440.5,
+            height: 900.25,
+        })
+        .expect("window state should serialize");
+
+        assert!(serialized.contains("\"width\": 1440.5"));
+        assert!(serialized.contains("\"height\": 900.25"));
+    }
+
+    #[test]
+    fn load_window_state_from_path_returns_none_for_directory_paths() {
+        let config_dir = unique_temp_config_dir();
+        fs::create_dir_all(&config_dir).expect("config dir should exist");
+        let state_path = build_window_state_path(&config_dir);
+        fs::create_dir_all(&state_path).expect("state path directory should exist");
+
+        assert!(load_window_state_from_path(&state_path).is_none());
+
+        fs::remove_dir_all(&config_dir).ok();
+    }
+
+    #[test]
+    fn save_window_state_to_path_overwrites_existing_file_contents() {
+        let config_dir = unique_temp_config_dir();
+        fs::create_dir_all(&config_dir).expect("config dir should exist");
+        let state_path = build_window_state_path(&config_dir);
+        fs::write(&state_path, r#"{"width":800,"height":600}"#)
+            .expect("existing state should be written");
+
+        save_window_state_to_path(
+            &state_path,
+            &SavedWindowState {
+                width: 1920.0,
+                height: 1080.0,
+            },
+        );
+
+        let updated = load_window_state_from_path(&state_path).expect("updated state should load");
+        assert_eq!(updated.width, 1920.0);
+        assert_eq!(updated.height, 1080.0);
+
+        fs::remove_dir_all(&config_dir).ok();
     }
 
     #[test]

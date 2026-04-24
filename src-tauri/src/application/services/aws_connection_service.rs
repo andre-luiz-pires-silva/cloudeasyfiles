@@ -19,7 +19,9 @@ use aws_sdk_sts::operation::RequestId;
 use aws_sdk_sts::Client;
 use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
 use std::collections::{HashMap, HashSet};
+use std::future::Future;
 use std::path::{Path, PathBuf};
+use std::pin::Pin;
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, LazyLock, Mutex};
@@ -428,6 +430,39 @@ struct PreparedAwsUploadFromBytesRequest {
     restricted_bucket_name: Option<String>,
 }
 
+struct PreparedAwsConnectionTestRequest {
+    access_key_id: String,
+    secret_access_key: String,
+    restricted_bucket_name: Option<String>,
+}
+
+struct PreparedAwsDownloadToCacheRequest {
+    access_key_id: String,
+    secret_access_key: String,
+    connection_name: String,
+    bucket_name: String,
+    object_key: String,
+    bucket_region: Option<String>,
+    global_local_cache_directory: String,
+    restricted_bucket_name: Option<String>,
+}
+
+struct PreparedAwsDownloadToPathRequest {
+    access_key_id: String,
+    secret_access_key: String,
+    bucket_name: String,
+    object_key: String,
+    bucket_region: Option<String>,
+    destination_path: String,
+    restricted_bucket_name: Option<String>,
+}
+
+struct PreparedAwsLocalDownloadPaths {
+    final_path: PathBuf,
+    temp_path: PathBuf,
+    destination_path: String,
+}
+
 fn prepare_list_bucket_items_request(
     input: AwsConnectionTestInput,
     bucket_name: String,
@@ -675,6 +710,111 @@ fn prepare_upload_from_bytes_request(
         restricted_bucket_name: AwsConnectionService::normalize_restricted_bucket_name(
             input.restricted_bucket_name,
         ),
+    })
+}
+
+fn prepare_connection_test_request(
+    input: AwsConnectionTestInput,
+) -> PreparedAwsConnectionTestRequest {
+    PreparedAwsConnectionTestRequest {
+        access_key_id: input.access_key_id.trim().to_string(),
+        secret_access_key: input.secret_access_key.trim().to_string(),
+        restricted_bucket_name: AwsConnectionService::normalize_restricted_bucket_name(
+            input.restricted_bucket_name,
+        ),
+    }
+}
+
+fn prepare_download_to_cache_request(
+    input: AwsConnectionTestInput,
+    connection_name: String,
+    bucket_name: String,
+    object_key: String,
+    bucket_region: Option<String>,
+    global_local_cache_directory: String,
+) -> Result<PreparedAwsDownloadToCacheRequest, String> {
+    let global_local_cache_directory = global_local_cache_directory.trim().to_string();
+
+    if global_local_cache_directory.is_empty() {
+        return Err("Local cache directory is required for tracked downloads.".to_string());
+    }
+
+    Ok(PreparedAwsDownloadToCacheRequest {
+        access_key_id: input.access_key_id.trim().to_string(),
+        secret_access_key: input.secret_access_key.trim().to_string(),
+        connection_name: connection_name.trim().to_string(),
+        bucket_name: bucket_name.trim().to_string(),
+        object_key: object_key.trim().to_string(),
+        bucket_region,
+        global_local_cache_directory,
+        restricted_bucket_name: AwsConnectionService::normalize_restricted_bucket_name(
+            input.restricted_bucket_name,
+        ),
+    })
+}
+
+fn prepare_download_to_path_request(
+    input: AwsConnectionTestInput,
+    bucket_name: String,
+    object_key: String,
+    bucket_region: Option<String>,
+    destination_path: String,
+) -> Result<PreparedAwsDownloadToPathRequest, String> {
+    let destination_path = destination_path.trim().to_string();
+
+    if destination_path.is_empty() {
+        return Err("Destination path is required for direct downloads.".to_string());
+    }
+
+    Ok(PreparedAwsDownloadToPathRequest {
+        access_key_id: input.access_key_id.trim().to_string(),
+        secret_access_key: input.secret_access_key.trim().to_string(),
+        bucket_name: bucket_name.trim().to_string(),
+        object_key: object_key.trim().to_string(),
+        bucket_region,
+        destination_path,
+        restricted_bucket_name: AwsConnectionService::normalize_restricted_bucket_name(
+            input.restricted_bucket_name,
+        ),
+    })
+}
+
+fn prepare_cache_download_paths(
+    global_local_cache_directory: &str,
+    connection_name: &str,
+    bucket_name: &str,
+    object_key: &str,
+) -> Result<PreparedAwsLocalDownloadPaths, String> {
+    let final_path = AwsConnectionService::build_primary_cache_object_path(
+        global_local_cache_directory,
+        connection_name,
+        bucket_name,
+        object_key,
+    )?;
+    let temp_path = AwsConnectionService::build_cache_temp_object_path(
+        global_local_cache_directory,
+        connection_name,
+        bucket_name,
+        object_key,
+    )?;
+
+    Ok(PreparedAwsLocalDownloadPaths {
+        destination_path: final_path.to_string_lossy().to_string(),
+        final_path,
+        temp_path,
+    })
+}
+
+fn prepare_direct_download_paths(
+    destination_path: &str,
+) -> Result<PreparedAwsLocalDownloadPaths, String> {
+    let final_path = PathBuf::from(destination_path);
+    let temp_path = AwsConnectionService::build_temp_file_path(&final_path)?;
+
+    Ok(PreparedAwsLocalDownloadPaths {
+        destination_path: destination_path.to_string(),
+        final_path,
+        temp_path,
     })
 }
 
@@ -1186,17 +1326,14 @@ impl AwsConnectionService {
     pub async fn test_connection(
         input: AwsConnectionTestInput,
     ) -> Result<AwsConnectionTestResult, String> {
-        let access_key_id = input.access_key_id.trim().to_string();
-        let secret_access_key = input.secret_access_key.trim().to_string();
-        let restricted_bucket_name =
-            Self::normalize_restricted_bucket_name(input.restricted_bucket_name);
+        let prepared = prepare_connection_test_request(input);
 
         eprintln!("[aws_connection_service] testing AWS connection");
 
-        if let Some(restricted_bucket_name) = restricted_bucket_name {
+        if let Some(restricted_bucket_name) = prepared.restricted_bucket_name {
             let identity = Self::verify_restricted_bucket_access(
-                &access_key_id,
-                &secret_access_key,
+                &prepared.access_key_id,
+                &prepared.secret_access_key,
                 &restricted_bucket_name,
             )
             .await?;
@@ -1209,8 +1346,11 @@ impl AwsConnectionService {
             return Ok(identity);
         }
 
-        let context =
-            Self::resolve_global_access_context(&access_key_id, &secret_access_key).await?;
+        let context = Self::resolve_global_access_context(
+            &prepared.access_key_id,
+            &prepared.secret_access_key,
+        )
+        .await?;
 
         eprintln!(
             "[aws_connection_service] AWS connection test succeeded for account_id={} and s3:ListAllMyBuckets is available",
@@ -1223,17 +1363,14 @@ impl AwsConnectionService {
     pub async fn list_buckets(
         input: AwsConnectionTestInput,
     ) -> Result<Vec<AwsBucketSummary>, String> {
-        let access_key_id = input.access_key_id.trim().to_string();
-        let secret_access_key = input.secret_access_key.trim().to_string();
-        let restricted_bucket_name =
-            Self::normalize_restricted_bucket_name(input.restricted_bucket_name);
+        let prepared = prepare_connection_test_request(input);
 
         eprintln!("[aws_connection_service] listing S3 buckets");
 
-        if let Some(restricted_bucket_name) = restricted_bucket_name {
+        if let Some(restricted_bucket_name) = prepared.restricted_bucket_name {
             Self::verify_restricted_bucket_access(
-                &access_key_id,
-                &secret_access_key,
+                &prepared.access_key_id,
+                &prepared.secret_access_key,
                 &restricted_bucket_name,
             )
             .await?;
@@ -1243,8 +1380,11 @@ impl AwsConnectionService {
             }]);
         }
 
-        let context =
-            Self::resolve_global_access_context(&access_key_id, &secret_access_key).await?;
+        let context = Self::resolve_global_access_context(
+            &prepared.access_key_id,
+            &prepared.secret_access_key,
+        )
+        .await?;
         let response = context
             .s3_client
             .list_buckets()
@@ -1836,6 +1976,86 @@ impl AwsConnectionService {
         Ok(())
     }
 
+    async fn write_download_stream_to_paths<S, C, Next, F>(
+        prepared_paths: &PreparedAwsLocalDownloadPaths,
+        total_bytes: i64,
+        cancellation_flag: &AtomicBool,
+        source: &mut S,
+        mut next_chunk: Next,
+        mut on_progress: F,
+    ) -> Result<i64, String>
+    where
+        C: AsRef<[u8]>,
+        Next: for<'a> FnMut(
+            &'a mut S,
+        ) -> Pin<Box<dyn Future<Output = Result<Option<C>, String>> + Send + 'a>>,
+        F: FnMut(i64, i64, &str) -> Result<(), String>,
+    {
+        if let Some(parent_directory) = prepared_paths.final_path.parent() {
+            fs::create_dir_all(parent_directory)
+                .await
+                .map_err(|error| error.to_string())?;
+        }
+
+        if let Some(temp_parent_directory) = prepared_paths.temp_path.parent() {
+            fs::create_dir_all(temp_parent_directory)
+                .await
+                .map_err(|error| error.to_string())?;
+        }
+
+        let mut file = fs::File::create(&prepared_paths.temp_path)
+            .await
+            .map_err(|error| error.to_string())?;
+        let mut written_bytes = 0_i64;
+
+        if ensure_download_not_cancelled(cancellation_flag).is_err() {
+            Self::remove_temp_file_if_exists(&prepared_paths.temp_path).await?;
+            return Err(DOWNLOAD_CANCELLED_ERROR.to_string());
+        }
+
+        while let Some(chunk) = next_chunk(source).await? {
+            if ensure_download_not_cancelled(cancellation_flag).is_err() {
+                drop(file);
+                Self::remove_temp_file_if_exists(&prepared_paths.temp_path).await?;
+                return Err(DOWNLOAD_CANCELLED_ERROR.to_string());
+            }
+
+            file.write_all(chunk.as_ref())
+                .await
+                .map_err(|error| error.to_string())?;
+
+            written_bytes += chunk.as_ref().len() as i64;
+            on_progress(
+                written_bytes,
+                total_bytes,
+                &prepared_paths.destination_path,
+            )?;
+        }
+
+        file.flush().await.map_err(|error| error.to_string())?;
+        drop(file);
+
+        if ensure_download_not_cancelled(cancellation_flag).is_err() {
+            Self::remove_temp_file_if_exists(&prepared_paths.temp_path).await?;
+            return Err(DOWNLOAD_CANCELLED_ERROR.to_string());
+        }
+
+        if fs::try_exists(&prepared_paths.final_path)
+            .await
+            .map_err(|error| error.to_string())?
+        {
+            fs::remove_file(&prepared_paths.final_path)
+                .await
+                .map_err(|error| error.to_string())?;
+        }
+
+        fs::rename(&prepared_paths.temp_path, &prepared_paths.final_path)
+            .await
+            .map_err(|error| error.to_string())?;
+
+        Ok(written_bytes)
+    }
+
     pub async fn delete_objects(
         input: AwsConnectionTestInput,
         bucket_name: String,
@@ -1959,38 +2179,38 @@ impl AwsConnectionService {
     where
         F: FnMut(i64, i64, &str) -> Result<(), String>,
     {
-        let access_key_id = input.access_key_id.trim().to_string();
-        let secret_access_key = input.secret_access_key.trim().to_string();
         let _connection_id = connection_id.trim().to_string();
-        let connection_name = connection_name.trim().to_string();
-        let bucket_name = bucket_name.trim().to_string();
-        let object_key = object_key.trim().to_string();
-        let global_local_cache_directory = global_local_cache_directory.trim().to_string();
-        let restricted_bucket_name =
-            Self::normalize_restricted_bucket_name(input.restricted_bucket_name);
+        let prepared = prepare_download_to_cache_request(
+            input,
+            connection_name,
+            bucket_name,
+            object_key,
+            bucket_region,
+            global_local_cache_directory,
+        )?;
         let (cancellation_flag, _cancellation_guard) =
             Self::register_download_cancellation(&operation_id)?;
 
-        if global_local_cache_directory.is_empty() {
-            return Err("Local cache directory is required for tracked downloads.".to_string());
-        }
-
         let resolved_bucket_region = Self::resolve_bucket_region(
-            &access_key_id,
-            &secret_access_key,
-            &bucket_name,
-            bucket_region,
-            restricted_bucket_name,
+            &prepared.access_key_id,
+            &prepared.secret_access_key,
+            &prepared.bucket_name,
+            prepared.bucket_region,
+            prepared.restricted_bucket_name,
         )
         .await?;
 
-        let (_, s3_client) =
-            Self::build_clients(&resolved_bucket_region, access_key_id, secret_access_key).await;
+        let (_, s3_client) = Self::build_clients(
+            &resolved_bucket_region,
+            prepared.access_key_id,
+            prepared.secret_access_key,
+        )
+        .await;
 
         let response = s3_client
             .get_object()
-            .bucket(bucket_name.clone())
-            .key(object_key.clone())
+            .bucket(prepared.bucket_name.clone())
+            .key(prepared.object_key.clone())
             .send()
             .await
             .map_err(|error| {
@@ -2001,81 +2221,30 @@ impl AwsConnectionService {
             })?;
 
         let total_bytes = response.content_length().unwrap_or(0).max(0);
-        let final_path = Self::build_primary_cache_object_path(
-            &global_local_cache_directory,
-            &connection_name,
-            &bucket_name,
-            &object_key,
+        let prepared_paths = prepare_cache_download_paths(
+            &prepared.global_local_cache_directory,
+            &prepared.connection_name,
+            &prepared.bucket_name,
+            &prepared.object_key,
         )?;
-        let temp_path = Self::build_cache_temp_object_path(
-            &global_local_cache_directory,
-            &connection_name,
-            &bucket_name,
-            &object_key,
-        )?;
-
-        if let Some(parent_directory) = final_path.parent() {
-            fs::create_dir_all(parent_directory)
-                .await
-                .map_err(|error| error.to_string())?;
-        }
-
-        if let Some(temp_parent_directory) = temp_path.parent() {
-            fs::create_dir_all(temp_parent_directory)
-                .await
-                .map_err(|error| error.to_string())?;
-        }
-
-        let mut file = fs::File::create(&temp_path)
-            .await
-            .map_err(|error| error.to_string())?;
         let mut stream = response.body;
-        let mut written_bytes = 0_i64;
-        let final_path_string = final_path.to_string_lossy().to_string();
-
-        if ensure_download_not_cancelled(&cancellation_flag).is_err() {
-            Self::remove_temp_file_if_exists(&temp_path).await?;
-            return Err(DOWNLOAD_CANCELLED_ERROR.to_string());
-        }
-
-        while let Some(chunk) = stream.try_next().await.map_err(|error| error.to_string())? {
-            if ensure_download_not_cancelled(&cancellation_flag).is_err() {
-                drop(file);
-                Self::remove_temp_file_if_exists(&temp_path).await?;
-                return Err(DOWNLOAD_CANCELLED_ERROR.to_string());
-            }
-
-            file.write_all(&chunk)
-                .await
-                .map_err(|error| error.to_string())?;
-
-            written_bytes += chunk.len() as i64;
-            on_progress(written_bytes, total_bytes, &final_path_string)?;
-        }
-
-        file.flush().await.map_err(|error| error.to_string())?;
-        drop(file);
-
-        if ensure_download_not_cancelled(&cancellation_flag).is_err() {
-            Self::remove_temp_file_if_exists(&temp_path).await?;
-            return Err(DOWNLOAD_CANCELLED_ERROR.to_string());
-        }
-
-        if fs::try_exists(&final_path)
-            .await
-            .map_err(|error| error.to_string())?
-        {
-            fs::remove_file(&final_path)
-                .await
-                .map_err(|error| error.to_string())?;
-        }
-
-        fs::rename(&temp_path, &final_path)
-            .await
-            .map_err(|error| error.to_string())?;
+        let written_bytes = Self::write_download_stream_to_paths(
+            &prepared_paths,
+            total_bytes,
+            &cancellation_flag,
+            &mut stream,
+            |stream| Box::pin(async move {
+                stream
+                    .try_next()
+                    .await
+                    .map_err(|error| error.to_string())
+            }),
+            &mut on_progress,
+        )
+        .await?;
 
         Ok(AwsCacheDownloadResult {
-            local_path: final_path_string,
+            local_path: prepared_paths.destination_path,
             bytes_written: written_bytes,
         })
     }
@@ -2092,36 +2261,36 @@ impl AwsConnectionService {
     where
         F: FnMut(i64, i64, &str) -> Result<(), String>,
     {
-        let access_key_id = input.access_key_id.trim().to_string();
-        let secret_access_key = input.secret_access_key.trim().to_string();
-        let bucket_name = bucket_name.trim().to_string();
-        let object_key = object_key.trim().to_string();
-        let destination_path = destination_path.trim().to_string();
-        let restricted_bucket_name =
-            Self::normalize_restricted_bucket_name(input.restricted_bucket_name);
+        let prepared = prepare_download_to_path_request(
+            input,
+            bucket_name,
+            object_key,
+            bucket_region,
+            destination_path,
+        )?;
         let (cancellation_flag, _cancellation_guard) =
             Self::register_download_cancellation(&operation_id)?;
 
-        if destination_path.is_empty() {
-            return Err("Destination path is required for direct downloads.".to_string());
-        }
-
         let resolved_bucket_region = Self::resolve_bucket_region(
-            &access_key_id,
-            &secret_access_key,
-            &bucket_name,
-            bucket_region,
-            restricted_bucket_name,
+            &prepared.access_key_id,
+            &prepared.secret_access_key,
+            &prepared.bucket_name,
+            prepared.bucket_region,
+            prepared.restricted_bucket_name,
         )
         .await?;
 
-        let (_, s3_client) =
-            Self::build_clients(&resolved_bucket_region, access_key_id, secret_access_key).await;
+        let (_, s3_client) = Self::build_clients(
+            &resolved_bucket_region,
+            prepared.access_key_id,
+            prepared.secret_access_key,
+        )
+        .await;
 
         let response = s3_client
             .get_object()
-            .bucket(bucket_name)
-            .key(object_key)
+            .bucket(prepared.bucket_name)
+            .key(prepared.object_key)
             .send()
             .await
             .map_err(|error| {
@@ -2131,64 +2300,25 @@ impl AwsConnectionService {
                     .unwrap_or_else(|| error.to_string())
             })?;
 
-        let final_path = PathBuf::from(&destination_path);
-        let temp_path = Self::build_temp_file_path(&final_path)?;
+        let prepared_paths = prepare_direct_download_paths(&prepared.destination_path)?;
         let total_bytes = response.content_length().unwrap_or(0).max(0);
-
-        if let Some(parent_directory) = final_path.parent() {
-            fs::create_dir_all(parent_directory)
-                .await
-                .map_err(|error| error.to_string())?;
-        }
-
-        let mut file = fs::File::create(&temp_path)
-            .await
-            .map_err(|error| error.to_string())?;
         let mut stream = response.body;
-        let mut written_bytes = 0_i64;
+        Self::write_download_stream_to_paths(
+            &prepared_paths,
+            total_bytes,
+            &cancellation_flag,
+            &mut stream,
+            |stream| Box::pin(async move {
+                stream
+                    .try_next()
+                    .await
+                    .map_err(|error| error.to_string())
+            }),
+            &mut on_progress,
+        )
+        .await?;
 
-        if ensure_download_not_cancelled(&cancellation_flag).is_err() {
-            Self::remove_temp_file_if_exists(&temp_path).await?;
-            return Err(DOWNLOAD_CANCELLED_ERROR.to_string());
-        }
-
-        while let Some(chunk) = stream.try_next().await.map_err(|error| error.to_string())? {
-            if ensure_download_not_cancelled(&cancellation_flag).is_err() {
-                drop(file);
-                Self::remove_temp_file_if_exists(&temp_path).await?;
-                return Err(DOWNLOAD_CANCELLED_ERROR.to_string());
-            }
-
-            file.write_all(&chunk)
-                .await
-                .map_err(|error| error.to_string())?;
-
-            written_bytes += chunk.len() as i64;
-            on_progress(written_bytes, total_bytes, &destination_path)?;
-        }
-
-        file.flush().await.map_err(|error| error.to_string())?;
-        drop(file);
-
-        if ensure_download_not_cancelled(&cancellation_flag).is_err() {
-            Self::remove_temp_file_if_exists(&temp_path).await?;
-            return Err(DOWNLOAD_CANCELLED_ERROR.to_string());
-        }
-
-        if fs::try_exists(&final_path)
-            .await
-            .map_err(|error| error.to_string())?
-        {
-            fs::remove_file(&final_path)
-                .await
-                .map_err(|error| error.to_string())?;
-        }
-
-        fs::rename(&temp_path, &final_path)
-            .await
-            .map_err(|error| error.to_string())?;
-
-        Ok(destination_path)
+        Ok(prepared.destination_path)
     }
 
     pub async fn object_exists(
@@ -3523,6 +3653,314 @@ mod tests {
     }
 
     #[test]
+    fn prepares_connection_and_download_requests() {
+        let connection_prepared = prepare_connection_test_request(AwsConnectionTestInput {
+            access_key_id: " access-key ".to_string(),
+            secret_access_key: " secret-key ".to_string(),
+            restricted_bucket_name: Some(" bucket-a ".to_string()),
+        });
+        assert_eq!(connection_prepared.access_key_id, "access-key");
+        assert_eq!(connection_prepared.secret_access_key, "secret-key");
+        assert_eq!(
+            connection_prepared.restricted_bucket_name.as_deref(),
+            Some("bucket-a")
+        );
+
+        let download_cache_prepared = prepare_download_to_cache_request(
+            AwsConnectionTestInput {
+                access_key_id: " access-key ".to_string(),
+                secret_access_key: " secret-key ".to_string(),
+                restricted_bucket_name: Some(" bucket-a ".to_string()),
+            },
+            " Primary Connection ".to_string(),
+            " bucket-a ".to_string(),
+            " docs/report.txt ".to_string(),
+            Some("us-east-1".to_string()),
+            " /tmp/cache ".to_string(),
+        )
+        .unwrap();
+        assert_eq!(download_cache_prepared.connection_name, "Primary Connection");
+        assert_eq!(download_cache_prepared.bucket_name, "bucket-a");
+        assert_eq!(download_cache_prepared.object_key, "docs/report.txt");
+        assert_eq!(download_cache_prepared.global_local_cache_directory, "/tmp/cache");
+
+        let download_path_prepared = prepare_download_to_path_request(
+            AwsConnectionTestInput {
+                access_key_id: " access-key ".to_string(),
+                secret_access_key: " secret-key ".to_string(),
+                restricted_bucket_name: Some(" bucket-a ".to_string()),
+            },
+            " bucket-a ".to_string(),
+            " docs/report.txt ".to_string(),
+            Some("us-east-1".to_string()),
+            " /tmp/report.txt ".to_string(),
+        )
+        .unwrap();
+        assert_eq!(download_path_prepared.bucket_name, "bucket-a");
+        assert_eq!(download_path_prepared.object_key, "docs/report.txt");
+        assert_eq!(download_path_prepared.destination_path, "/tmp/report.txt");
+        assert!(prepare_download_to_cache_request(
+            aws_test_input(),
+            "Primary Connection".to_string(),
+            "bucket-a".to_string(),
+            "docs/report.txt".to_string(),
+            None,
+            "   ".to_string(),
+        )
+        .is_err());
+        assert!(prepare_download_to_path_request(
+            aws_test_input(),
+            "bucket-a".to_string(),
+            "docs/report.txt".to_string(),
+            None,
+            "   ".to_string(),
+        )
+        .is_err());
+    }
+
+    #[tokio::test]
+    async fn writes_download_streams_to_paths() {
+        let temp_root = std::env::temp_dir().join(format!(
+            "cloudeasyfiles-aws-local-download-helper-{}",
+            std::process::id()
+        ));
+        let prepared_paths = prepare_direct_download_paths(
+            temp_root
+                .join("downloads")
+                .join("report.txt")
+                .to_string_lossy()
+                .as_ref(),
+        )
+        .unwrap();
+        let cancellation_flag = AtomicBool::new(false);
+        let mut chunks = vec![b"hello ".to_vec(), b"world".to_vec()].into_iter();
+        let mut progress_updates = Vec::new();
+
+        let written_bytes = AwsConnectionService::write_download_stream_to_paths(
+            &prepared_paths,
+            11,
+            &cancellation_flag,
+            &mut chunks,
+            |chunks| {
+                let next = chunks.next();
+                Box::pin(async move { Ok(next) })
+            },
+            |written, total, destination| {
+                progress_updates.push((written, total, destination.to_string()));
+                Ok(())
+            },
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(written_bytes, 11);
+        assert_eq!(
+            fs::read_to_string(&prepared_paths.final_path).await.unwrap(),
+            "hello world"
+        );
+        assert_eq!(
+            progress_updates,
+            vec![
+                (6, 11, prepared_paths.destination_path.clone()),
+                (11, 11, prepared_paths.destination_path.clone())
+            ]
+        );
+
+        fs::remove_dir_all(&temp_root).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn cancels_download_streams_and_removes_temp_files() {
+        let temp_root = std::env::temp_dir().join(format!(
+            "cloudeasyfiles-aws-local-download-cancel-{}",
+            std::process::id()
+        ));
+        let prepared_paths = prepare_direct_download_paths(
+            temp_root
+                .join("downloads")
+                .join("report.txt")
+                .to_string_lossy()
+                .as_ref(),
+        )
+        .unwrap();
+        let cancellation_flag = AtomicBool::new(true);
+
+        let error = AwsConnectionService::write_download_stream_to_paths(
+            &prepared_paths,
+            5,
+            &cancellation_flag,
+            &mut (),
+            |_| Box::pin(async { Ok::<Option<Vec<u8>>, String>(Some(b"hello".to_vec())) }),
+            |_, _, _| Ok(()),
+        )
+        .await
+        .unwrap_err();
+
+        assert_eq!(error, DOWNLOAD_CANCELLED_ERROR);
+        assert!(!fs::try_exists(&prepared_paths.temp_path).await.unwrap());
+        assert!(!fs::try_exists(&prepared_paths.final_path).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn overwrites_existing_download_targets_when_stream_finishes() {
+        let temp_root = std::env::temp_dir().join(format!(
+            "cloudeasyfiles-aws-local-download-overwrite-{}",
+            std::process::id()
+        ));
+        let prepared_paths = prepare_direct_download_paths(
+            temp_root
+                .join("downloads")
+                .join("report.txt")
+                .to_string_lossy()
+                .as_ref(),
+        )
+        .unwrap();
+        fs::create_dir_all(prepared_paths.final_path.parent().unwrap())
+            .await
+            .unwrap();
+        fs::write(&prepared_paths.final_path, b"old").await.unwrap();
+        let cancellation_flag = AtomicBool::new(false);
+        let mut chunks = vec![b"new".to_vec()].into_iter();
+
+        AwsConnectionService::write_download_stream_to_paths(
+            &prepared_paths,
+            3,
+            &cancellation_flag,
+            &mut chunks,
+            |chunks| {
+                let next = chunks.next();
+                Box::pin(async move { Ok(next) })
+            },
+            |_, _, _| Ok(()),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            fs::read_to_string(&prepared_paths.final_path).await.unwrap(),
+            "new"
+        );
+
+        fs::remove_dir_all(&temp_root).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn surfaces_stream_errors_during_local_download_writes() {
+        let temp_root = std::env::temp_dir().join(format!(
+            "cloudeasyfiles-aws-local-download-stream-error-{}",
+            std::process::id()
+        ));
+        let prepared_paths = prepare_direct_download_paths(
+            temp_root
+                .join("downloads")
+                .join("report.txt")
+                .to_string_lossy()
+                .as_ref(),
+        )
+        .unwrap();
+        let cancellation_flag = AtomicBool::new(false);
+        let mut chunk_requests = 0;
+
+        let error = AwsConnectionService::write_download_stream_to_paths(
+            &prepared_paths,
+            10,
+            &cancellation_flag,
+            &mut chunk_requests,
+            |chunk_requests| {
+                *chunk_requests += 1;
+                Box::pin(async move {
+                    if *chunk_requests == 1 {
+                        Ok::<Option<Vec<u8>>, String>(Some(b"hello".to_vec()))
+                    } else {
+                        Err("stream failed".to_string())
+                    }
+                })
+            },
+            |_, _, _| Ok(()),
+        )
+        .await
+        .unwrap_err();
+
+        assert_eq!(error, "stream failed");
+        assert!(fs::try_exists(&prepared_paths.temp_path).await.unwrap());
+        assert!(!fs::try_exists(&prepared_paths.final_path).await.unwrap());
+
+        fs::remove_dir_all(&temp_root).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn surfaces_progress_callback_errors_during_local_download_writes() {
+        let temp_root = std::env::temp_dir().join(format!(
+            "cloudeasyfiles-aws-local-download-progress-error-{}",
+            std::process::id()
+        ));
+        let prepared_paths = prepare_direct_download_paths(
+            temp_root
+                .join("downloads")
+                .join("report.txt")
+                .to_string_lossy()
+                .as_ref(),
+        )
+        .unwrap();
+        let cancellation_flag = AtomicBool::new(false);
+        let mut chunks = vec![b"hello".to_vec()].into_iter();
+
+        let error = AwsConnectionService::write_download_stream_to_paths(
+            &prepared_paths,
+            5,
+            &cancellation_flag,
+            &mut chunks,
+            |chunks| {
+                let next = chunks.next();
+                Box::pin(async move { Ok(next) })
+            },
+            |_, _, _| Err("progress failed".to_string()),
+        )
+        .await
+        .unwrap_err();
+
+        assert_eq!(error, "progress failed");
+        assert!(fs::try_exists(&prepared_paths.temp_path).await.unwrap());
+        assert!(!fs::try_exists(&prepared_paths.final_path).await.unwrap());
+
+        fs::remove_dir_all(&temp_root).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn rejects_download_paths_when_parent_is_not_a_directory() {
+        let temp_root = std::env::temp_dir().join(format!(
+            "cloudeasyfiles-aws-local-download-parent-error-{}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&temp_root).await.unwrap();
+        let blocking_file = temp_root.join("blocking-file");
+        fs::write(&blocking_file, b"not-a-directory").await.unwrap();
+        let destination_path = blocking_file.join("report.txt");
+        let prepared_paths =
+            prepare_direct_download_paths(destination_path.to_string_lossy().as_ref()).unwrap();
+        let cancellation_flag = AtomicBool::new(false);
+        let mut chunks = vec![b"hello".to_vec()].into_iter();
+
+        let error = AwsConnectionService::write_download_stream_to_paths(
+            &prepared_paths,
+            5,
+            &cancellation_flag,
+            &mut chunks,
+            |chunks| {
+                let next = chunks.next();
+                Box::pin(async move { Ok(next) })
+            },
+            |_, _, _| Ok(()),
+        )
+        .await
+        .unwrap_err();
+
+        assert!(!error.trim().is_empty());
+
+        fs::remove_dir_all(&temp_root).await.unwrap();
+    }
+
+    #[test]
     fn detects_cancelled_uploads_from_atomic_flags() {
         let active = AtomicBool::new(false);
         let cancelled = AtomicBool::new(true);
@@ -4003,6 +4441,13 @@ mod tests {
         AwsConnectionService::remove_temp_file_if_exists(&temp_file)
             .await
             .unwrap();
+
+        let temp_directory = temp_root.join("downloads").join(".directory.part");
+        fs::create_dir_all(&temp_directory).await.unwrap();
+        let remove_directory_error = AwsConnectionService::remove_temp_file_if_exists(&temp_directory)
+            .await
+            .unwrap_err();
+        assert!(!remove_directory_error.trim().is_empty());
 
         let missing = AwsConnectionService::resolve_cached_object_path(
             "connection-123".to_string(),

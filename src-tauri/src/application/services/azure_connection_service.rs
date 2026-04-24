@@ -12,7 +12,9 @@ use reqwest::{Client, Method, Response, StatusCode, Url};
 use serde::Deserialize;
 use sha2::Sha256;
 use std::collections::BTreeMap;
+use std::future::Future;
 use std::path::PathBuf;
+use std::pin::Pin;
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, LazyLock, Mutex};
@@ -162,33 +164,33 @@ impl AzureConnectionService {
     pub async fn test_connection(
         input: AzureConnectionTestInput,
     ) -> Result<AzureConnectionTestResult, String> {
-        let storage_account_name = normalize_storage_account_name(&input.storage_account_name)?;
+        let prepared = prepare_connection_test_request(input)?;
         let client = Client::new();
 
         Self::list_containers_internal(
             &client,
-            &storage_account_name,
-            &input.account_key,
+            &prepared.storage_account_name,
+            &prepared.account_key,
             None,
             Some(1),
         )
         .await?;
 
         Ok(AzureConnectionTestResult {
-            storage_account_name: storage_account_name.clone(),
-            account_url: build_account_url(&storage_account_name),
+            storage_account_name: prepared.storage_account_name.clone(),
+            account_url: build_account_url(&prepared.storage_account_name),
         })
     }
 
     pub async fn list_containers(
         input: AzureConnectionTestInput,
     ) -> Result<Vec<AzureContainerSummary>, String> {
-        let storage_account_name = normalize_storage_account_name(&input.storage_account_name)?;
+        let prepared = prepare_connection_test_request(input)?;
         let client = Client::new();
         let (containers, _) = Self::list_containers_internal(
             &client,
-            &storage_account_name,
-            &input.account_key,
+            &prepared.storage_account_name,
+            &prepared.account_key,
             None,
             Some(DEFAULT_MAX_RESULTS),
         )
@@ -389,103 +391,50 @@ impl AzureConnectionService {
         F: FnMut(i64, i64, &str) -> Result<(), String>,
     {
         let _connection_id = connection_id.trim().to_string();
-        let connection_name = connection_name.trim().to_string();
-        let storage_account_name = normalize_storage_account_name(&input.storage_account_name)?;
-        let normalized_container_name = container_name.trim().to_string();
-        let normalized_blob_name = blob_name.trim().to_string();
-        let global_local_cache_directory = global_local_cache_directory.trim().to_string();
+        let prepared = prepare_download_to_cache_request(
+            input,
+            connection_name,
+            container_name,
+            blob_name,
+            global_local_cache_directory,
+        )?;
         let (cancellation_flag, _cancellation_guard) =
             Self::register_download_cancellation(&operation_id)?;
-
-        if global_local_cache_directory.is_empty() {
-            return Err("Local cache directory is required for tracked downloads.".to_string());
-        }
 
         let client = Client::new();
         let response = download_blob_response(
             &client,
-            &storage_account_name,
-            &input.account_key,
-            &normalized_container_name,
-            &normalized_blob_name,
+            &prepared.storage_account_name,
+            &prepared.account_key,
+            &prepared.normalized_container_name,
+            &prepared.normalized_blob_name,
         )
         .await?;
         let total_bytes = response.content_length().unwrap_or(0) as i64;
-        let final_path = Self::build_primary_cache_object_path(
-            &global_local_cache_directory,
-            &connection_name,
-            &normalized_container_name,
-            &normalized_blob_name,
+        let prepared_paths = prepare_cache_download_paths(
+            &prepared.global_local_cache_directory,
+            &prepared.connection_name,
+            &prepared.normalized_container_name,
+            &prepared.normalized_blob_name,
         )?;
-        let temp_path = Self::build_cache_temp_object_path(
-            &global_local_cache_directory,
-            &connection_name,
-            &normalized_container_name,
-            &normalized_blob_name,
-        )?;
-
-        if let Some(parent_directory) = final_path.parent() {
-            fs::create_dir_all(parent_directory)
-                .await
-                .map_err(|error| error.to_string())?;
-        }
-
-        if let Some(temp_parent_directory) = temp_path.parent() {
-            fs::create_dir_all(temp_parent_directory)
-                .await
-                .map_err(|error| error.to_string())?;
-        }
-
-        let mut file = fs::File::create(&temp_path)
-            .await
-            .map_err(|error| error.to_string())?;
         let mut response = response;
-        let mut written_bytes = 0_i64;
-        let final_path_string = final_path.to_string_lossy().to_string();
-
-        if ensure_download_not_cancelled(&cancellation_flag).is_err() {
-            Self::remove_temp_file_if_exists(&temp_path).await?;
-            return Err(AZURE_DOWNLOAD_CANCELLED_ERROR.to_string());
-        }
-
-        while let Some(chunk) = response.chunk().await.map_err(|error| error.to_string())? {
-            if ensure_download_not_cancelled(&cancellation_flag).is_err() {
-                drop(file);
-                Self::remove_temp_file_if_exists(&temp_path).await?;
-                return Err(AZURE_DOWNLOAD_CANCELLED_ERROR.to_string());
-            }
-
-            file.write_all(&chunk)
-                .await
-                .map_err(|error| error.to_string())?;
-
-            written_bytes += chunk.len() as i64;
-            on_progress(written_bytes, total_bytes, &final_path_string)?;
-        }
-
-        file.flush().await.map_err(|error| error.to_string())?;
-        drop(file);
-
-        if ensure_download_not_cancelled(&cancellation_flag).is_err() {
-            Self::remove_temp_file_if_exists(&temp_path).await?;
-            return Err(AZURE_DOWNLOAD_CANCELLED_ERROR.to_string());
-        }
-
-        if fs::try_exists(&final_path)
-            .await
-            .map_err(|error| error.to_string())?
-        {
-            fs::remove_file(&final_path)
-                .await
-                .map_err(|error| error.to_string())?;
-        }
-
-        fs::rename(&temp_path, &final_path)
-            .await
-            .map_err(|error| error.to_string())?;
+        let written_bytes = Self::write_download_stream_to_paths(
+            &prepared_paths,
+            total_bytes,
+            &cancellation_flag,
+            &mut response,
+            |response| Box::pin(async move {
+                response
+                    .chunk()
+                    .await
+                    .map_err(|error| error.to_string())
+            }),
+            &mut on_progress,
+        )
+        .await?;
 
         Ok(AzureCacheDownloadResult {
-            local_path: final_path_string,
+            local_path: prepared_paths.destination_path,
             bytes_written: written_bytes,
         })
     }
@@ -501,84 +450,39 @@ impl AzureConnectionService {
     where
         F: FnMut(i64, i64, &str) -> Result<(), String>,
     {
-        let storage_account_name = normalize_storage_account_name(&input.storage_account_name)?;
-        let normalized_container_name = container_name.trim().to_string();
-        let normalized_blob_name = blob_name.trim().to_string();
-        let destination_path = destination_path.trim().to_string();
+        let prepared =
+            prepare_download_to_path_request(input, container_name, blob_name, destination_path)?;
         let (cancellation_flag, _cancellation_guard) =
             Self::register_download_cancellation(&operation_id)?;
-
-        if destination_path.is_empty() {
-            return Err("Destination path is required for direct downloads.".to_string());
-        }
 
         let client = Client::new();
         let response = download_blob_response(
             &client,
-            &storage_account_name,
-            &input.account_key,
-            &normalized_container_name,
-            &normalized_blob_name,
+            &prepared.storage_account_name,
+            &prepared.account_key,
+            &prepared.normalized_container_name,
+            &prepared.normalized_blob_name,
         )
         .await?;
-        let final_path = PathBuf::from(&destination_path);
-        let temp_path = Self::build_temp_file_path(&final_path)?;
+        let prepared_paths = prepare_direct_download_paths(&prepared.destination_path)?;
         let total_bytes = response.content_length().unwrap_or(0) as i64;
-
-        if let Some(parent_directory) = final_path.parent() {
-            fs::create_dir_all(parent_directory)
-                .await
-                .map_err(|error| error.to_string())?;
-        }
-
-        let mut file = fs::File::create(&temp_path)
-            .await
-            .map_err(|error| error.to_string())?;
         let mut response = response;
-        let mut written_bytes = 0_i64;
+        Self::write_download_stream_to_paths(
+            &prepared_paths,
+            total_bytes,
+            &cancellation_flag,
+            &mut response,
+            |response| Box::pin(async move {
+                response
+                    .chunk()
+                    .await
+                    .map_err(|error| error.to_string())
+            }),
+            &mut on_progress,
+        )
+        .await?;
 
-        if ensure_download_not_cancelled(&cancellation_flag).is_err() {
-            Self::remove_temp_file_if_exists(&temp_path).await?;
-            return Err(AZURE_DOWNLOAD_CANCELLED_ERROR.to_string());
-        }
-
-        while let Some(chunk) = response.chunk().await.map_err(|error| error.to_string())? {
-            if ensure_download_not_cancelled(&cancellation_flag).is_err() {
-                drop(file);
-                Self::remove_temp_file_if_exists(&temp_path).await?;
-                return Err(AZURE_DOWNLOAD_CANCELLED_ERROR.to_string());
-            }
-
-            file.write_all(&chunk)
-                .await
-                .map_err(|error| error.to_string())?;
-
-            written_bytes += chunk.len() as i64;
-            on_progress(written_bytes, total_bytes, &destination_path)?;
-        }
-
-        file.flush().await.map_err(|error| error.to_string())?;
-        drop(file);
-
-        if ensure_download_not_cancelled(&cancellation_flag).is_err() {
-            Self::remove_temp_file_if_exists(&temp_path).await?;
-            return Err(AZURE_DOWNLOAD_CANCELLED_ERROR.to_string());
-        }
-
-        if fs::try_exists(&final_path)
-            .await
-            .map_err(|error| error.to_string())?
-        {
-            fs::remove_file(&final_path)
-                .await
-                .map_err(|error| error.to_string())?;
-        }
-
-        fs::rename(&temp_path, &final_path)
-            .await
-            .map_err(|error| error.to_string())?;
-
-        Ok(destination_path)
+        Ok(prepared.destination_path)
     }
 
     pub async fn change_blob_access_tier(
@@ -992,6 +896,86 @@ impl AzureConnectionService {
         )
         .await?;
         parse_container_listing_response(&response_text)
+    }
+
+    async fn write_download_stream_to_paths<S, C, Next, F>(
+        prepared_paths: &PreparedAzureLocalDownloadPaths,
+        total_bytes: i64,
+        cancellation_flag: &AtomicBool,
+        source: &mut S,
+        mut next_chunk: Next,
+        mut on_progress: F,
+    ) -> Result<i64, String>
+    where
+        C: AsRef<[u8]>,
+        Next: for<'a> FnMut(
+            &'a mut S,
+        ) -> Pin<Box<dyn Future<Output = Result<Option<C>, String>> + Send + 'a>>,
+        F: FnMut(i64, i64, &str) -> Result<(), String>,
+    {
+        if let Some(parent_directory) = prepared_paths.final_path.parent() {
+            fs::create_dir_all(parent_directory)
+                .await
+                .map_err(|error| error.to_string())?;
+        }
+
+        if let Some(temp_parent_directory) = prepared_paths.temp_path.parent() {
+            fs::create_dir_all(temp_parent_directory)
+                .await
+                .map_err(|error| error.to_string())?;
+        }
+
+        let mut file = fs::File::create(&prepared_paths.temp_path)
+            .await
+            .map_err(|error| error.to_string())?;
+        let mut written_bytes = 0_i64;
+
+        if ensure_download_not_cancelled(cancellation_flag).is_err() {
+            Self::remove_temp_file_if_exists(&prepared_paths.temp_path).await?;
+            return Err(AZURE_DOWNLOAD_CANCELLED_ERROR.to_string());
+        }
+
+        while let Some(chunk) = next_chunk(source).await? {
+            if ensure_download_not_cancelled(cancellation_flag).is_err() {
+                drop(file);
+                Self::remove_temp_file_if_exists(&prepared_paths.temp_path).await?;
+                return Err(AZURE_DOWNLOAD_CANCELLED_ERROR.to_string());
+            }
+
+            file.write_all(chunk.as_ref())
+                .await
+                .map_err(|error| error.to_string())?;
+
+            written_bytes += chunk.as_ref().len() as i64;
+            on_progress(
+                written_bytes,
+                total_bytes,
+                &prepared_paths.destination_path,
+            )?;
+        }
+
+        file.flush().await.map_err(|error| error.to_string())?;
+        drop(file);
+
+        if ensure_download_not_cancelled(cancellation_flag).is_err() {
+            Self::remove_temp_file_if_exists(&prepared_paths.temp_path).await?;
+            return Err(AZURE_DOWNLOAD_CANCELLED_ERROR.to_string());
+        }
+
+        if fs::try_exists(&prepared_paths.final_path)
+            .await
+            .map_err(|error| error.to_string())?
+        {
+            fs::remove_file(&prepared_paths.final_path)
+                .await
+                .map_err(|error| error.to_string())?;
+        }
+
+        fs::rename(&prepared_paths.temp_path, &prepared_paths.final_path)
+            .await
+            .map_err(|error| error.to_string())?;
+
+        Ok(written_bytes)
     }
 
     fn register_upload_cancellation(
@@ -1436,6 +1420,34 @@ struct PreparedAzureUploadFromBytesRequest {
     total_bytes: i64,
 }
 
+struct PreparedAzureConnectionTestRequest {
+    storage_account_name: String,
+    account_key: String,
+}
+
+struct PreparedAzureDownloadToCacheRequest {
+    storage_account_name: String,
+    account_key: String,
+    connection_name: String,
+    normalized_container_name: String,
+    normalized_blob_name: String,
+    global_local_cache_directory: String,
+}
+
+struct PreparedAzureDownloadToPathRequest {
+    storage_account_name: String,
+    account_key: String,
+    normalized_container_name: String,
+    normalized_blob_name: String,
+    destination_path: String,
+}
+
+struct PreparedAzureLocalDownloadPaths {
+    final_path: PathBuf,
+    temp_path: PathBuf,
+    destination_path: String,
+}
+
 fn prepare_list_container_items_request(
     input: AzureConnectionTestInput,
     container_name: String,
@@ -1671,6 +1683,98 @@ fn prepare_upload_from_bytes_request(
             .map_err(|_| "The selected file is too large to upload.".to_string())?,
         file_bytes,
         normalized_access_tier: parse_access_tier(access_tier.as_deref())?,
+    })
+}
+
+fn prepare_connection_test_request(
+    input: AzureConnectionTestInput,
+) -> Result<PreparedAzureConnectionTestRequest, String> {
+    Ok(PreparedAzureConnectionTestRequest {
+        storage_account_name: normalize_storage_account_name(&input.storage_account_name)?,
+        account_key: input.account_key,
+    })
+}
+
+fn prepare_download_to_cache_request(
+    input: AzureConnectionTestInput,
+    connection_name: String,
+    container_name: String,
+    blob_name: String,
+    global_local_cache_directory: String,
+) -> Result<PreparedAzureDownloadToCacheRequest, String> {
+    let global_local_cache_directory = global_local_cache_directory.trim().to_string();
+
+    if global_local_cache_directory.is_empty() {
+        return Err("Local cache directory is required for tracked downloads.".to_string());
+    }
+
+    Ok(PreparedAzureDownloadToCacheRequest {
+        storage_account_name: normalize_storage_account_name(&input.storage_account_name)?,
+        account_key: input.account_key,
+        connection_name: connection_name.trim().to_string(),
+        normalized_container_name: container_name.trim().to_string(),
+        normalized_blob_name: blob_name.trim().to_string(),
+        global_local_cache_directory,
+    })
+}
+
+fn prepare_download_to_path_request(
+    input: AzureConnectionTestInput,
+    container_name: String,
+    blob_name: String,
+    destination_path: String,
+) -> Result<PreparedAzureDownloadToPathRequest, String> {
+    let destination_path = destination_path.trim().to_string();
+
+    if destination_path.is_empty() {
+        return Err("Destination path is required for direct downloads.".to_string());
+    }
+
+    Ok(PreparedAzureDownloadToPathRequest {
+        storage_account_name: normalize_storage_account_name(&input.storage_account_name)?,
+        account_key: input.account_key,
+        normalized_container_name: container_name.trim().to_string(),
+        normalized_blob_name: blob_name.trim().to_string(),
+        destination_path,
+    })
+}
+
+fn prepare_cache_download_paths(
+    global_local_cache_directory: &str,
+    connection_name: &str,
+    container_name: &str,
+    blob_name: &str,
+) -> Result<PreparedAzureLocalDownloadPaths, String> {
+    let final_path = AzureConnectionService::build_primary_cache_object_path(
+        global_local_cache_directory,
+        connection_name,
+        container_name,
+        blob_name,
+    )?;
+    let temp_path = AzureConnectionService::build_cache_temp_object_path(
+        global_local_cache_directory,
+        connection_name,
+        container_name,
+        blob_name,
+    )?;
+
+    Ok(PreparedAzureLocalDownloadPaths {
+        destination_path: final_path.to_string_lossy().to_string(),
+        final_path,
+        temp_path,
+    })
+}
+
+fn prepare_direct_download_paths(
+    destination_path: &str,
+) -> Result<PreparedAzureLocalDownloadPaths, String> {
+    let final_path = PathBuf::from(destination_path);
+    let temp_path = AzureConnectionService::build_temp_file_path(&final_path)?;
+
+    Ok(PreparedAzureLocalDownloadPaths {
+        destination_path: destination_path.to_string(),
+        final_path,
+        temp_path,
     })
 }
 
@@ -3637,6 +3741,309 @@ mod tests {
         .is_err());
     }
 
+    #[test]
+    fn prepares_connection_and_download_requests() {
+        let connection_prepared = prepare_connection_test_request(AzureConnectionTestInput {
+            storage_account_name: " StorageAcct ".to_string(),
+            account_key: "unused-key".to_string(),
+        })
+        .unwrap();
+        assert_eq!(connection_prepared.storage_account_name, "storageacct");
+        assert_eq!(connection_prepared.account_key, "unused-key");
+
+        let download_cache_prepared = prepare_download_to_cache_request(
+            AzureConnectionTestInput {
+                storage_account_name: " StorageAcct ".to_string(),
+                account_key: "unused-key".to_string(),
+            },
+            " Primary Connection ".to_string(),
+            " reports ".to_string(),
+            " docs/report.txt ".to_string(),
+            " /tmp/cache ".to_string(),
+        )
+        .unwrap();
+        assert_eq!(download_cache_prepared.connection_name, "Primary Connection");
+        assert_eq!(download_cache_prepared.normalized_container_name, "reports");
+        assert_eq!(download_cache_prepared.normalized_blob_name, "docs/report.txt");
+        assert_eq!(download_cache_prepared.global_local_cache_directory, "/tmp/cache");
+
+        let download_path_prepared = prepare_download_to_path_request(
+            AzureConnectionTestInput {
+                storage_account_name: " StorageAcct ".to_string(),
+                account_key: "unused-key".to_string(),
+            },
+            " reports ".to_string(),
+            " docs/report.txt ".to_string(),
+            " /tmp/report.txt ".to_string(),
+        )
+        .unwrap();
+        assert_eq!(download_path_prepared.normalized_container_name, "reports");
+        assert_eq!(download_path_prepared.normalized_blob_name, "docs/report.txt");
+        assert_eq!(download_path_prepared.destination_path, "/tmp/report.txt");
+        assert!(prepare_connection_test_request(AzureConnectionTestInput {
+            storage_account_name: "   ".to_string(),
+            account_key: "unused-key".to_string(),
+        })
+        .is_err());
+        assert!(prepare_download_to_cache_request(
+            azure_test_input(),
+            "Primary Connection".to_string(),
+            "reports".to_string(),
+            "docs/report.txt".to_string(),
+            "   ".to_string(),
+        )
+        .is_err());
+        assert!(prepare_download_to_path_request(
+            azure_test_input(),
+            "reports".to_string(),
+            "docs/report.txt".to_string(),
+            "   ".to_string(),
+        )
+        .is_err());
+    }
+
+    #[tokio::test]
+    async fn writes_download_streams_to_paths() {
+        let temp_root = std::env::temp_dir().join(format!(
+            "cloudeasyfiles-azure-local-download-helper-{}",
+            std::process::id()
+        ));
+        let prepared_paths = prepare_direct_download_paths(
+            temp_root
+                .join("downloads")
+                .join("report.txt")
+                .to_string_lossy()
+                .as_ref(),
+        )
+        .unwrap();
+        let cancellation_flag = AtomicBool::new(false);
+        let mut chunks = vec![b"hello ".to_vec(), b"world".to_vec()].into_iter();
+        let mut progress_updates = Vec::new();
+
+        let written_bytes = AzureConnectionService::write_download_stream_to_paths(
+            &prepared_paths,
+            11,
+            &cancellation_flag,
+            &mut chunks,
+            |chunks| {
+                let next = chunks.next();
+                Box::pin(async move { Ok(next) })
+            },
+            |written, total, destination| {
+                progress_updates.push((written, total, destination.to_string()));
+                Ok(())
+            },
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(written_bytes, 11);
+        assert_eq!(
+            fs::read_to_string(&prepared_paths.final_path).await.unwrap(),
+            "hello world"
+        );
+        assert_eq!(
+            progress_updates,
+            vec![
+                (6, 11, prepared_paths.destination_path.clone()),
+                (11, 11, prepared_paths.destination_path.clone())
+            ]
+        );
+
+        fs::remove_dir_all(&temp_root).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn cancels_download_streams_and_removes_temp_files() {
+        let temp_root = std::env::temp_dir().join(format!(
+            "cloudeasyfiles-azure-local-download-cancel-{}",
+            std::process::id()
+        ));
+        let prepared_paths = prepare_direct_download_paths(
+            temp_root
+                .join("downloads")
+                .join("report.txt")
+                .to_string_lossy()
+                .as_ref(),
+        )
+        .unwrap();
+        let cancellation_flag = AtomicBool::new(true);
+
+        let error = AzureConnectionService::write_download_stream_to_paths(
+            &prepared_paths,
+            5,
+            &cancellation_flag,
+            &mut (),
+            |_| Box::pin(async { Ok::<Option<Vec<u8>>, String>(Some(b"hello".to_vec())) }),
+            |_, _, _| Ok(()),
+        )
+        .await
+        .unwrap_err();
+
+        assert_eq!(error, AZURE_DOWNLOAD_CANCELLED_ERROR);
+        assert!(!fs::try_exists(&prepared_paths.temp_path).await.unwrap());
+        assert!(!fs::try_exists(&prepared_paths.final_path).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn overwrites_existing_download_targets_when_stream_finishes() {
+        let temp_root = std::env::temp_dir().join(format!(
+            "cloudeasyfiles-azure-local-download-overwrite-{}",
+            std::process::id()
+        ));
+        let prepared_paths = prepare_direct_download_paths(
+            temp_root
+                .join("downloads")
+                .join("report.txt")
+                .to_string_lossy()
+                .as_ref(),
+        )
+        .unwrap();
+        fs::create_dir_all(prepared_paths.final_path.parent().unwrap())
+            .await
+            .unwrap();
+        fs::write(&prepared_paths.final_path, b"old").await.unwrap();
+        let cancellation_flag = AtomicBool::new(false);
+        let mut chunks = vec![b"new".to_vec()].into_iter();
+
+        AzureConnectionService::write_download_stream_to_paths(
+            &prepared_paths,
+            3,
+            &cancellation_flag,
+            &mut chunks,
+            |chunks| {
+                let next = chunks.next();
+                Box::pin(async move { Ok(next) })
+            },
+            |_, _, _| Ok(()),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            fs::read_to_string(&prepared_paths.final_path).await.unwrap(),
+            "new"
+        );
+
+        fs::remove_dir_all(&temp_root).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn surfaces_stream_errors_during_local_download_writes() {
+        let temp_root = std::env::temp_dir().join(format!(
+            "cloudeasyfiles-azure-local-download-stream-error-{}",
+            std::process::id()
+        ));
+        let prepared_paths = prepare_direct_download_paths(
+            temp_root
+                .join("downloads")
+                .join("report.txt")
+                .to_string_lossy()
+                .as_ref(),
+        )
+        .unwrap();
+        let cancellation_flag = AtomicBool::new(false);
+        let mut chunk_requests = 0;
+
+        let error = AzureConnectionService::write_download_stream_to_paths(
+            &prepared_paths,
+            10,
+            &cancellation_flag,
+            &mut chunk_requests,
+            |chunk_requests| {
+                *chunk_requests += 1;
+                Box::pin(async move {
+                    if *chunk_requests == 1 {
+                        Ok::<Option<Vec<u8>>, String>(Some(b"hello".to_vec()))
+                    } else {
+                        Err("stream failed".to_string())
+                    }
+                })
+            },
+            |_, _, _| Ok(()),
+        )
+        .await
+        .unwrap_err();
+
+        assert_eq!(error, "stream failed");
+        assert!(fs::try_exists(&prepared_paths.temp_path).await.unwrap());
+        assert!(!fs::try_exists(&prepared_paths.final_path).await.unwrap());
+
+        fs::remove_dir_all(&temp_root).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn surfaces_progress_callback_errors_during_local_download_writes() {
+        let temp_root = std::env::temp_dir().join(format!(
+            "cloudeasyfiles-azure-local-download-progress-error-{}",
+            std::process::id()
+        ));
+        let prepared_paths = prepare_direct_download_paths(
+            temp_root
+                .join("downloads")
+                .join("report.txt")
+                .to_string_lossy()
+                .as_ref(),
+        )
+        .unwrap();
+        let cancellation_flag = AtomicBool::new(false);
+        let mut chunks = vec![b"hello".to_vec()].into_iter();
+
+        let error = AzureConnectionService::write_download_stream_to_paths(
+            &prepared_paths,
+            5,
+            &cancellation_flag,
+            &mut chunks,
+            |chunks| {
+                let next = chunks.next();
+                Box::pin(async move { Ok(next) })
+            },
+            |_, _, _| Err("progress failed".to_string()),
+        )
+        .await
+        .unwrap_err();
+
+        assert_eq!(error, "progress failed");
+        assert!(fs::try_exists(&prepared_paths.temp_path).await.unwrap());
+        assert!(!fs::try_exists(&prepared_paths.final_path).await.unwrap());
+
+        fs::remove_dir_all(&temp_root).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn rejects_download_paths_when_parent_is_not_a_directory() {
+        let temp_root = std::env::temp_dir().join(format!(
+            "cloudeasyfiles-azure-local-download-parent-error-{}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&temp_root).await.unwrap();
+        let blocking_file = temp_root.join("blocking-file");
+        fs::write(&blocking_file, b"not-a-directory").await.unwrap();
+        let destination_path = blocking_file.join("report.txt");
+        let prepared_paths =
+            prepare_direct_download_paths(destination_path.to_string_lossy().as_ref()).unwrap();
+        let cancellation_flag = AtomicBool::new(false);
+        let mut chunks = vec![b"hello".to_vec()].into_iter();
+
+        let error = AzureConnectionService::write_download_stream_to_paths(
+            &prepared_paths,
+            5,
+            &cancellation_flag,
+            &mut chunks,
+            |chunks| {
+                let next = chunks.next();
+                Box::pin(async move { Ok(next) })
+            },
+            |_, _, _| Ok(()),
+        )
+        .await
+        .unwrap_err();
+
+        assert!(!error.trim().is_empty());
+
+        fs::remove_dir_all(&temp_root).await.unwrap();
+    }
+
     #[tokio::test]
     async fn resolves_cached_object_path_and_cleans_up_temp_files() {
         let temp_root = std::env::temp_dir().join(format!(
@@ -3680,6 +4087,14 @@ mod tests {
         AzureConnectionService::remove_temp_file_if_exists(&temp_file)
             .await
             .unwrap();
+
+        let temp_directory = temp_root.join("downloads").join(".directory.part");
+        fs::create_dir_all(&temp_directory).await.unwrap();
+        let remove_directory_error =
+            AzureConnectionService::remove_temp_file_if_exists(&temp_directory)
+                .await
+                .unwrap_err();
+        assert!(!remove_directory_error.trim().is_empty());
 
         let missing = AzureConnectionService::resolve_cached_object_path(
             "connection-123".to_string(),

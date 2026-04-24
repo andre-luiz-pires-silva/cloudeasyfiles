@@ -28,7 +28,7 @@ These values are used only as the starting point for this plan. Updated values s
 
 - Use line coverage as the canonical project-wide metric
 - Use branch/function/region coverage as supporting diagnostics
-- Keep coverage visible in CI, but do not block pull requests on coverage thresholds yet
+- Keep coverage visible in CI and enforce the current minimum threshold once the target baseline is reached
 - Continue prioritizing critical paths and provider-safety guardrails over broad low-value coverage
 
 ## Execution Strategy
@@ -110,7 +110,7 @@ Success criteria:
 ### Phase 5. Policy review
 
 - re-measure coverage after each phase
-- decide whether the project is ready for a soft gate on coverage in CI
+- enable a coverage gate in CI once the target baseline is stable
 - update the testing guide with newly covered areas and commands if needed
 
 ## Milestones
@@ -123,7 +123,7 @@ Intermediate milestones for this initiative:
 - Milestone D: Frontend `50%`, Rust `55%`
 - Final target: Frontend `75%`, Rust `75%`
 
-These milestones are for planning and progress tracking only. They are not CI failure thresholds at this stage.
+These milestones are for planning and progress tracking. The enforced repository baseline is now maintained separately in project configuration.
 
 Current milestone status as of 2026-04-23:
 

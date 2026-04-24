@@ -98,7 +98,12 @@ It also generates coverage reports and publishes:
 - a summary in the GitHub Actions job page
 - downloadable coverage artifacts for the workflow run
 
-Coverage remains informational in CI for now. The repository is not yet enforcing coverage thresholds because Rust coverage is still below the final target and the current focus is expanding high-risk areas rather than blocking on percentage alone.
+Coverage is now enforced in CI:
+
+- frontend coverage uses Vitest thresholds at `75%` for lines and statements
+- Rust coverage uses a repository script gate at `75%` line coverage by validating `coverage/rust-coverage.json`
+
+Any pull request or push that drops below those minimums will fail during the coverage steps.
 
 ## Recommended Next Phases
 

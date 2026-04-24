@@ -339,4 +339,49 @@ mod tests {
             "Attribute 'account' is longer than platform limit of 64 chars"
         );
     }
+
+    #[test]
+    fn deletes_saved_azure_secret_from_store() {
+        let store = FakeAzureSecretStore::default();
+        store.entries.borrow_mut().insert(
+            FakeAzureSecretStore::account_name("azure-1", ACCOUNT_KEY_ACCOUNT),
+            "account-key".to_string(),
+        );
+
+        AzureConnectionSecretService::delete_with_store("azure-1", &store)
+            .expect("delete should succeed for stored entry");
+
+        assert!(!store
+            .entries
+            .borrow()
+            .contains_key(&FakeAzureSecretStore::account_name(
+                "azure-1",
+                ACCOUNT_KEY_ACCOUNT
+            )));
+        assert_eq!(
+            store.delete_attempts.borrow().as_slice(),
+            &[FakeAzureSecretStore::account_name(
+                "azure-1",
+                ACCOUNT_KEY_ACCOUNT
+            )]
+        );
+    }
+
+    #[test]
+    fn surfaces_delete_errors_for_azure_entries() {
+        let store = FakeAzureSecretStore::default();
+        store.entries.borrow_mut().insert(
+            FakeAzureSecretStore::account_name("azure-1", ACCOUNT_KEY_ACCOUNT),
+            "account-key".to_string(),
+        );
+        store.fail_next(
+            "delete-account-key",
+            KeyringError::Invalid("account-key".to_string(), "locked".to_string()),
+        );
+
+        let error = AzureConnectionSecretService::delete_with_store("azure-1", &store)
+            .expect_err("delete failure should be surfaced");
+
+        assert_eq!(error, "Attribute account-key is invalid: locked");
+    }
 }
