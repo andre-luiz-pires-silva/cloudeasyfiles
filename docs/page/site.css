@@ -486,6 +486,83 @@ h3 {
   transform: translateY(0);
 }
 
+/* Anchor scroll offset for sticky header */
+#features,
+#methodology,
+#about,
+#download {
+  scroll-margin-top: 92px;
+}
+
+/* Methodology section */
+.methodology-body {
+  max-width: 760px;
+  margin-top: 28px;
+}
+
+.methodology-pillars {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 20px;
+  margin-top: 48px;
+}
+
+.pillar {
+  padding: 28px 24px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: linear-gradient(180deg, rgba(12, 24, 41, 0.72), rgba(8, 15, 28, 0.82));
+}
+
+.pillar .aside-label {
+  display: inline-block;
+  margin-bottom: 14px;
+}
+
+.pillar h3 {
+  margin-bottom: 14px;
+  font-size: 1.1rem;
+  line-height: 1.2;
+}
+
+.pillar p {
+  margin-top: 0;
+  font-size: 0.96rem;
+  line-height: 1.68;
+}
+
+/* Builder card */
+.builder-card {
+  display: grid;
+  grid-template-columns: 180px minmax(0, 1fr);
+  gap: 40px;
+  align-items: start;
+  max-width: 860px;
+  margin-top: 30px;
+  padding-top: 20px;
+  border-top: 1px solid rgba(121, 242, 223, 0.18);
+}
+
+.builder-photo {
+  display: block;
+  width: 100%;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--line);
+}
+
+.builder-info .builder-label {
+  margin: 0;
+  color: var(--accent);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.8rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.builder-info h3 {
+  margin-top: 10px;
+}
+
 @media (max-width: 980px) {
   .hero,
   .product-layout,
@@ -516,6 +593,18 @@ h3 {
 
   .footer {
     align-items: start;
+  }
+
+  .methodology-pillars {
+    grid-template-columns: 1fr;
+  }
+
+  .builder-card {
+    grid-template-columns: 1fr;
+  }
+
+  .builder-photo-col {
+    max-width: 180px;
   }
 }
 

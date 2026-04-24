@@ -12,6 +12,11 @@ Current priorities:
 
 This guide is the permanent reference for how testing works in the repository and how future coverage should evolve.
 
+Detailed planning and progress tracking for the current coverage-expansion initiative live in:
+
+- [`coverage-expansion-plan.md`](./coverage-expansion-plan.md)
+- [`coverage-expansion-progress.md`](./coverage-expansion-progress.md)
+
 ## Current Stack
 
 ### Frontend
@@ -35,14 +40,20 @@ The initial backend suite focuses on high-signal helpers and provider guardrails
 
 - AWS listing normalization helpers
 - AWS restore-tier validation
+- AWS mutation input validation for restore, tier change, and recursive delete
 - AWS copy/tagging encoding helpers
-- AWS multipart sizing rules
+- AWS multipart sizing and delete batching rules
+- AWS listing pagination helpers
 - AWS cache path sanitization
 - Azure listing normalization helpers
 - Azure folder placeholder and deduplication behavior
-- Azure continuation and `hasMore` semantics
+- Azure continuation, marker, and `hasMore` semantics
+- Azure mutation input validation for delete, access-tier change, and rehydration
+- Azure access-tier request header helpers
+- Azure list query builders
 - Azure canonicalized headers/resource helpers
 - Azure cache path sanitization
+- Tauri command-layer cancellation classification and download event mapping
 
 ### Frontend
 
@@ -52,6 +63,8 @@ The initial frontend suite focuses on stable contracts and low-fragility logic:
 - connection persistence rollback on secret-save failure
 - AWS/Azure provider read adapter mapping
 - navigation guard helpers for delete, upload path, folder validation, restore/tier/download eligibility
+- restore and storage-class request builders
+- upload conflict decision flows
 
 ## Commands
 
@@ -85,22 +98,22 @@ It also generates coverage reports and publishes:
 - a summary in the GitHub Actions job page
 - downloadable coverage artifacts for the workflow run
 
+Coverage is now enforced in CI:
+
+- frontend coverage uses Vitest thresholds at `75%` for lines and statements
+- Rust coverage uses a repository script gate at `75%` line coverage by validating `coverage/rust-coverage.json`
+
+Any pull request or push that drops below those minimums will fail during the coverage steps.
+
 ## Recommended Next Phases
 
-### Phase 2
+See the dedicated coverage-expansion plan for the current phase-by-phase roadmap.
 
-- add coverage around higher-level frontend orchestration in `ConnectionNavigator`
-- protect startup, refresh, and explicit mutate-vs-read behavior
+The next highest-value areas are:
 
-### Phase 3
-
-- add focused command-layer Rust coverage in `presentation/commands.rs`
-- verify event/state mapping and cancellation/error classification
-
-### Phase 4
-
-- add manual smoke coverage against controlled AWS/Azure environments in a separate workflow
-- keep that workflow outside the default PR gate
+- Rust provider-service flows around multi-step restore, tier change, delete, and transfer execution
+- command wrappers in `src-tauri/src/presentation/commands.rs` that protect provider operations
+- remaining `ConnectionNavigator.tsx` orchestration only when frontend behavior changes introduce new risk
 
 ## Test Design Rules
 

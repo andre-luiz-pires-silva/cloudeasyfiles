@@ -7,6 +7,18 @@ export default defineConfig({
     environment: "jsdom",
     globals: true,
     setupFiles: ["./src/test/setup.ts"],
-    include: ["src/**/*.test.ts", "src/**/*.test.tsx"]
+    include: ["src/**/*.test.ts", "src/**/*.test.tsx"],
+    coverage: {
+      include: ["src/**/*.{ts,tsx}"],
+      exclude: [
+        "src/**/*.test.{ts,tsx}",
+        "src/test/**",
+        "src/vite-env.d.ts"
+      ],
+      thresholds: {
+        lines: 75,
+        statements: 75
+      }
+    }
   }
 });

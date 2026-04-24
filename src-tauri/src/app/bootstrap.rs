@@ -12,6 +12,13 @@ const FRONTEND_READY_TIMEOUT: Duration = Duration::from_secs(6);
 const FRONTEND_RELOAD_SCRIPT: &str = "window.location.reload();";
 const MAIN_WINDOW_ICON_PNG: &[u8] = include_bytes!("../../icons/128x128@2x.png");
 
+#[derive(Debug, PartialEq, Eq)]
+enum FrontendTimeoutAction {
+    NoReload,
+    WindowMissing,
+    ReloadOnce { script: &'static str, log_message: String },
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -78,7 +85,7 @@ fn prepare_main_window<R: Runtime>(app: &AppHandle<R>) {
     window_state::restore_main_window_size(app);
 
     let Some(window) = app.get_webview_window("main") else {
-        eprintln!("[bootstrap] main window not found while preparing startup flow");
+        eprintln!("{}", missing_main_window_message());
         return;
     };
 
@@ -100,36 +107,178 @@ fn prepare_main_window<R: Runtime>(app: &AppHandle<R>) {
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(FRONTEND_READY_TIMEOUT).await;
 
-        if boot_resolved_flag.load(Ordering::SeqCst) {
-            return;
-        }
+        match resolve_frontend_timeout_action(
+            &boot_resolved_flag,
+            app_handle.get_webview_window("main").is_some(),
+            FRONTEND_READY_TIMEOUT,
+        ) {
+            FrontendTimeoutAction::NoReload | FrontendTimeoutAction::WindowMissing => return,
+            FrontendTimeoutAction::ReloadOnce { script, log_message } => {
+                let Some(window) = app_handle.get_webview_window("main") else {
+                    return;
+                };
 
-        let Some(window) = app_handle.get_webview_window("main") else {
-            return;
-        };
+                eprintln!("{log_message}");
 
-        eprintln!(
-            "[bootstrap] frontend ready event timed out after {}s; reloading webview once",
-            FRONTEND_READY_TIMEOUT.as_secs()
-        );
-
-        if let Err(error) = window.eval(FRONTEND_RELOAD_SCRIPT) {
-            eprintln!("[bootstrap] failed to reload webview after startup timeout error={error}");
-            return;
+                if let Err(error) = window.eval(script) {
+                    eprintln!("{}", frontend_reload_eval_error_message(&error.to_string()));
+                    return;
+                }
+            }
         }
     });
+}
+
+fn should_reload_frontend_after_timeout(frontend_boot_resolved: &AtomicBool) -> bool {
+    !frontend_boot_resolved.load(Ordering::SeqCst)
+}
+
+fn resolve_frontend_timeout_action(
+    frontend_boot_resolved: &AtomicBool,
+    window_available: bool,
+    timeout: Duration,
+) -> FrontendTimeoutAction {
+    if !should_reload_frontend_after_timeout(frontend_boot_resolved) {
+        return FrontendTimeoutAction::NoReload;
+    }
+
+    if !window_available {
+        return FrontendTimeoutAction::WindowMissing;
+    }
+
+    FrontendTimeoutAction::ReloadOnce {
+        script: FRONTEND_RELOAD_SCRIPT,
+        log_message: frontend_reload_timeout_message(timeout),
+    }
+}
+
+fn missing_main_window_message() -> &'static str {
+    "[bootstrap] main window not found while preparing startup flow"
+}
+
+fn frontend_reload_timeout_message(timeout: Duration) -> String {
+    format!(
+        "[bootstrap] frontend ready event timed out after {}s; reloading webview once",
+        timeout.as_secs()
+    )
+}
+
+fn frontend_reload_eval_error_message(error: &str) -> String {
+    format!("[bootstrap] failed to reload webview after startup timeout error={error}")
+}
+
+fn main_window_icon_load_error_message(error: &str) -> String {
+    format!("[bootstrap] failed to load main window icon error={error}")
+}
+
+fn main_window_icon_apply_error_message(error: &str) -> String {
+    format!("[bootstrap] failed to apply main window icon error={error}")
 }
 
 fn apply_main_window_icon<R: Runtime>(window: &tauri::WebviewWindow<R>) {
     let icon = match Image::from_bytes(MAIN_WINDOW_ICON_PNG) {
         Ok(icon) => icon,
         Err(error) => {
-            eprintln!("[bootstrap] failed to load main window icon error={error}");
+            eprintln!("{}", main_window_icon_load_error_message(&error.to_string()));
             return;
         }
     };
 
     if let Err(error) = window.set_icon(icon) {
-        eprintln!("[bootstrap] failed to apply main window icon error={error}");
+        eprintln!("{}", main_window_icon_apply_error_message(&error.to_string()));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reloads_frontend_only_when_boot_is_unresolved_after_timeout() {
+        let unresolved = AtomicBool::new(false);
+        let resolved = AtomicBool::new(true);
+
+        assert!(should_reload_frontend_after_timeout(&unresolved));
+        assert!(!should_reload_frontend_after_timeout(&resolved));
+    }
+
+    #[test]
+    fn exposes_bootstrap_log_messages() {
+        assert_eq!(
+            missing_main_window_message(),
+            "[bootstrap] main window not found while preparing startup flow"
+        );
+        assert_eq!(
+            frontend_reload_timeout_message(Duration::from_secs(6)),
+            "[bootstrap] frontend ready event timed out after 6s; reloading webview once"
+        );
+        assert_eq!(
+            frontend_reload_timeout_message(Duration::from_secs(12)),
+            "[bootstrap] frontend ready event timed out after 12s; reloading webview once"
+        );
+        assert_eq!(
+            frontend_reload_eval_error_message("eval failed"),
+            "[bootstrap] failed to reload webview after startup timeout error=eval failed"
+        );
+        assert_eq!(
+            main_window_icon_load_error_message("decode failed"),
+            "[bootstrap] failed to load main window icon error=decode failed"
+        );
+        assert_eq!(
+            main_window_icon_apply_error_message("platform rejected icon"),
+            "[bootstrap] failed to apply main window icon error=platform rejected icon"
+        );
+    }
+
+    #[test]
+    fn resolves_frontend_timeout_actions() {
+        let unresolved = AtomicBool::new(false);
+        let resolved = AtomicBool::new(true);
+
+        assert_eq!(
+            resolve_frontend_timeout_action(&resolved, true, Duration::from_secs(6)),
+            FrontendTimeoutAction::NoReload
+        );
+        assert_eq!(
+            resolve_frontend_timeout_action(&unresolved, false, Duration::from_secs(6)),
+            FrontendTimeoutAction::WindowMissing
+        );
+        assert_eq!(
+            resolve_frontend_timeout_action(&unresolved, true, Duration::from_secs(6)),
+            FrontendTimeoutAction::ReloadOnce {
+                script: FRONTEND_RELOAD_SCRIPT,
+                log_message: frontend_reload_timeout_message(Duration::from_secs(6)),
+            }
+        );
+    }
+
+    #[test]
+    fn reload_decision_tracks_atomic_state_transitions() {
+        let state = AtomicBool::new(false);
+
+        assert!(should_reload_frontend_after_timeout(&state));
+
+        state.store(true, Ordering::SeqCst);
+        assert!(!should_reload_frontend_after_timeout(&state));
+
+        state.store(false, Ordering::SeqCst);
+        assert!(should_reload_frontend_after_timeout(&state));
+    }
+
+    #[test]
+    fn timeout_action_uses_requested_timeout_in_reload_message() {
+        let unresolved = AtomicBool::new(false);
+
+        assert_eq!(
+            resolve_frontend_timeout_action(&unresolved, true, Duration::from_secs(30)),
+            FrontendTimeoutAction::ReloadOnce {
+                script: FRONTEND_RELOAD_SCRIPT,
+                log_message: frontend_reload_timeout_message(Duration::from_secs(30)),
+            }
+        );
+        assert_eq!(
+            frontend_reload_timeout_message(Duration::from_secs(1)),
+            "[bootstrap] frontend ready event timed out after 1s; reloading webview once"
+        );
     }
 }

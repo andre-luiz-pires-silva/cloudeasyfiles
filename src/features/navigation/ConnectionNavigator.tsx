@@ -3,8 +3,16 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { isTauri } from "@tauri-apps/api/core";
+import { useNavigationPreferencesState } from "./hooks/useNavigationPreferencesState";
+import { useTransferState } from "./hooks/useTransferState";
+import { useModalOrchestrationState } from "./hooks/useModalOrchestrationState";
+import { useConnectionFormState } from "./hooks/useConnectionFormState";
 import {
-  AlertCircle,
+  ALL_CONTENT_STATUS_FILTERS,
+  type ContentStatusFilter,
+  useContentListingState
+} from "./hooks/useContentListingState";
+import {
   ChevronRight,
   CheckCircle2,
   CircleAlert,
@@ -15,35 +23,22 @@ import {
   File,
   Folder,
   FolderPlus,
-  LayoutGrid,
-  List,
   LoaderCircle,
   Plus,
   RefreshCw,
   Search,
   Settings,
-  Snowflake,
   Trash2,
   Upload,
-  XCircle,
   X
 } from "lucide-react";
 import logoPrimary from "../../assets/logo-primary.svg";
-import { AwsConnectionFields } from "../connections/components/AwsConnectionFields";
-import { AwsUploadStorageClassField } from "../connections/components/AwsUploadStorageClassField";
-import { AzureConnectionFields } from "../connections/components/AzureConnectionFields";
-import { AzureUploadTierField } from "../connections/components/AzureUploadTierField";
-import {
-  DEFAULT_AWS_UPLOAD_STORAGE_CLASS,
-  normalizeAwsUploadStorageClass,
-  type AwsUploadStorageClass
-} from "../connections/awsUploadStorageClasses";
-import {
-  DEFAULT_AZURE_UPLOAD_TIER,
-  normalizeAzureUploadTier,
-  type AzureUploadTier
-} from "../connections/azureUploadTiers";
-import { appSettingsStore } from "../settings/persistence/appSettingsStore";
+import { ContentExplorerHeader } from "./components/ContentExplorerHeader";
+import { ContentItemList } from "./components/ContentItemList";
+import { ConnectionsSidebar } from "./components/ConnectionsSidebar";
+import { NavigatorModalOrchestrator } from "./components/NavigatorModalOrchestrator";
+import type { AwsUploadStorageClass } from "../connections/awsUploadStorageClasses";
+import type { AzureUploadTier } from "../connections/azureUploadTiers";
 import {
   DEFAULT_CONTENT_LISTING_PAGE_SIZE,
   MAX_CONTENT_LISTING_PAGE_SIZE,
@@ -52,18 +47,10 @@ import {
 } from "../settings/persistence/appSettingsStore";
 import type {
   AwsConnectionDraft,
-  AzureAuthenticationMethod,
-  ConnectionFormMode,
   ConnectionProvider,
   SavedConnectionSummary
 } from "../connections/models";
 import { connectionService } from "../connections/services/connectionService";
-import {
-  isConnectionNameFormatValid,
-  isRestrictedBucketNameFormatValid,
-  isStorageAccountNameFormatValid,
-  MAX_CONNECTION_NAME_LENGTH
-} from "../connections/services/connectionService";
 import {
   type AwsRestoreTier,
   type AwsDownloadProgressEvent,
@@ -110,16 +97,6 @@ import {
 } from "../../lib/tauri/azureConnections";
 import type { Locale } from "../../lib/i18n/I18nProvider";
 import { useI18n } from "../../lib/i18n/useI18n";
-import { validateLocalMappingDirectory } from "../../lib/tauri/commands";
-import {
-  type RestoreRequestSummary,
-  type RestoreRequestTarget,
-  RestoreRequestModal
-} from "../restore/RestoreRequestModal";
-import {
-  ChangeStorageClassModal,
-  type ChangeStorageClassRequestSummary
-} from "../storage-class/ChangeStorageClassModal";
 import {
   type CloudContainerItemsResult,
   type CloudContainerSummary,
@@ -128,7 +105,7 @@ import {
   testConnectionForSavedConnection
 } from "./providerReadAdapters";
 import {
-  buildContentDeletePlan,
+  buildPendingDeleteState,
   buildFileIdentity,
   buildUploadObjectKey,
   canChangeTierItem,
@@ -136,12 +113,194 @@ import {
   canDownloadItem,
   canRestoreItem,
   dedupeDirectoryPrefixes,
+  getBatchSelectionActions,
+  getFileActionKind,
+  getRefreshPlan,
+  type NavigationFileActionId as FileActionId,
+  getStartupAutoConnectConnections,
   getUploadParentPath,
   hasActiveTransferForItem,
   isFileIdentityInContext,
   normalizeDirectoryPrefix,
+  shouldRefreshAfterUploadCompletion,
+  toggleSelectedItemId,
+  toggleVisibleSelection,
   validateNewFolderNameInput
 } from "./navigationGuards";
+import {
+  buildClosedChangeStorageClassModalState,
+  buildClosedRestoreRequestModalState,
+  buildChangeStorageClassRequestState,
+  buildOpenedChangeStorageClassModalState,
+  buildOpenedRestoreRequestModalState,
+  buildRestoreRequestState,
+  getBatchChangeTierTooltip,
+  type NavigationChangeStorageClassRequestState as ChangeStorageClassRequestState,
+  type NavigationRestoreRequestState as RestoreRequestState
+} from "./navigationWorkflows";
+import {
+  buildBatchDownloadPlan,
+  applyDownloadedFileState,
+  reconcileDownloadedFilePathsForContext,
+  resolveDownloadState
+} from "./navigationDownloads";
+import {
+  buildContentItems,
+  buildPreviewFileState,
+  isArchivedStorageClass,
+  mergeContentItems,
+  type NavigationContentExplorerItem as ContentExplorerItem
+} from "./navigationContent";
+import {
+  buildAvailableUntilTooltip,
+  buildBreadcrumbs,
+  buildConnectionFailureMessage,
+  buildContentCounterLabel,
+  extractErrorMessage,
+  filterTreeNodes,
+  formatBytes,
+  formatDateTime,
+  getConnectionActions,
+  getContentStatusLabel,
+  getDisplayContentStatus,
+  getFileStatusBadgeDescriptors,
+  getFileNameFromPath,
+  getPathTitle,
+  getPreferredFileStatusBadgeDescriptors,
+  getSummaryContentStatuses,
+  isCancelledTransferError,
+  isTemporaryRestoredArchivalFile,
+  isUploadExistsPreflightPermissionError,
+  matchesFilter,
+  normalizeFilterText
+} from "./navigationPresentation";
+import {
+  isAzureArchivedOverwriteBlocked,
+  resolveUploadConflictDecisions,
+  type UploadConflictDecision,
+  type UploadConflictPromptState
+} from "./navigationUploads";
+import {
+  type NavigationFormErrors as FormErrors,
+  validateConnectionForm as validateNavigationConnectionForm,
+  validateConnectionTestFields as validateNavigationConnectionTestFields
+} from "./navigationValidation";
+import {
+  buildBucketNodes,
+  buildHomeSelectionState,
+  buildNodeSelectionState,
+  clearConnectionBucketNodes,
+  findTreeNodeById,
+  setBucketPath,
+  sortTreeNodes,
+  toggleCollapsedConnection,
+  updateBucketNodeMap
+} from "./navigationTreeState";
+import {
+  buildContentResetState,
+  buildInitialContentFailureState,
+  buildInitialContentLoadingState,
+  buildInitialContentSuccessState,
+  buildLoadMoreFailureState,
+  buildLoadMoreStartState,
+  buildLoadMoreSuccessState,
+  getRegionUpdate
+} from "./navigationLoading";
+import {
+  buildConnectedIndicator,
+  buildConnectingIndicator,
+  buildConnectionErrorIndicator,
+  buildConnectionTestInProgressState,
+  buildConnectionTestMissingAccountState,
+  buildConnectionTestSuccessState,
+  buildConnectionTestValidationFailureState,
+  buildDisconnectedIndicator,
+  buildNextConnectionRequestId,
+  buildResetConnectionTestState,
+  clearConnectionProviderAccountId,
+  setConnectionProviderAccountId,
+  updateConnectionIndicatorMap
+} from "./navigationConnectionState";
+import {
+  buildAwsEditModalState,
+  buildAzureEditModalState,
+  buildBaseEditModalState,
+  buildCreateModalState,
+  buildModalLoadErrorMessage,
+  buildResetModalFormState
+} from "./navigationModalState";
+import {
+  executeConnectionActionDispatch,
+  executeContentAreaActionDispatch,
+  executeDefaultConnectionAction,
+  getConnectionActionDispatchSteps,
+  getContentAreaActionDispatchStep,
+  getDefaultConnectionActionStep
+} from "./navigationActionDispatch";
+import {
+  buildClosedCreateFolderModalState,
+  buildClosedPendingDeleteModalState,
+  buildOpenedCreateFolderModalState,
+  canCloseCreateFolderModal,
+  canClosePendingDeleteModal,
+  canOpenCreateFolderModal,
+  shouldOpenContentAreaContextMenu
+} from "./navigationModalGuards";
+import {
+  buildDeleteContentFailureState,
+  buildDeleteContentSuccessState,
+  buildClosedUploadSettingsModalState,
+  buildConnectionDeleteErrorMessage,
+  buildOpenedUploadSettingsModalState,
+  buildPendingRemoveConnectionState
+} from "./navigationSecondaryModalState";
+import { resolveCachedFileIdentities } from "./navigationCacheState";
+import {
+  buildDownloadCompletionToast,
+  getTransferCancellationTarget,
+  resolveTransferCancellationErrorMessage,
+  buildUploadCompletionToast,
+  reconcileContentItemsFromDownloadEvent,
+  reconcileDownloadedFilePathsFromDownloadEvent,
+  shouldShowTransferError,
+  updateTransfersFromDownloadEvent,
+  updateTransfersFromUploadEvent,
+  type NavigationActiveTransfer as ActiveTransfer,
+  type NavigationCompletionToast as CompletionToast,
+  type NavigationTransferKind as TransferKind
+} from "./navigationTransfers";
+import {
+  buildUploadPreparationIssueMessages,
+  buildUploadTransferEntry,
+  hydratePreparedUploadBatchItems,
+  normalizeUploadBatchPaths,
+  prepareUploadBatchCandidates
+} from "./navigationUploadPreparation";
+import {
+  resolveBrowserFileUploadSource,
+  startSimpleUploadForProvider
+} from "./navigationUploadExecution";
+import {
+  collectDroppedFiles,
+  resolveDirectoryPickerDefaultPath,
+  resolveMultiFilePickResult,
+  resolveSingleDirectoryPickResult
+} from "./navigationFileInput";
+import {
+  buildContentSelectionState,
+  clearContentSelectionState,
+  toggleAllVisibleContentSelection,
+  toggleContentSelectionItem
+} from "./navigationSelectionState";
+import {
+  buildContentCounts,
+  buildContentStatusSummaryItems,
+  countLoadedItemsByStatus,
+  filterConnectionBuckets,
+  filterContentItems,
+  isContentFilterActive as deriveIsContentFilterActive,
+  isContentStatusFilterInactive
+} from "./navigationDerivedState";
 
 function Globe2Icon() {
   return (
@@ -164,92 +323,15 @@ function Globe2Icon() {
 }
 
 type NavigatorView = "home" | "node";
-type ConnectionTestStatus = "idle" | "testing" | "success" | "error";
 type ConnectionIndicatorStatus = "disconnected" | "connecting" | "connected" | "error";
-type FormErrors = Partial<
-  Record<
-    | "connectionName"
-    | "accessKeyId"
-    | "secretAccessKey"
-    | "restrictedBucketName"
-    | "storageAccountName"
-    | "authenticationMethod"
-    | "accountKey",
-    string
-  >
->;
-type NodeAction = {
-  id: "connect" | "cancelConnect" | "disconnect" | "edit" | "remove";
-  label: string;
-  variant?: "danger";
-  disabled?: boolean;
-};
-
-const DEFAULT_SIDEBAR_WIDTH = 360;
-const MIN_SIDEBAR_WIDTH = 300;
-const MAX_SIDEBAR_WIDTH = 520;
-const MIN_CONTENT_WIDTH = 420;
-const SIDEBAR_WIDTH_STORAGE_KEY = "cloudeasyfiles.sidebar-width";
-const MISSING_MINIMUM_S3_PERMISSION_ERROR = "AWS_S3_LIST_BUCKETS_PERMISSION_REQUIRED";
-const RESTRICTED_BUCKET_MISMATCH_ERROR = "AWS_S3_RESTRICTED_BUCKET_MISMATCH";
 const CONNECTING_CONNECTION_TITLE_KEY = "navigation.connection_status.connecting";
 const CONNECTED_CONNECTION_TITLE_KEY = "navigation.connection_status.connected";
 const DISCONNECTED_CONNECTION_TITLE_KEY = "navigation.connection_status.disconnected";
 const BUCKET_REGION_PLACEHOLDER = "...";
 const MAX_BUCKET_REGION_REQUESTS = 4;
-const CONTENT_VIEW_MODE_STORAGE_KEY = "cloudeasyfiles.content-view-mode";
-const CONNECTION_METADATA_STORAGE_KEY = "cloudeasyfiles.connection-metadata";
-const ALL_CONTENT_STATUS_FILTERS: Array<
-  "directory" | "downloaded" | "available" | "restoring" | "archived"
-> = [
-  "directory",
-  "downloaded",
-  "available",
-  "restoring",
-  "archived"
-];
 type ConnectionIndicator = {
   status: ConnectionIndicatorStatus;
   message?: string;
-};
-
-type ContentViewMode = "list" | "compact";
-type LocalMappingDirectoryStatus = "checking" | "valid" | "invalid" | "missing";
-type FileAvailabilityStatus = "available" | "archived" | "restoring";
-type FileDownloadState = "not_downloaded" | "restoring" | "available_to_download" | "downloaded";
-type ContentStatusFilter = (typeof ALL_CONTENT_STATUS_FILTERS)[number];
-type FileActionId =
-  | "download"
-  | "downloadAs"
-  | "openFile"
-  | "openInExplorer"
-  | "cancelDownload"
-  | "restore"
-  | "changeTier"
-  | "delete";
-type DownloadTransferState = "progress" | "completed" | "failed" | "cancelled";
-type TransferKind = "cache" | "direct" | "upload";
-type ContentMenuAnchor = {
-  itemId: string;
-  x: number;
-  y: number;
-};
-
-type ContentAreaMenuAnchor = {
-  x: number;
-  y: number;
-};
-
-type ContentDeletePlan = {
-  fileKeys: string[];
-  directoryPrefixes: string[];
-};
-
-type PendingContentDeleteState = {
-  items: ContentExplorerItem[];
-  fileCount: number;
-  directoryCount: number;
-  plan: ContentDeletePlan;
 };
 
 type FileActionAvailabilityContext = {
@@ -273,19 +355,6 @@ type BatchSelectionActionsState = {
 
 const CONTENT_DELETE_CONFIRMATION_TEXT = "DELETE";
 
-type ContentExplorerItem = {
-  id: string;
-  kind: "directory" | "file";
-  name: string;
-  path: string;
-  size?: number;
-  lastModified?: string | null;
-  storageClass?: string | null;
-  restoreExpiryDate?: string | null;
-  availabilityStatus?: FileAvailabilityStatus;
-  downloadState?: FileDownloadState;
-};
-
 type TreeNodeKind = "connection" | "bucket";
 
 type ExplorerTreeNode = {
@@ -299,740 +368,6 @@ type ExplorerTreeNode = {
   path?: string;
   children?: ExplorerTreeNode[];
 };
-
-function sortTreeNodes(nodes: ExplorerTreeNode[]): ExplorerTreeNode[] {
-  return [...nodes]
-    .map((node) => ({
-      ...node,
-      children: node.children ? sortTreeNodes(node.children) : undefined
-    }))
-    .sort((left, right) => {
-      const kindOrder = (node: ExplorerTreeNode) => (node.kind === "bucket" ? 0 : 1);
-
-      const kindDifference = kindOrder(left) - kindOrder(right);
-
-      if (kindDifference !== 0) {
-        return kindDifference;
-      }
-
-      return left.name.localeCompare(right.name, undefined, {
-        sensitivity: "base",
-        numeric: true
-      });
-    });
-}
-
-function buildBucketNodes(
-  connection: SavedConnectionSummary,
-  buckets: CloudContainerSummary[]
-): ExplorerTreeNode[] {
-  return sortTreeNodes(
-    buckets.map((bucket) => ({
-      id: `${connection.id}:bucket:${bucket.name}`,
-      kind: "bucket",
-      connectionId: connection.id,
-      provider: connection.provider,
-      name: bucket.name,
-      region:
-        connection.provider === "aws"
-          ? bucket.region ?? BUCKET_REGION_PLACEHOLDER
-          : undefined,
-      bucketName: bucket.name,
-      path: "",
-      children: []
-    }))
-  );
-}
-
-function findNodeById(
-  nodes: ExplorerTreeNode[],
-  nodeId: string | null
-): ExplorerTreeNode | null {
-  if (!nodeId) {
-    return null;
-  }
-
-  for (const node of nodes) {
-    if (node.id === nodeId) {
-      return node;
-    }
-
-    const match = findNodeById(node.children ?? [], nodeId);
-
-    if (match) {
-      return match;
-    }
-  }
-
-  return null;
-}
-
-function extractErrorMessage(error: unknown): string | null {
-  if (typeof error === "string") {
-    return error;
-  }
-
-  if (error instanceof Error) {
-    return error.message;
-  }
-
-  if (
-    typeof error === "object" &&
-    error !== null &&
-    "message" in error &&
-    typeof error.message === "string"
-  ) {
-    return error.message;
-  }
-
-  return null;
-}
-
-function isCancelledTransferError(error: unknown): boolean {
-  return extractErrorMessage(error) === "DOWNLOAD_CANCELLED";
-}
-
-function isArchivedStorageClass(storageClass: string | null | undefined): boolean {
-  const normalizedStorageClass = storageClass?.toLocaleLowerCase() ?? "";
-
-  return normalizedStorageClass.includes("archive") || normalizedStorageClass.includes("glacier");
-}
-
-function buildPreviewFileState(
-  storageClass: string | null | undefined,
-  restoreInProgress?: boolean | null,
-  restoreExpiryDate?: string | null
-): Pick<ContentExplorerItem, "availabilityStatus" | "downloadState"> {
-  const isArchivedTier = isArchivedStorageClass(storageClass);
-
-  if (restoreInProgress) {
-    return {
-      availabilityStatus: "restoring",
-      downloadState: "restoring"
-    };
-  }
-
-  if (isArchivedTier && restoreExpiryDate) {
-    return {
-      availabilityStatus: "available",
-      downloadState: "not_downloaded"
-    };
-  }
-
-  if (isArchivedTier) {
-    return {
-      availabilityStatus: "archived",
-      downloadState: "not_downloaded"
-    };
-  }
-
-  return {
-    availabilityStatus: "available",
-    downloadState: "not_downloaded"
-  };
-}
-
-function buildContentItems(result: CloudContainerItemsResult): ContentExplorerItem[] {
-  const directories: ContentExplorerItem[] = result.directories
-    .map((directory) => ({
-      id: `directory:${directory.path}`,
-      kind: "directory" as const,
-      name: directory.name,
-      path: directory.path
-    }))
-    .sort((left, right) =>
-      left.name.localeCompare(right.name, undefined, {
-        sensitivity: "base",
-        numeric: true
-      })
-    );
-
-  const files: ContentExplorerItem[] = result.files
-    .map((file) => ({
-      ...buildPreviewFileState(file.storageClass, file.restoreInProgress, file.restoreExpiryDate),
-      id: `file:${file.path}`,
-      kind: "file" as const,
-      name: file.path.split("/").pop() || file.path,
-      path: file.path,
-      size: file.size,
-      lastModified: file.lastModified,
-      storageClass: file.storageClass,
-      restoreExpiryDate: file.restoreExpiryDate
-    }))
-    .sort((left, right) =>
-      left.name.localeCompare(right.name, undefined, {
-        sensitivity: "base",
-        numeric: true
-      })
-    );
-
-  return [...directories, ...files];
-}
-
-function mergeContentItems(
-  currentItems: ContentExplorerItem[],
-  nextItems: ContentExplorerItem[]
-): ContentExplorerItem[] {
-  const mergedItems = new Map<string, ContentExplorerItem>();
-
-  for (const item of currentItems) {
-    mergedItems.set(item.id, item);
-  }
-
-  for (const item of nextItems) {
-    mergedItems.set(item.id, item);
-  }
-
-  return [...mergedItems.values()].sort((left, right) => {
-    if (left.kind !== right.kind) {
-      return left.kind === "directory" ? -1 : 1;
-    }
-
-    return left.name.localeCompare(right.name, undefined, {
-      sensitivity: "base",
-      numeric: true
-    });
-  });
-}
-
-function normalizeFilterText(value: string): string {
-  return value.trim().toLocaleLowerCase();
-}
-
-function matchesFilter(parts: Array<string | null | undefined>, normalizedFilter: string): boolean {
-  if (!normalizedFilter) {
-    return true;
-  }
-
-  return parts.some((part) => part?.toLocaleLowerCase().includes(normalizedFilter));
-}
-
-function filterTreeNodes(
-  nodes: ExplorerTreeNode[],
-  normalizedFilter: string
-): ExplorerTreeNode[] {
-  if (!normalizedFilter) {
-    return nodes;
-  }
-
-  return nodes.reduce<ExplorerTreeNode[]>((filteredNodes, node) => {
-    const filteredChildren = node.children
-      ? filterTreeNodes(node.children, normalizedFilter)
-      : undefined;
-    const nodeMatches = matchesFilter(
-      [node.name, node.provider, node.region, node.bucketName, node.path],
-      normalizedFilter
-    );
-
-    if (!nodeMatches && (!filteredChildren || filteredChildren.length === 0)) {
-      return filteredNodes;
-    }
-
-    filteredNodes.push({
-      ...node,
-      children: filteredChildren
-    });
-
-    return filteredNodes;
-  }, []);
-}
-
-function getPathTitle(path: string, fallback: string): string {
-  if (!path) {
-    return fallback;
-  }
-
-  const trimmed = path.endsWith("/") ? path.slice(0, -1) : path;
-  const name = trimmed.split("/").pop();
-
-  return name && name.length > 0 ? name : path;
-}
-
-function buildBreadcrumbs(connectionName: string, bucketName: string, path: string) {
-  const breadcrumbs = [
-    { label: connectionName, path: null as string | null },
-    { label: bucketName, path: "" }
-  ];
-
-  if (!path) {
-    return breadcrumbs;
-  }
-
-  const trimmed = path.endsWith("/") ? path.slice(0, -1) : path;
-  const segments = trimmed.split("/");
-  let accumulatedPath = "";
-
-  for (const segment of segments) {
-    accumulatedPath += `${segment}/`;
-    breadcrumbs.push({
-      label: segment || "/",
-      path: accumulatedPath
-    });
-  }
-
-  return breadcrumbs;
-}
-
-function formatBytes(size: number | undefined, locale: Locale): string {
-  if (typeof size !== "number" || !Number.isFinite(size)) {
-    return "-";
-  }
-
-  if (size < 1024) {
-    return `${new Intl.NumberFormat(locale).format(size)} B`;
-  }
-
-  const units = ["KB", "MB", "GB", "TB"];
-  let value = size / 1024;
-  let unitIndex = 0;
-
-  while (value >= 1024 && unitIndex < units.length - 1) {
-    value /= 1024;
-    unitIndex += 1;
-  }
-
-  return `${new Intl.NumberFormat(locale, { maximumFractionDigits: 1 }).format(value)} ${units[unitIndex]}`;
-}
-
-function formatDateTime(value: string | null | undefined, locale: Locale): string {
-  if (!value) {
-    return "-";
-  }
-
-  const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-
-  return new Intl.DateTimeFormat(locale, {
-    dateStyle: "medium",
-    timeStyle: "short"
-  }).format(date);
-}
-
-function buildConnectionFailureMessage(
-  error: unknown,
-  t: (key: string) => string
-): string {
-  const errorMessage = extractErrorMessage(error);
-
-  if (errorMessage === MISSING_MINIMUM_S3_PERMISSION_ERROR) {
-    return t("navigation.modal.aws.test_connection_missing_minimum_permission");
-  }
-
-  if (errorMessage === RESTRICTED_BUCKET_MISMATCH_ERROR) {
-    return t("navigation.modal.aws.test_connection_restricted_bucket_mismatch");
-  }
-
-  return errorMessage ?? t("navigation.modal.aws.test_connection_failure");
-}
-
-function getConnectionActions(
-  t: (key: string) => string,
-  indicator: ConnectionIndicator
-): NodeAction[] {
-  return [
-    indicator.status === "connecting"
-      ? { id: "cancelConnect", label: t("navigation.menu.cancel_connect") }
-      : indicator.status === "connected"
-      ? { id: "disconnect", label: t("navigation.menu.disconnect") }
-      : {
-          id: "connect",
-          label: t("navigation.menu.connect")
-        },
-    { id: "edit", label: t("navigation.menu.edit_settings") },
-    { id: "remove", label: t("navigation.menu.remove"), variant: "danger" }
-  ];
-}
-
-function buildContentCounterLabel(
-  t: (key: string) => string,
-  isFilterActive: boolean,
-  displayedCount: number,
-  loadedCount: number
-): string {
-  if (isFilterActive) {
-    return t("content.list.count_filtered")
-      .replace("{filtered}", String(displayedCount))
-      .replace("{loaded}", String(loadedCount));
-  }
-
-  return t("content.list.count_loaded").replace("{loaded}", String(loadedCount));
-}
-
-function getSummaryContentStatuses(item: ContentExplorerItem): ContentStatusFilter[] {
-  if (item.kind === "directory") {
-    return ["directory"];
-  }
-
-  if (item.kind !== "file") {
-    return [];
-  }
-
-  if (item.downloadState === "downloaded") {
-    return ["downloaded"];
-  }
-
-  if (item.availabilityStatus === "restoring") {
-    return ["restoring"];
-  }
-
-  if (isTemporaryRestoredArchivalFile(item)) {
-    return ["available", "archived"];
-  }
-
-  if (item.availabilityStatus === "available") {
-    return ["available"];
-  }
-
-  if (item.availabilityStatus === "archived") {
-    return ["archived"];
-  }
-
-  return [];
-}
-
-function getDisplayContentStatus(item: ContentExplorerItem): ContentStatusFilter | null {
-  if (item.kind !== "file") {
-    return null;
-  }
-
-  if (item.downloadState === "downloaded") {
-    return "downloaded";
-  }
-
-  if (item.availabilityStatus === "available") {
-    return "available";
-  }
-
-  if (item.availabilityStatus === "restoring") {
-    return "restoring";
-  }
-
-  if (item.availabilityStatus === "archived") {
-    return "archived";
-  }
-
-  return null;
-}
-
-function getContentStatusLabel(
-  status: ContentStatusFilter | null,
-  t: (key: string) => string
-): string | null {
-  if (status === "directory") {
-    return t("content.filter.status.directory");
-  }
-
-  if (status === "downloaded") {
-    return t("content.download_state.downloaded");
-  }
-
-  if (status === "available" || status === "restoring" || status === "archived") {
-    return t(`content.availability.${status}`);
-  }
-
-  return null;
-}
-
-type FileStatusBadgeDescriptor = {
-  status: "available" | "downloaded" | "archived" | "restoring";
-  label: string;
-  title: string;
-};
-
-function isTemporaryRestoredArchivalFile(item: ContentExplorerItem): boolean {
-  return (
-    item.kind === "file" &&
-    item.downloadState !== "downloaded" &&
-    item.availabilityStatus === "available" &&
-    Boolean(item.restoreExpiryDate) &&
-    isArchivedStorageClass(item.storageClass)
-  );
-}
-
-function buildAvailableUntilTooltip(
-  restoreExpiryDate: string | null | undefined,
-  locale: Locale,
-  t: (key: string) => string
-): string {
-  const formattedDate = formatDateTime(restoreExpiryDate, locale);
-
-  return t("content.availability.available_until").replace("{date}", formattedDate);
-}
-
-function getFileStatusBadgeDescriptors(
-  item: ContentExplorerItem,
-  locale: Locale,
-  t: (key: string) => string
-): FileStatusBadgeDescriptor[] {
-  if (item.kind !== "file") {
-    return [];
-  }
-
-  if (isTemporaryRestoredArchivalFile(item)) {
-    return [
-      {
-        status: "available",
-        label: t("content.availability.available"),
-        title: buildAvailableUntilTooltip(item.restoreExpiryDate, locale, t)
-      },
-      {
-        status: "archived",
-        label: t("content.availability.archived"),
-        title: t("content.availability.archived")
-      }
-    ];
-  }
-
-  const primaryStatus = getDisplayContentStatus(item);
-  const primaryLabel = getContentStatusLabel(primaryStatus, t);
-
-  if (!primaryStatus || primaryStatus === "directory" || !primaryLabel) {
-    return [];
-  }
-
-  return [
-    {
-      status: primaryStatus,
-      label: primaryLabel,
-      title: primaryLabel
-    }
-  ];
-}
-
-function getPreferredFileStatusBadgeDescriptors(
-  item: ContentExplorerItem,
-  locale: Locale,
-  t: (key: string) => string
-): FileStatusBadgeDescriptor[] {
-  const descriptors = getFileStatusBadgeDescriptors(item, locale, t);
-  const availableDescriptor = descriptors.find((descriptor) => descriptor.status === "available");
-
-  return availableDescriptor ? [availableDescriptor] : descriptors;
-}
-
-function resolveDownloadState(
-  item: ContentExplorerItem,
-  downloadedPaths: Set<string>,
-  connectionId: string | null,
-  bucketName: string | null,
-  hasLocalCacheDirectory: boolean
-): FileDownloadState | undefined {
-  if (item.kind !== "file") {
-    return item.downloadState;
-  }
-
-  if (item.availabilityStatus === "restoring") {
-    return "restoring";
-  }
-
-  if (
-    connectionId &&
-    bucketName &&
-    downloadedPaths.has(buildFileIdentity(connectionId, bucketName, item.path))
-  ) {
-    return "downloaded";
-  }
-
-  if (item.availabilityStatus === "available") {
-    return hasLocalCacheDirectory ? "available_to_download" : "not_downloaded";
-  }
-
-  if (item.availabilityStatus === "archived") {
-    return "not_downloaded";
-  }
-
-  return item.downloadState;
-}
-
-function applyDownloadedFileState(
-  items: ContentExplorerItem[],
-  downloadedPaths: Set<string>,
-  connectionId: string | null,
-  bucketName: string | null,
-  hasLocalCacheDirectory: boolean
-): ContentExplorerItem[] {
-  let hasChanges = false;
-  const nextItems = items.map((item) => {
-    const nextDownloadState = resolveDownloadState(
-      item,
-      downloadedPaths,
-      connectionId,
-      bucketName,
-      hasLocalCacheDirectory
-    );
-
-    if (item.downloadState === nextDownloadState) {
-      return item;
-    }
-
-    hasChanges = true;
-
-    return {
-      ...item,
-      downloadState: nextDownloadState
-    };
-  });
-
-  return hasChanges ? nextItems : items;
-}
-
-async function resolveCachedFileIdentities(
-  provider: ConnectionProvider,
-  connectionId: string,
-  connectionName: string,
-  bucketName: string,
-  globalLocalCacheDirectory: string | undefined,
-  items: ContentExplorerItem[]
-): Promise<Set<string>> {
-  if (!globalLocalCacheDirectory) {
-    return new Set();
-  }
-
-  const objectKeys = items
-    .filter((item) => item.kind === "file")
-    .map((item) => item.path);
-
-  if (objectKeys.length === 0) {
-    return new Set();
-  }
-
-  const cachedObjectKeys =
-    provider === "aws"
-      ? await findAwsCachedObjects(
-          connectionId,
-          connectionName,
-          bucketName,
-          globalLocalCacheDirectory,
-          objectKeys
-        )
-      : await findAzureCachedObjects(
-          connectionId,
-          connectionName,
-          bucketName,
-          globalLocalCacheDirectory,
-          objectKeys
-        );
-
-  return new Set(
-    cachedObjectKeys.map((objectKey) => buildFileIdentity(connectionId, bucketName, objectKey))
-  );
-}
-
-function reconcileDownloadedFilePathsForContext(
-  currentPaths: string[],
-  cachedPaths: Set<string>,
-  connectionId: string,
-  bucketName: string,
-  items: ContentExplorerItem[]
-): string[] {
-  const nextPaths = currentPaths.filter(
-    (path) => !isFileIdentityInContext(path, connectionId, bucketName, items)
-  );
-
-  for (const path of cachedPaths) {
-    nextPaths.push(path);
-  }
-
-  const uniqueNextPaths = [...new Set(nextPaths)];
-
-  if (
-    uniqueNextPaths.length === currentPaths.length &&
-    uniqueNextPaths.every((path, index) => path === currentPaths[index])
-  ) {
-    return currentPaths;
-  }
-
-  return uniqueNextPaths;
-}
-
-function loadLegacyGlobalCacheDirectoryCandidate(): string | undefined {
-  if (typeof window === "undefined") {
-    return undefined;
-  }
-
-  const rawValue = window.localStorage.getItem(CONNECTION_METADATA_STORAGE_KEY);
-
-  if (!rawValue) {
-    return undefined;
-  }
-
-  try {
-    const parsedValue = JSON.parse(rawValue);
-
-    if (!Array.isArray(parsedValue)) {
-      return undefined;
-    }
-
-    for (const candidate of parsedValue) {
-      if (
-        candidate &&
-        typeof candidate === "object" &&
-        "localCacheDirectory" in candidate &&
-        typeof candidate.localCacheDirectory === "string"
-      ) {
-        const normalizedPath = candidate.localCacheDirectory.trim();
-
-        if (normalizedPath) {
-          return normalizedPath;
-        }
-      }
-    }
-  } catch {
-    return undefined;
-  }
-
-  return undefined;
-}
-
-function loadInitialGlobalCacheDirectory(): string {
-  const appSettings = appSettingsStore.load();
-
-  if (appSettings.globalLocalCacheDirectory?.trim()) {
-    return appSettings.globalLocalCacheDirectory.trim();
-  }
-
-  return loadLegacyGlobalCacheDirectoryCandidate() ?? "";
-}
-
-function loadInitialContentListingPageSize(): number {
-  const appSettings = appSettingsStore.load();
-
-  if (typeof appSettings.contentListingPageSize === "number") {
-    return normalizeContentListingPageSize(appSettings.contentListingPageSize);
-  }
-
-  return DEFAULT_CONTENT_LISTING_PAGE_SIZE;
-}
-
-type ActiveTransfer = {
-  operationId: string;
-  itemId: string;
-  fileIdentity: string;
-  fileName: string;
-  bucketName: string;
-  provider: ConnectionProvider;
-  transferKind: TransferKind;
-  progressPercent: number;
-  bytesTransferred: number;
-  totalBytes: number;
-  state: DownloadTransferState;
-  objectKey?: string;
-  localFilePath?: string;
-  targetPath?: string | null;
-  error?: string | null;
-};
-
-type CompletionToast = {
-  id: string;
-  title: string;
-  description: string;
-  tone?: "success" | "error";
-};
-
-type UploadConflictDecision = "overwrite" | "skip" | "overwriteAll" | "skipAll";
 
 type SimpleUploadBatchInput = {
   fileName: string;
@@ -1050,38 +385,6 @@ type PreparedSimpleUploadBatchItem = SimpleUploadBatchInput & {
   objectKey: string;
   fileIdentity: string;
   objectAlreadyExists: boolean;
-};
-
-type UploadConflictPromptState = {
-  currentConflictIndex: number;
-  totalConflicts: number;
-  fileName: string;
-  objectKey: string;
-};
-
-type RestoreRequestState = {
-  provider: ConnectionProvider;
-  request: RestoreRequestTarget | RestoreRequestSummary;
-  connectionId: string;
-  bucketName: string;
-  bucketRegion?: string | null;
-  targets: Array<{
-    objectKey: string;
-    storageClass?: string | null;
-  }>;
-};
-
-type ChangeStorageClassRequestState = {
-  provider: ConnectionProvider;
-  request: ChangeStorageClassRequestSummary;
-  connectionId: string;
-  bucketName: string;
-  bucketRegion?: string | null;
-  targets: Array<{
-    objectKey: string;
-    currentStorageClass?: string | null;
-  }>;
-  currentStorageClass?: string | null;
 };
 
 type ConnectionNavigatorProps = {
@@ -1109,39 +412,59 @@ export function ConnectionNavigator({
   const [connections, setConnections] = useState<SavedConnectionSummary[]>([]);
   const [selectedView, setSelectedView] = useState<NavigatorView>("home");
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [modalMode, setModalMode] = useState<ConnectionFormMode>("create");
-  const [editingConnectionId, setEditingConnectionId] = useState<string | null>(null);
-  const [connectionName, setConnectionName] = useState("");
-  const [connectionProvider, setConnectionProvider] = useState<ConnectionProvider>("aws");
-  const [accessKeyId, setAccessKeyId] = useState("");
-  const [secretAccessKey, setSecretAccessKey] = useState("");
-  const [restrictedBucketName, setRestrictedBucketName] = useState("");
-  const [storageAccountName, setStorageAccountName] = useState("");
-  const [azureAuthenticationMethod, setAzureAuthenticationMethod] =
-    useState<AzureAuthenticationMethod>("shared_key");
-  const [azureAccountKey, setAzureAccountKey] = useState("");
-  const [connectOnStartup, setConnectOnStartup] = useState(false);
-  const [defaultAwsUploadStorageClass, setDefaultAwsUploadStorageClass] =
-    useState<AwsUploadStorageClass>(DEFAULT_AWS_UPLOAD_STORAGE_CLASS);
-  const [defaultAzureUploadTier, setDefaultAzureUploadTier] =
-    useState<AzureUploadTier>(DEFAULT_AZURE_UPLOAD_TIER);
-  const [globalLocalCacheDirectory, setGlobalLocalCacheDirectory] = useState(
-    loadInitialGlobalCacheDirectory
-  );
-  const [contentListingPageSize, setContentListingPageSize] = useState(
-    loadInitialContentListingPageSize
-  );
-  const [localMappingDirectoryStatus, setLocalMappingDirectoryStatus] =
-    useState<LocalMappingDirectoryStatus>(() =>
-      loadInitialGlobalCacheDirectory().trim() ? "checking" : "missing"
-    );
-  const [connectionTestStatus, setConnectionTestStatus] =
-    useState<ConnectionTestStatus>("idle");
-  const [connectionTestMessage, setConnectionTestMessage] = useState<string | null>(null);
-  const [formErrors, setFormErrors] = useState<FormErrors>({});
-  const [submitError, setSubmitError] = useState<string | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const {
+    isModalOpen,
+    modalMode,
+    editingConnectionId,
+    connectionName,
+    connectionProvider,
+    accessKeyId,
+    secretAccessKey,
+    restrictedBucketName,
+    storageAccountName,
+    azureAuthenticationMethod,
+    azureAccountKey,
+    connectOnStartup,
+    defaultAwsUploadStorageClass,
+    defaultAzureUploadTier,
+    connectionTestStatus,
+    connectionTestMessage,
+    formErrors,
+    submitError,
+    isSubmitting,
+    setIsModalOpen,
+    setModalMode,
+    setEditingConnectionId,
+    setConnectionName,
+    setConnectionProvider,
+    setAccessKeyId,
+    setSecretAccessKey,
+    setRestrictedBucketName,
+    setStorageAccountName,
+    setAzureAuthenticationMethod,
+    setAzureAccountKey,
+    setConnectOnStartup,
+    setDefaultAwsUploadStorageClass,
+    setDefaultAzureUploadTier,
+    setConnectionTestStatus,
+    setConnectionTestMessage,
+    setFormErrors,
+    setSubmitError,
+    setIsSubmitting
+  } = useConnectionFormState();
+  const {
+    globalLocalCacheDirectory,
+    contentListingPageSize,
+    contentViewMode,
+    sidebarWidth,
+    localMappingDirectoryStatus,
+    isResizingSidebar,
+    workspaceRef,
+    setGlobalLocalCacheDirectory,
+    setContentListingPageSize,
+    setContentViewMode,
+    startResizing
+  } = useNavigationPreferencesState();
   const [isLoadingConnections, setIsLoadingConnections] = useState(true);
   const [openMenuConnectionId, setOpenMenuConnectionId] = useState<string | null>(null);
   const [pendingDeleteConnectionId, setPendingDeleteConnectionId] = useState<string | null>(null);
@@ -1156,93 +479,103 @@ export function ConnectionNavigator({
     Record<string, ExplorerTreeNode[]>
   >({});
   const [bucketContentPaths, setBucketContentPaths] = useState<Record<string, string>>({});
-  const [contentItems, setContentItems] = useState<ContentExplorerItem[]>([]);
-  const [contentContinuationToken, setContentContinuationToken] = useState<string | null>(null);
-  const [contentHasMore, setContentHasMore] = useState(false);
-  const [isLoadingContent, setIsLoadingContent] = useState(false);
-  const [isLoadingMoreContent, setIsLoadingMoreContent] = useState(false);
-  const [contentError, setContentError] = useState<string | null>(null);
-  const [loadMoreContentError, setLoadMoreContentError] = useState<string | null>(null);
-  const [contentActionError, setContentActionError] = useState<string | null>(null);
-  const [restoreRequest, setRestoreRequest] = useState<RestoreRequestState | null>(null);
-  const [restoreSubmitError, setRestoreSubmitError] = useState<string | null>(null);
-  const [isSubmittingRestoreRequest, setIsSubmittingRestoreRequest] = useState(false);
-  const [changeStorageClassRequest, setChangeStorageClassRequest] =
-    useState<ChangeStorageClassRequestState | null>(null);
-  const [changeStorageClassSubmitError, setChangeStorageClassSubmitError] = useState<string | null>(
-    null
-  );
-  const [isSubmittingStorageClassChange, setIsSubmittingStorageClassChange] = useState(false);
-  const [sidebarFilterText, setSidebarFilterText] = useState("");
-  const [contentFilterText, setContentFilterText] = useState("");
-  const [contentStatusFilters, setContentStatusFilters] = useState<ContentStatusFilter[]>([]);
-  const [selectedContentItemIds, setSelectedContentItemIds] = useState<string[]>([]);
-  const [downloadedFilePaths, setDownloadedFilePaths] = useState<string[]>([]);
-  const [activeTransfers, setActiveTransfers] = useState<Record<string, ActiveTransfer>>({});
-  const [activeDirectDownloadItemIds, setActiveDirectDownloadItemIds] = useState<string[]>([]);
-  const [completionToast, setCompletionToast] = useState<CompletionToast | null>(null);
-  const [uploadConflictPrompt, setUploadConflictPrompt] =
-    useState<UploadConflictPromptState | null>(null);
-  const [openContentMenuItemId, setOpenContentMenuItemId] = useState<string | null>(null);
-  const [contentMenuAnchor, setContentMenuAnchor] = useState<ContentMenuAnchor | null>(null);
-  const [contentAreaMenuAnchor, setContentAreaMenuAnchor] = useState<ContentAreaMenuAnchor | null>(
-    null
-  );
-  const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
-  const [isUploadDropTargetActive, setIsUploadDropTargetActive] = useState(false);
-  const [isCreateFolderModalOpen, setIsCreateFolderModalOpen] = useState(false);
-  const [newFolderName, setNewFolderName] = useState("");
-  const [createFolderError, setCreateFolderError] = useState<string | null>(null);
-  const [isCreatingFolder, setIsCreatingFolder] = useState(false);
-  const [pendingContentDelete, setPendingContentDelete] = useState<PendingContentDeleteState | null>(
-    null
-  );
-  const [deleteConfirmationValue, setDeleteConfirmationValue] = useState("");
-  const [deleteContentError, setDeleteContentError] = useState<string | null>(null);
-  const [isDeletingContent, setIsDeletingContent] = useState(false);
-  const [isUploadSettingsModalOpen, setIsUploadSettingsModalOpen] = useState(false);
-  const [uploadSettingsStorageClass, setUploadSettingsStorageClass] =
-    useState<AwsUploadStorageClass>(DEFAULT_AWS_UPLOAD_STORAGE_CLASS);
-  const [uploadSettingsAzureTier, setUploadSettingsAzureTier] =
-    useState<AzureUploadTier>(DEFAULT_AZURE_UPLOAD_TIER);
-  const [uploadSettingsSubmitError, setUploadSettingsSubmitError] = useState<string | null>(null);
-  const [isSavingUploadSettings, setIsSavingUploadSettings] = useState(false);
-  const [contentRefreshNonce, setContentRefreshNonce] = useState(0);
-  const [contentViewMode, setContentViewMode] = useState<ContentViewMode>(() => {
-    if (typeof window === "undefined") {
-      return "list";
-    }
-
-    const savedMode = window.localStorage.getItem(CONTENT_VIEW_MODE_STORAGE_KEY);
-    return savedMode === "compact" ? "compact" : "list";
-  });
-  const [sidebarWidth, setSidebarWidth] = useState(() => {
-    if (typeof window === "undefined") {
-      return DEFAULT_SIDEBAR_WIDTH;
-    }
-
-    const savedSidebarWidth = window.localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY);
-
-    if (!savedSidebarWidth) {
-      return DEFAULT_SIDEBAR_WIDTH;
-    }
-
-    const parsedSidebarWidth = Number(savedSidebarWidth);
-
-    if (!Number.isFinite(parsedSidebarWidth)) {
-      return DEFAULT_SIDEBAR_WIDTH;
-    }
-
-    return Math.min(Math.max(parsedSidebarWidth, MIN_SIDEBAR_WIDTH), MAX_SIDEBAR_WIDTH);
-  });
-  const [isResizingSidebar, setIsResizingSidebar] = useState(false);
-  const workspaceRef = useRef<HTMLDivElement | null>(null);
+  const {
+    contentItems,
+    contentContinuationToken,
+    contentHasMore,
+    isLoadingContent,
+    isLoadingMoreContent,
+    contentError,
+    loadMoreContentError,
+    contentActionError,
+    sidebarFilterText,
+    contentFilterText,
+    contentStatusFilters,
+    selectedContentItemIds,
+    openContentMenuItemId,
+    contentMenuAnchor,
+    contentAreaMenuAnchor,
+    contentRefreshNonce,
+    setContentItems,
+    setContentContinuationToken,
+    setContentHasMore,
+    setIsLoadingContent,
+    setIsLoadingMoreContent,
+    setContentError,
+    setLoadMoreContentError,
+    setContentActionError,
+    setSidebarFilterText,
+    setContentFilterText,
+    setContentStatusFilters,
+    setSelectedContentItemIds,
+    setOpenContentMenuItemId,
+    setContentMenuAnchor,
+    setContentAreaMenuAnchor,
+    setContentRefreshNonce
+  } = useContentListingState();
+  const {
+    restoreRequest,
+    restoreSubmitError,
+    isSubmittingRestoreRequest,
+    changeStorageClassRequest,
+    changeStorageClassSubmitError,
+    isSubmittingStorageClassChange,
+    isCreateFolderModalOpen,
+    newFolderName,
+    createFolderError,
+    isCreatingFolder,
+    pendingContentDelete,
+    deleteConfirmationValue,
+    deleteContentError,
+    isDeletingContent,
+    isUploadSettingsModalOpen,
+    uploadSettingsStorageClass,
+    uploadSettingsAzureTier,
+    uploadSettingsSubmitError,
+    isSavingUploadSettings,
+    setRestoreRequest,
+    setRestoreSubmitError,
+    setIsSubmittingRestoreRequest,
+    setChangeStorageClassRequest,
+    setChangeStorageClassSubmitError,
+    setIsSubmittingStorageClassChange,
+    setIsCreateFolderModalOpen,
+    setNewFolderName,
+    setCreateFolderError,
+    setIsCreatingFolder,
+    setPendingContentDelete,
+    setDeleteConfirmationValue,
+    setDeleteContentError,
+    setIsDeletingContent,
+    setIsUploadSettingsModalOpen,
+    setUploadSettingsStorageClass,
+    setUploadSettingsAzureTier,
+    setUploadSettingsSubmitError,
+    setIsSavingUploadSettings
+  } = useModalOrchestrationState();
+  const {
+    downloadedFilePaths,
+    activeTransfers,
+    activeDirectDownloadItemIds,
+    completionToast,
+    uploadConflictPrompt,
+    isTransferModalOpen,
+    isUploadDropTargetActive,
+    uploadConflictResolverRef,
+    activeTransferList,
+    downloadedFilePathSet,
+    setDownloadedFilePaths,
+    setActiveTransfers,
+    setActiveDirectDownloadItemIds,
+    setCompletionToast,
+    setUploadConflictPrompt,
+    setIsTransferModalOpen,
+    setIsUploadDropTargetActive,
+    showTransferErrorToast
+  } = useTransferState();
   const contentDropZoneRef = useRef<HTMLElement | null>(null);
   const hasProcessedStartupAutoConnectRef = useRef(false);
   const nativeDragDropPathsRef = useRef<string[]>([]);
-  const uploadConflictResolverRef = useRef<((decision: UploadConflictDecision) => void) | null>(
-    null
-  );
   const connectionTestRequestIdRef = useRef(0);
   const connectionRequestIdsRef = useRef<Record<string, number>>({});
   const contentRequestIdRef = useRef(0);
@@ -1263,7 +596,7 @@ export function ConnectionNavigator({
   );
 
   const selectedNode = useMemo(
-    () => findNodeById(treeNodes, selectedNodeId),
+    () => findTreeNodeById(treeNodes, selectedNodeId),
     [treeNodes, selectedNodeId]
   );
   const normalizedSidebarFilter = useMemo(
@@ -1320,45 +653,26 @@ export function ConnectionNavigator({
   const filteredConnectionBuckets = useMemo(() => {
     const bucketNodes =
       selectedNode?.kind === "connection" ? (connectionBuckets[selectedNode.id] ?? []) : [];
-
-    if (!normalizedContentFilter) {
-      return bucketNodes;
-    }
-
-    return bucketNodes.filter((bucketNode) =>
-      matchesFilter([bucketNode.name, bucketNode.region, bucketNode.bucketName], normalizedContentFilter)
-    );
+    return filterConnectionBuckets(bucketNodes, normalizedContentFilter);
   }, [connectionBuckets, normalizedContentFilter, selectedNode]);
-  const isStatusFilterInactive =
-    contentStatusFilters.length === 0 ||
-    contentStatusFilters.length === ALL_CONTENT_STATUS_FILTERS.length;
-  const selectedContentItemIdSet = useMemo(
-    () => new Set(selectedContentItemIds),
-    [selectedContentItemIds]
-  );
+  const isStatusFilterInactive = isContentStatusFilterInactive({
+    contentStatusFilters,
+    allContentStatusFilters: ALL_CONTENT_STATUS_FILTERS
+  });
   const filteredContentItems = useMemo(
     () =>
-      contentItems.filter((item) => {
-        const matchesTextFilter = matchesFilter(
-          [item.name, item.path, item.storageClass, item.kind],
-          normalizedContentFilter
-        );
-
-        if (!matchesTextFilter) {
-          return false;
-        }
-
-        const itemStatuses = getSummaryContentStatuses(item);
-
-        if (isStatusFilterInactive) {
-          return true;
-        }
-
-        return itemStatuses.some((status) => contentStatusFilters.includes(status));
+      filterContentItems({
+        items: contentItems,
+        normalizedFilter: normalizedContentFilter,
+        contentStatusFilters,
+        allContentStatusFilters: ALL_CONTENT_STATUS_FILTERS
       }),
-    [contentItems, normalizedContentFilter, contentStatusFilters, isStatusFilterInactive]
+    [contentItems, normalizedContentFilter, contentStatusFilters]
   );
-  const isContentFilterActive = normalizedContentFilter.length > 0 || !isStatusFilterInactive;
+  const isContentFilterActive = deriveIsContentFilterActive({
+    normalizedContentFilter,
+    isStatusFilterInactive
+  });
   const loadedFileItems = useMemo(
     () => contentItems.filter((item) => item.kind === "file"),
     [contentItems]
@@ -1367,31 +681,29 @@ export function ConnectionNavigator({
     () => contentItems.filter((item) => item.kind === "directory").length,
     [contentItems]
   );
-  const selectedContentItems = useMemo(
-    () => contentItems.filter((item) => selectedContentItemIdSet.has(item.id)),
-    [contentItems, selectedContentItemIdSet]
+  const contentSelectionState = useMemo(
+    () =>
+      buildContentSelectionState({
+        items: contentItems,
+        filteredItems: filteredContentItems,
+        selectedItemIds: selectedContentItemIds
+      }),
+    [contentItems, filteredContentItems, selectedContentItemIds]
   );
-  const selectedContentCount = selectedContentItems.length;
-  const isContentSelectionActive = selectedContentCount > 0;
-  const visibleContentItemIds = useMemo(
-    () => filteredContentItems.map((item) => item.id),
-    [filteredContentItems]
-  );
-  const allVisibleContentItemsSelected =
-    visibleContentItemIds.length > 0 &&
-    visibleContentItemIds.every((itemId) => selectedContentItemIdSet.has(itemId));
-  const loadedContentCount =
-    selectedNode?.kind === "connection"
-      ? (connectionBuckets[selectedNode.id] ?? []).length
-      : selectedNode?.kind === "bucket"
-      ? contentItems.length
-      : 0;
-  const displayedContentCount =
-    selectedNode?.kind === "connection"
-      ? filteredConnectionBuckets.length
-      : selectedNode?.kind === "bucket"
-      ? filteredContentItems.length
-      : 0;
+  const selectedContentItemIdSet = contentSelectionState.selectedItemIdSet;
+  const selectedContentItems = contentSelectionState.selectedItems;
+  const selectedContentCount = contentSelectionState.selectedCount;
+  const isContentSelectionActive = contentSelectionState.isSelectionActive;
+  const visibleContentItemIds = contentSelectionState.visibleItemIds;
+  const allVisibleContentItemsSelected = contentSelectionState.allVisibleItemsSelected;
+  const { loadedContentCount, displayedContentCount } = buildContentCounts({
+    selectedNodeKind: selectedNode?.kind,
+    connectionBucketCount:
+      selectedNode?.kind === "connection" ? (connectionBuckets[selectedNode.id] ?? []).length : 0,
+    contentItemCount: contentItems.length,
+    filteredConnectionBucketCount: filteredConnectionBuckets.length,
+    filteredContentItemCount: filteredContentItems.length
+  });
   const contentCounterLabel = buildContentCounterLabel(
     t,
     isContentFilterActive,
@@ -1399,9 +711,6 @@ export function ConnectionNavigator({
     loadedContentCount
   );
   const shouldRenderListHeaders = contentViewMode === "list";
-  const activeTransferList = Object.values(activeTransfers).filter(
-    (transfer) => transfer.state === "progress"
-  );
   const activeTrackedDownloadList = useMemo(
     () => activeTransferList.filter((transfer) => transfer.transferKind === "cache"),
     [activeTransferList]
@@ -1447,36 +756,12 @@ export function ConnectionNavigator({
   const activeUploadPreviewCount = activeUploadList.length;
   const isDownloadTransferActive = activeDownloadPreviewCount > 0;
   const isUploadTransferActive = activeUploadPreviewCount > 0;
-  const downloadedFilePathSet = useMemo(
-    () => new Set(downloadedFilePaths),
-    [downloadedFilePaths]
-  );
   const batchSelectionActions = useMemo<BatchSelectionActionsState>(() => {
-    const downloadableItems = selectedContentItems.filter((item) =>
-      canDownloadItem(item, fileActionAvailabilityContext)
+    return getBatchSelectionActions(
+      selectedContentItems,
+      fileActionAvailabilityContext,
+      selectedBucketProvider
     );
-    const restorableItems = selectedContentItems.filter((item) =>
-      canRestoreItem(item, selectedBucketProvider)
-    );
-    const changeTierableItems = selectedContentItems.filter((item) =>
-      canChangeTierItem(item, selectedBucketProvider)
-    );
-    const deletableItems = selectedBucketProvider ? selectedContentItems : [];
-
-    return {
-      downloadableItems,
-      restorableItems,
-      changeTierableItems,
-      deletableItems,
-      canBatchDownload:
-        selectedContentItems.length > 0 && downloadableItems.length === selectedContentItems.length,
-      canBatchRestore:
-        selectedContentItems.length > 0 && restorableItems.length === selectedContentItems.length,
-      canBatchChangeTier:
-        selectedContentItems.length > 0 && changeTierableItems.length === selectedContentItems.length,
-      canBatchDelete:
-        selectedContentItems.length > 0 && deletableItems.length === selectedContentItems.length
-    };
   }, [selectedContentItems, fileActionAvailabilityContext, selectedBucketProvider]);
   const localMappingDirectoryAlertKey =
     localMappingDirectoryStatus === "invalid"
@@ -1485,65 +770,40 @@ export function ConnectionNavigator({
       ? "settings.download_directory_notice_missing"
       : null;
   const loadedDownloadedCount = useMemo(
-    () => loadedFileItems.filter((item) => getSummaryContentStatuses(item).includes("downloaded")).length,
+    () => countLoadedItemsByStatus(loadedFileItems, "downloaded"),
     [loadedFileItems]
   );
   const loadedAvailableCount = useMemo(
-    () => loadedFileItems.filter((item) => getSummaryContentStatuses(item).includes("available")).length,
+    () => countLoadedItemsByStatus(loadedFileItems, "available"),
     [loadedFileItems]
   );
   const loadedRestoringCount = useMemo(
-    () => loadedFileItems.filter((item) => getSummaryContentStatuses(item).includes("restoring")).length,
+    () => countLoadedItemsByStatus(loadedFileItems, "restoring"),
     [loadedFileItems]
   );
   const loadedArchivedCount = useMemo(
-    () => loadedFileItems.filter((item) => getSummaryContentStatuses(item).includes("archived")).length,
+    () => countLoadedItemsByStatus(loadedFileItems, "archived"),
     [loadedFileItems]
   );
   const contentStatusSummaryItems = useMemo(
     () =>
-      selectedNode?.kind === "bucket"
-        ? [
-            {
-              key: "directory" as const,
-              label: t("content.filter.status.directory"),
-              count: loadedDirectoryCount
-            },
-            {
-              key: "downloaded" as const,
-              label: t("content.download_state.downloaded"),
-              count: loadedDownloadedCount
-            },
-            {
-              key: "available" as const,
-              label: t("content.availability.available"),
-              count: loadedAvailableCount
-            },
-            {
-              key: "restoring" as const,
-              label: t("content.availability.restoring"),
-              count: loadedRestoringCount
-            },
-            {
-              key: "archived" as const,
-              label: t("content.availability.archived"),
-              count: loadedArchivedCount
-            }
-          ]
-        : [],
+      buildContentStatusSummaryItems({
+        isBucketSelected: selectedNode?.kind === "bucket",
+        loadedDirectoryCount,
+        loadedDownloadedCount,
+        loadedAvailableCount,
+        loadedRestoringCount,
+        loadedArchivedCount,
+        t
+      }),
     [
       loadedArchivedCount,
       loadedAvailableCount,
       loadedDirectoryCount,
       loadedDownloadedCount,
       loadedRestoringCount,
-      selectedNode,
       t
     ]
-  );
-  const contentStatusSummaryMap = useMemo(
-    () => new Map(contentStatusSummaryItems.map((item) => [item.key, item] as const)),
-    [contentStatusSummaryItems]
   );
 
   const shouldRenderLoadMoreButton = selectedNode?.kind === "bucket";
@@ -1553,47 +813,6 @@ export function ConnectionNavigator({
       currentFilters.includes(filter)
         ? currentFilters.filter((currentFilter) => currentFilter !== filter)
         : [...currentFilters, filter]
-    );
-  }
-
-  function getFileNameFromPath(filePath: string) {
-    return filePath.split(/[\\/]/).filter(Boolean).pop() ?? filePath;
-  }
-
-  function getCompactFigureLabel(item: ContentExplorerItem) {
-    if (item.kind === "directory") {
-      return t("content.type.directory");
-    }
-
-    const extension = item.name.split(".").pop()?.trim();
-
-    if (extension && extension !== item.name) {
-      return extension.toUpperCase();
-    }
-
-    return t("content.type.file");
-  }
-
-  function renderCompactItemTopline(item: ContentExplorerItem) {
-    if (item.kind === "directory") {
-      return (
-        <span className="content-list-item-topline">
-          <span className="content-list-item-icon content-list-item-icon-directory">
-            <Folder size={18} strokeWidth={1.9} />
-          </span>
-        </span>
-      );
-    }
-
-    return (
-      <span className="content-list-item-topline">
-        {item.availabilityStatus && item.downloadState ? (
-          <CompactFileStatusIcons item={item} locale={locale} t={t} />
-        ) : null}
-        <span className="content-list-item-compact-tier">
-          {item.storageClass ?? t("content.type.file")}
-        </span>
-      </span>
     );
   }
 
@@ -1609,16 +828,10 @@ export function ConnectionNavigator({
   }
 
   function extractDroppedFiles(event: React.DragEvent<HTMLElement>) {
-    const droppedFilesFromItems = Array.from(event.dataTransfer?.items ?? [])
-      .filter((item) => item.kind === "file")
-      .map((item) => item.getAsFile())
-      .filter((candidate): candidate is File => candidate instanceof File);
-
-    if (droppedFilesFromItems.length > 0) {
-      return droppedFilesFromItems;
-    }
-
-    return Array.from(event.dataTransfer?.files ?? []);
+    return collectDroppedFiles({
+      items: event.dataTransfer?.items,
+      files: event.dataTransfer?.files
+    });
   }
 
   function handlePickGlobalCacheDirectory() {
@@ -1633,14 +846,16 @@ export function ConnectionNavigator({
         const selectedPath = await open({
           directory: true,
           multiple: false,
-          defaultPath: globalLocalCacheDirectory.trim() || undefined
+          defaultPath: resolveDirectoryPickerDefaultPath(globalLocalCacheDirectory)
         });
 
-        if (!selectedPath || Array.isArray(selectedPath)) {
+        const normalizedSelectedPath = resolveSingleDirectoryPickResult(selectedPath);
+
+        if (!normalizedSelectedPath) {
           return;
         }
 
-        setGlobalLocalCacheDirectory(selectedPath);
+        setGlobalLocalCacheDirectory(normalizedSelectedPath);
       } catch (error) {
         setSubmitError(
           extractErrorMessage(error) ?? t("settings.download_directory_pick_failed")
@@ -1653,8 +868,12 @@ export function ConnectionNavigator({
     void (async () => {
       try {
         const activeTransfer = activeTransfers[operationId];
+        const cancellationTarget = getTransferCancellationTarget({
+          transferKind: "direct",
+          provider: activeTransfer?.provider
+        });
 
-        if (activeTransfer?.provider === "azure") {
+        if (cancellationTarget === "cancelAzureDownload") {
           await cancelAzureDownload(operationId);
         } else {
           await cancelAwsDownload(operationId);
@@ -1664,7 +883,12 @@ export function ConnectionNavigator({
           return;
         }
 
-        showTransferErrorToast(extractErrorMessage(error) ?? t("content.transfer.cancel_failed"));
+        showTransferErrorToast(
+          resolveTransferCancellationErrorMessage(
+            extractErrorMessage(error),
+            t("content.transfer.cancel_failed")
+          )
+        );
       }
     })();
   }
@@ -1674,8 +898,12 @@ export function ConnectionNavigator({
       void (async () => {
         try {
           const activeTransfer = activeTransfers[operationId];
+          const cancellationTarget = getTransferCancellationTarget({
+            transferKind,
+            provider: activeTransfer?.provider
+          });
 
-          if (activeTransfer?.provider === "azure") {
+          if (cancellationTarget === "cancelAzureUpload") {
             await cancelAzureUpload(operationId);
           } else {
             await cancelAwsUpload(operationId);
@@ -1686,7 +914,10 @@ export function ConnectionNavigator({
           }
 
           showTransferErrorToast(
-            extractErrorMessage(error) ?? t("content.transfer.cancel_failed")
+            resolveTransferCancellationErrorMessage(
+              extractErrorMessage(error),
+              t("content.transfer.cancel_failed")
+            )
           );
         }
       })();
@@ -1695,17 +926,6 @@ export function ConnectionNavigator({
     }
 
     handleCancelActiveDownload(operationId);
-  }
-
-  function isUploadExistsPreflightPermissionError(error: unknown) {
-    const message = extractErrorMessage(error)?.toLowerCase() ?? "";
-
-    return (
-      message.includes("accessdenied") ||
-      message.includes("unauthorizedaccess") ||
-      message.includes("forbidden") ||
-      message.includes("not authorized")
-    );
   }
 
   async function startPreparedSimpleAwsUpload(
@@ -1729,21 +949,12 @@ export function ConnectionNavigator({
 
       setActiveTransfers((currentTransfers) => ({
         ...currentTransfers,
-        [operationId]: {
+        [operationId]: buildUploadTransferEntry({
           operationId,
-          itemId: `upload:${input.objectKey}`,
-          fileIdentity: input.fileIdentity,
-          fileName: input.fileName,
-          bucketName: selectedBucketName,
-          provider: selectedBucketProvider ?? "aws",
-          transferKind: "upload",
-          progressPercent: 0,
-          bytesTransferred: 0,
-          totalBytes: 0,
-          state: "progress",
-          objectKey: input.objectKey,
-          localFilePath: input.localFilePath ?? input.fileName
-        }
+          input,
+          selectedBucketName,
+          selectedBucketProvider
+        })
       }));
       didCreateTransferEntry = true;
 
@@ -1809,79 +1020,32 @@ export function ConnectionNavigator({
       selectedBucketProvider === "aws"
         ? await connectionService.getAwsConnectionDraft(selectedBucketConnectionId)
         : await connectionService.getAzureConnectionDraft(selectedBucketConnectionId);
-    const preparedItems: PreparedSimpleUploadBatchItem[] = [];
-    const seenObjectKeys = new Set<string>();
-
-    for (const input of inputs) {
-      const fileName = input.fileName.trim();
-
-      if (!fileName) {
-        showTransferErrorToast(t("content.transfer.upload_invalid_path"));
-        continue;
-      }
-
-      const objectKey = buildUploadObjectKey(selectedBucketPath, fileName);
-
-      if (seenObjectKeys.has(objectKey)) {
-        showTransferErrorToast(
-          t("content.transfer.upload_duplicate_batch").replace("{name}", fileName)
-        );
-        continue;
-      }
-
-      seenObjectKeys.add(objectKey);
-
-      const fileIdentity = buildFileIdentity(
-        selectedBucketConnectionId,
-        selectedBucketName,
-        objectKey
-      );
-
-      if (activeTransferIdentityMap.has(fileIdentity)) {
-        showTransferErrorToast(t("content.transfer.upload_duplicate_active"));
-        continue;
-      }
-
-      let objectAlreadyExists = false;
-
-      try {
-        if (selectedBucketProvider === "aws" && "accessKeyId" in draft) {
-          objectAlreadyExists = await awsObjectExists(
-            draft.accessKeyId.trim(),
-            draft.secretAccessKey.trim(),
-            selectedBucketName,
-            objectKey,
-            selectedBucketRegion && selectedBucketRegion !== BUCKET_REGION_PLACEHOLDER
-              ? selectedBucketRegion
-              : undefined,
-            draft.restrictedBucketName
-          );
-        } else if ("storageAccountName" in draft) {
-          objectAlreadyExists = await azureBlobExists(
-            draft.storageAccountName,
-            draft.accountKey.trim(),
-            selectedBucketName,
-            objectKey
-          );
-        }
-      } catch (error) {
-        if (!isUploadExistsPreflightPermissionError(error)) {
-          throw error;
-        }
-      }
-
-      preparedItems.push({
-        ...input,
-        fileName,
-        objectKey,
-        fileIdentity,
-        objectAlreadyExists
-      });
+    const { preparedItems: candidateItems, issues } = prepareUploadBatchCandidates({
+      inputs,
+      selectedBucketConnectionId,
+      selectedBucketName,
+      selectedBucketPath,
+      activeTransferIdentityMap
+    });
+    for (const message of buildUploadPreparationIssueMessages(issues, t)) {
+      showTransferErrorToast(message);
     }
+
+    const preparedItems = await hydratePreparedUploadBatchItems({
+      provider: selectedBucketProvider,
+      draft,
+      selectedBucketName,
+      selectedBucketRegion,
+      bucketRegionPlaceholder: BUCKET_REGION_PLACEHOLDER,
+      candidateItems,
+      isUploadExistsPreflightPermissionError,
+      awsObjectExists,
+      azureBlobExists
+    });
 
     return {
       draft,
-      preparedItems
+      preparedItems: preparedItems as PreparedSimpleUploadBatchItem[]
     };
   }
 
@@ -1892,56 +1056,24 @@ export function ConnectionNavigator({
       return;
     }
 
-    const conflictingItems = preparedBatch.preparedItems.filter((item) => item.objectAlreadyExists);
-    const totalConflicts = conflictingItems.length;
-    let conflictCursor = 0;
-    let applyRemainingDecision: "overwrite" | "skip" | null = null;
+    const uploadDecisions = await resolveUploadConflictDecisions(
+      preparedBatch.preparedItems,
+      promptUploadConflictResolution
+    );
 
-    for (const item of preparedBatch.preparedItems) {
-      let shouldUpload = true;
-
-      if (item.objectAlreadyExists) {
-        conflictCursor += 1;
-
-        if (applyRemainingDecision) {
-          shouldUpload = applyRemainingDecision === "overwrite";
-        } else {
-          const decision = await promptUploadConflictResolution({
-            currentConflictIndex: conflictCursor,
-            totalConflicts,
-            fileName: item.fileName,
-            objectKey: item.objectKey
-          });
-
-          if (decision === "skipAll") {
-            applyRemainingDecision = "skip";
-            shouldUpload = false;
-          } else if (decision === "overwriteAll") {
-            applyRemainingDecision = "overwrite";
-          } else {
-            shouldUpload = decision === "overwrite";
-          }
-        }
-      }
-
+    for (const { item, shouldUpload } of uploadDecisions) {
       if (!shouldUpload) {
         continue;
       }
 
-      if (selectedBucketProvider === "azure") {
-        const existingItem = contentItems.find(
-          (contentItem) => contentItem.kind === "file" && contentItem.path === item.objectKey
+      if (
+        selectedBucketProvider === "azure" &&
+        isAzureArchivedOverwriteBlocked(item, contentItems)
+      ) {
+        showTransferErrorToast(
+          t("content.transfer.azure_overwrite_archived_blob").replace("{name}", item.fileName)
         );
-
-        if (existingItem?.availabilityStatus === "archived") {
-          showTransferErrorToast(
-            t("content.transfer.azure_overwrite_archived_blob").replace(
-              "{name}",
-              item.fileName
-            )
-          );
-          continue;
-        }
+        continue;
       }
 
       void startPreparedSimpleAwsUpload(preparedBatch.draft, item);
@@ -1960,81 +1092,57 @@ export function ConnectionNavigator({
         fileName: getFileNameFromPath(normalizedFilePath),
         localFilePath: normalizedFilePath,
         startUpload: async (draft, operationId, objectKey) => {
-          if (selectedBucketProvider === "aws" && "accessKeyId" in draft) {
-            await startAwsUpload(
-              operationId,
-              draft.accessKeyId.trim(),
-              draft.secretAccessKey.trim(),
-              selectedBucketConnectionId!,
-              selectedBucketName!,
-              objectKey,
-              normalizedFilePath,
-              draft.defaultUploadStorageClass,
-              selectedBucketRegion && selectedBucketRegion !== BUCKET_REGION_PLACEHOLDER
-                ? selectedBucketRegion
-                : undefined,
-              draft.restrictedBucketName
-            );
-            return;
-          }
-
-          if ("storageAccountName" in draft) {
-            await startAzureUpload(
-              operationId,
-              draft.storageAccountName,
-              draft.accountKey.trim(),
-              selectedBucketConnectionId!,
-              selectedBucketName!,
-              objectKey,
-              normalizedFilePath,
-              draft.defaultUploadTier
-            );
-          }
+          await startSimpleUploadForProvider({
+            provider: selectedBucketProvider!,
+            draft,
+            connectionId: selectedBucketConnectionId!,
+            bucketName: selectedBucketName!,
+            objectKey,
+            bucketRegion: selectedBucketRegion,
+            bucketRegionPlaceholder: BUCKET_REGION_PLACEHOLDER,
+            source: {
+              kind: "path",
+              fileName: getFileNameFromPath(normalizedFilePath),
+              localFilePath: normalizedFilePath
+            },
+            operationId,
+            startAwsUpload,
+            startAzureUpload,
+            startAwsUploadFromBytes,
+            startAzureUploadFromBytes
+          });
         }
       }
     ]);
   }
 
   function runSimpleAwsUploads(localFilePaths: string[]) {
-    const normalizedPaths = localFilePaths
-      .map((localFilePath) => localFilePath.trim())
-      .filter((localFilePath) => localFilePath.length > 0);
+    const normalizedPaths = normalizeUploadBatchPaths(localFilePaths);
 
     void processSimpleUploadBatch(
       normalizedPaths.map((localFilePath) => ({
         fileName: getFileNameFromPath(localFilePath),
         localFilePath,
         startUpload: async (draft, operationId, objectKey) => {
-          if (selectedBucketProvider === "aws" && "accessKeyId" in draft) {
-            await startAwsUpload(
-              operationId,
-              draft.accessKeyId.trim(),
-              draft.secretAccessKey.trim(),
-              selectedBucketConnectionId!,
-              selectedBucketName!,
-              objectKey,
-              localFilePath,
-              draft.defaultUploadStorageClass,
-              selectedBucketRegion && selectedBucketRegion !== BUCKET_REGION_PLACEHOLDER
-                ? selectedBucketRegion
-                : undefined,
-              draft.restrictedBucketName
-            );
-            return;
-          }
-
-          if ("storageAccountName" in draft) {
-            await startAzureUpload(
-              operationId,
-              draft.storageAccountName,
-              draft.accountKey.trim(),
-              selectedBucketConnectionId!,
-              selectedBucketName!,
-              objectKey,
-              localFilePath,
-              draft.defaultUploadTier
-            );
-          }
+          await startSimpleUploadForProvider({
+            provider: selectedBucketProvider!,
+            draft,
+            connectionId: selectedBucketConnectionId!,
+            bucketName: selectedBucketName!,
+            objectKey,
+            bucketRegion: selectedBucketRegion,
+            bucketRegionPlaceholder: BUCKET_REGION_PLACEHOLDER,
+            source: {
+              kind: "path",
+              fileName: getFileNameFromPath(localFilePath),
+              localFilePath
+            },
+            operationId,
+            startAwsUpload,
+            startAzureUpload,
+            startAwsUploadFromBytes,
+            startAzureUploadFromBytes
+          });
         }
       }))
     );
@@ -2046,79 +1154,25 @@ export function ConnectionNavigator({
         fileName: file.name,
         localFilePath: file.name,
         startUpload: async (draft, operationId, objectKey) => {
-          const candidateFile = file as File & {
-            path?: string;
-            webkitRelativePath?: string;
-          };
-          const candidatePath =
-            candidateFile.path?.trim() || candidateFile.webkitRelativePath?.trim();
+          const source = await resolveBrowserFileUploadSource(
+            file as File & { path?: string; webkitRelativePath?: string }
+          );
 
-          if (candidatePath) {
-            if (selectedBucketProvider === "aws" && "accessKeyId" in draft) {
-              await startAwsUpload(
-                operationId,
-                draft.accessKeyId.trim(),
-                draft.secretAccessKey.trim(),
-                selectedBucketConnectionId!,
-                selectedBucketName!,
-                objectKey,
-                candidatePath,
-                draft.defaultUploadStorageClass,
-                selectedBucketRegion && selectedBucketRegion !== BUCKET_REGION_PLACEHOLDER
-                  ? selectedBucketRegion
-                  : undefined,
-                draft.restrictedBucketName
-              );
-            } else if ("storageAccountName" in draft) {
-              await startAzureUpload(
-                operationId,
-                draft.storageAccountName,
-                draft.accountKey.trim(),
-                selectedBucketConnectionId!,
-                selectedBucketName!,
-                objectKey,
-                candidatePath,
-                draft.defaultUploadTier
-              );
-            }
-
-            return;
-          }
-
-          const fileBytes = new Uint8Array(await file.arrayBuffer());
-
-          if (selectedBucketProvider === "aws" && "accessKeyId" in draft) {
-            await startAwsUploadFromBytes(
-              operationId,
-              draft.accessKeyId.trim(),
-              draft.secretAccessKey.trim(),
-              selectedBucketConnectionId!,
-              selectedBucketName!,
-              objectKey,
-              file.name,
-              fileBytes,
-              draft.defaultUploadStorageClass,
-              selectedBucketRegion && selectedBucketRegion !== BUCKET_REGION_PLACEHOLDER
-                ? selectedBucketRegion
-                : undefined,
-              draft.restrictedBucketName
-            );
-            return;
-          }
-
-          if ("storageAccountName" in draft) {
-            await startAzureUploadFromBytes(
-              operationId,
-              draft.storageAccountName,
-              draft.accountKey.trim(),
-              selectedBucketConnectionId!,
-              selectedBucketName!,
-              objectKey,
-              file.name,
-              fileBytes,
-              draft.defaultUploadTier
-            );
-          }
+          await startSimpleUploadForProvider({
+            provider: selectedBucketProvider!,
+            draft,
+            connectionId: selectedBucketConnectionId!,
+            bucketName: selectedBucketName!,
+            objectKey,
+            bucketRegion: selectedBucketRegion,
+            bucketRegionPlaceholder: BUCKET_REGION_PLACEHOLDER,
+            source,
+            operationId,
+            startAwsUpload,
+            startAzureUpload,
+            startAwsUploadFromBytes,
+            startAzureUploadFromBytes
+          });
         }
       }))
     );
@@ -2142,12 +1196,13 @@ export function ConnectionNavigator({
           directory: false,
           multiple: true
         });
+        const normalizedSelectedPaths = resolveMultiFilePickResult(selectedPath);
 
-        if (!selectedPath) {
+        if (normalizedSelectedPaths.length === 0) {
           return;
         }
 
-        runSimpleAwsUploads(Array.isArray(selectedPath) ? selectedPath : [selectedPath]);
+        runSimpleAwsUploads(normalizedSelectedPaths);
       } catch (error) {
         showTransferErrorToast(
           extractErrorMessage(error) ?? t("content.transfer.upload_picker_failed")
@@ -2157,60 +1212,46 @@ export function ConnectionNavigator({
   }
 
   function clearContentSelection() {
-    setSelectedContentItemIds([]);
+    setSelectedContentItemIds(clearContentSelectionState());
   }
 
   function toggleContentItemSelection(itemId: string) {
     setSelectedContentItemIds((currentItemIds) =>
-      currentItemIds.includes(itemId)
-        ? currentItemIds.filter((currentItemId) => currentItemId !== itemId)
-        : [...currentItemIds, itemId]
+      toggleContentSelectionItem(currentItemIds, itemId)
     );
   }
 
   function toggleSelectAllVisibleContentItems() {
-    if (visibleContentItemIds.length === 0) {
-      return;
-    }
-
-    setSelectedContentItemIds((currentItemIds) => {
-      if (visibleContentItemIds.every((itemId) => currentItemIds.includes(itemId))) {
-        return currentItemIds.filter((itemId) => !visibleContentItemIds.includes(itemId));
-      }
-
-      return [...new Set([...currentItemIds, ...visibleContentItemIds])];
-    });
+    setSelectedContentItemIds((currentItemIds) =>
+      toggleAllVisibleContentSelection(currentItemIds, visibleContentItemIds)
+    );
   }
 
   function openDeleteContentModal(items: ContentExplorerItem[]) {
-    if (items.length === 0) {
+    const nextPendingDeleteState = buildPendingDeleteState(items);
+
+    if (!nextPendingDeleteState) {
       return;
     }
-
-    const plan = buildContentDeletePlan(items);
 
     setOpenContentMenuItemId(null);
     setContentMenuAnchor(null);
     setContentAreaMenuAnchor(null);
     setDeleteConfirmationValue("");
     setDeleteContentError(null);
-    setPendingContentDelete({
-      items,
-      fileCount: items.filter((item) => item.kind === "file").length,
-      directoryCount: items.filter((item) => item.kind === "directory").length,
-      plan
-    });
+    setPendingContentDelete(nextPendingDeleteState);
   }
 
   function closeDeleteContentModal(force = false) {
-    if (isDeletingContent && !force) {
+    if (!canClosePendingDeleteModal(isDeletingContent, force)) {
       return;
     }
 
-    setPendingContentDelete(null);
-    setDeleteConfirmationValue("");
-    setDeleteContentError(null);
-    setIsDeletingContent(false);
+    const nextState = buildClosedPendingDeleteModalState();
+    setPendingContentDelete(nextState.pendingContentDelete);
+    setDeleteConfirmationValue(nextState.deleteConfirmationValue);
+    setDeleteContentError(nextState.deleteContentError);
+    setIsDeletingContent(nextState.isDeletingContent);
   }
 
   async function handleConfirmDeleteContent() {
@@ -2283,175 +1324,95 @@ export function ConnectionNavigator({
         }
       }
 
-      setCompletionToast({
-        id:
+      const nextDeleteSuccessState = buildDeleteContentSuccessState({
+        toastId:
           typeof globalThis.crypto !== "undefined" && "randomUUID" in globalThis.crypto
             ? globalThis.crypto.randomUUID()
             : `toast-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
-        title: t("content.delete.success_title"),
-        description: t("content.delete.success_description")
-          .replace("{count}", String(pendingContentDelete.items.length))
-          .replace("{files}", String(pendingContentDelete.fileCount))
-          .replace("{folders}", String(pendingContentDelete.directoryCount)),
-        tone: "success"
+        itemCount: pendingContentDelete.items.length,
+        fileCount: pendingContentDelete.fileCount,
+        directoryCount: pendingContentDelete.directoryCount,
+        t
       });
+
+      setCompletionToast(nextDeleteSuccessState.completionToast);
+      setDeleteContentError(nextDeleteSuccessState.deleteContentError);
+      setIsDeletingContent(nextDeleteSuccessState.isDeletingContent);
 
       clearContentSelection();
       closeDeleteContentModal(true);
       await handleRefreshCurrentView();
     } catch (error) {
       await handleRefreshCurrentView();
-      setDeleteContentError(extractErrorMessage(error) ?? t("content.delete.failed"));
-      setIsDeletingContent(false);
+      const nextDeleteFailureState = buildDeleteContentFailureState({ error, t });
+      setDeleteContentError(nextDeleteFailureState.deleteContentError);
+      setIsDeletingContent(nextDeleteFailureState.isDeletingContent);
     }
   }
 
   function closeRestoreRequestModal() {
-    if (isSubmittingRestoreRequest) {
-      return;
-    }
-
-    setRestoreRequest(null);
-    setRestoreSubmitError(null);
+    const nextState = buildClosedRestoreRequestModalState({
+      isSubmittingRestoreRequest,
+      restoreRequest,
+      restoreSubmitError
+    });
+    setRestoreRequest(nextState.restoreRequest);
+    setRestoreSubmitError(nextState.restoreSubmitError);
   }
 
   function closeChangeStorageClassModal() {
-    if (isSubmittingStorageClassChange) {
-      return;
-    }
-
-    setChangeStorageClassRequest(null);
-    setChangeStorageClassSubmitError(null);
-  }
-
-  function buildRestoreRequestState(items: ContentExplorerItem[]): RestoreRequestState | null {
-    if (
-      items.length === 0 ||
-      !selectedBucketProvider ||
-      !selectedBucketConnectionId ||
-      !selectedBucketName
-    ) {
-      return null;
-    }
-
-    const fileItems = items.filter(
-      (item): item is ContentExplorerItem & { kind: "file" } => item.kind === "file"
-    );
-
-    if (fileItems.length === 0) {
-      return null;
-    }
-
-    const totalSize = fileItems.reduce((sum, item) => sum + (item.size ?? 0), 0);
-    const storageClasses = [...new Set(fileItems.map((item) => item.storageClass).filter(Boolean))];
-    const request: RestoreRequestTarget | RestoreRequestSummary =
-      fileItems.length === 1
-        ? {
-            provider: selectedBucketProvider,
-            fileName: fileItems[0]?.name ?? "",
-            fileSizeLabel: formatBytes(fileItems[0]?.size, locale),
-            storageClass: fileItems[0]?.storageClass
-          }
-        : {
-            provider: selectedBucketProvider,
-            fileCount: fileItems.length,
-            totalSizeLabel: formatBytes(totalSize, locale),
-            storageClasses: fileItems.map((item) => item.storageClass),
-            storageClassLabel:
-              storageClasses.length === 1
-                ? storageClasses[0] ?? null
-                : t("restore.modal.batch.mixed_storage_classes")
-          };
-
-    return {
-      provider: selectedBucketProvider,
-      request,
-      connectionId: selectedBucketConnectionId,
-      bucketName: selectedBucketName,
-      bucketRegion:
-        selectedBucketRegion && selectedBucketRegion !== BUCKET_REGION_PLACEHOLDER
-          ? selectedBucketRegion
-          : null,
-      targets: fileItems.map((item) => ({
-        objectKey: item.path,
-        storageClass: item.storageClass
-      }))
-    };
+    const nextState = buildClosedChangeStorageClassModalState({
+      isSubmittingStorageClassChange,
+      changeStorageClassRequest,
+      changeStorageClassSubmitError
+    });
+    setChangeStorageClassRequest(nextState.changeStorageClassRequest);
+    setChangeStorageClassSubmitError(nextState.changeStorageClassSubmitError);
   }
 
   function openRestoreRequestModal(items: ContentExplorerItem[]) {
-    const nextRequest = buildRestoreRequestState(items);
-
-    if (!nextRequest) {
-      return;
-    }
-
-    setOpenContentMenuItemId(null);
-    setContentMenuAnchor(null);
-    setRestoreSubmitError(null);
-    setRestoreRequest(nextRequest);
-  }
-
-  function buildChangeStorageClassRequestState(
-    items: ContentExplorerItem[]
-  ): ChangeStorageClassRequestState | null {
-    if (
-      items.length === 0 ||
-      !selectedBucketProvider ||
-      !selectedBucketConnectionId ||
-      !selectedBucketName
-    ) {
-      return null;
-    }
-
-    const fileItems = items.filter(
-      (item): item is ContentExplorerItem & { kind: "file" } => item.kind === "file"
-    );
-
-    if (fileItems.length === 0) {
-      return null;
-    }
-
-    const totalSize = fileItems.reduce((sum, item) => sum + (item.size ?? 0), 0);
-    const storageClasses = [...new Set(fileItems.map((item) => item.storageClass).filter(Boolean))];
-    const currentStorageClass =
-      storageClasses.length === 1 ? (storageClasses[0] ?? null) : null;
-
-    return {
+    const nextRequest = buildRestoreRequestState({
+      items,
       provider: selectedBucketProvider,
-      request: {
-        fileCount: fileItems.length,
-        totalSizeLabel: formatBytes(totalSize, locale),
-        currentStorageClassLabel:
-          storageClasses.length === 1
-            ? storageClasses[0] ?? null
-            : t("content.storage_class_change.multiple_current_classes")
-      },
       connectionId: selectedBucketConnectionId,
       bucketName: selectedBucketName,
-      bucketRegion:
-        selectedBucketRegion && selectedBucketRegion !== BUCKET_REGION_PLACEHOLDER
-          ? selectedBucketRegion
-          : null,
-      targets: fileItems.map((item) => ({
-        objectKey: item.path,
-        currentStorageClass: item.storageClass
-      })),
-      currentStorageClass
-    };
+      bucketRegion: selectedBucketRegion,
+      bucketRegionPlaceholder: BUCKET_REGION_PLACEHOLDER,
+      formatBytes: (size) => formatBytes(size, locale),
+      getMixedStorageClassesLabel: () => t("restore.modal.batch.mixed_storage_classes")
+    });
+    const nextState = buildOpenedRestoreRequestModalState({
+      nextRequest,
+      openContentMenuItemId,
+      contentMenuAnchor
+    });
+    setOpenContentMenuItemId(nextState.openContentMenuItemId);
+    setContentMenuAnchor(nextState.contentMenuAnchor);
+    setRestoreSubmitError(nextState.restoreSubmitError);
+    setRestoreRequest(nextState.restoreRequest);
   }
 
   function openChangeStorageClassModal(items: ContentExplorerItem[]) {
-    const nextRequest = buildChangeStorageClassRequestState(items);
-
-    if (!nextRequest) {
-      return;
-    }
-
-    setOpenContentMenuItemId(null);
-    setContentMenuAnchor(null);
-    setChangeStorageClassSubmitError(null);
-    setChangeStorageClassRequest(nextRequest);
+    const nextRequest = buildChangeStorageClassRequestState({
+      items,
+      provider: selectedBucketProvider,
+      connectionId: selectedBucketConnectionId,
+      bucketName: selectedBucketName,
+      bucketRegion: selectedBucketRegion,
+      bucketRegionPlaceholder: BUCKET_REGION_PLACEHOLDER,
+      formatBytes: (size) => formatBytes(size, locale),
+      getMultipleCurrentClassesLabel: () =>
+        t("content.storage_class_change.multiple_current_classes")
+    });
+    const nextState = buildOpenedChangeStorageClassModalState({
+      nextRequest,
+      openContentMenuItemId,
+      contentMenuAnchor
+    });
+    setOpenContentMenuItemId(nextState.openContentMenuItemId);
+    setContentMenuAnchor(nextState.contentMenuAnchor);
+    setChangeStorageClassSubmitError(nextState.changeStorageClassSubmitError);
+    setChangeStorageClassRequest(nextState.changeStorageClassRequest);
   }
 
   function handleBatchChangeTierSelection() {
@@ -2460,33 +1421,6 @@ export function ConnectionNavigator({
     }
 
     openChangeStorageClassModal(batchSelectionActions.changeTierableItems);
-  }
-
-  function getBatchChangeTierTooltip(): string {
-    if (
-      selectedContentItems.some(
-        (item) => item.kind === "file" && item.availabilityStatus === "archived"
-      )
-    ) {
-      return t(
-        selectedBucketProvider === "azure"
-          ? "content.azure_storage_class_change.tooltip_archived_requires_rehydration"
-          : "content.storage_class_change.tooltip_archived_requires_restore"
-      );
-    }
-
-    if (
-      isContentSelectionActive &&
-      !batchSelectionActions.canBatchChangeTier
-    ) {
-      return t(
-        selectedBucketProvider === "azure"
-          ? "content.azure_storage_class_change.tooltip_selection_incompatible"
-          : "content.storage_class_change.tooltip_selection_incompatible"
-      );
-    }
-
-    return t("navigation.menu.change_tier");
   }
 
   function startTrackedDownloadForItem(item: ContentExplorerItem) {
@@ -2588,11 +1522,10 @@ export function ConnectionNavigator({
   }
 
   function handleBatchDownloadSelection() {
-    if (!batchSelectionActions.canBatchDownload) {
-      return;
-    }
-
-    batchSelectionActions.downloadableItems.forEach((item) => {
+    buildBatchDownloadPlan({
+      items: batchSelectionActions.downloadableItems,
+      canBatchDownload: batchSelectionActions.canBatchDownload
+    }).forEach((item) => {
       if (item.kind === "file") {
         startTrackedDownloadForItem(item);
       }
@@ -2787,8 +1720,9 @@ export function ConnectionNavigator({
     setOpenContentMenuItemId(null);
     setContentMenuAnchor(null);
     setContentActionError(null);
+    const actionKind = getFileActionKind(actionId);
 
-    if (actionId === "delete") {
+    if (actionKind === "provider-mutation" && actionId === "delete") {
       openDeleteContentModal([item]);
       return;
     }
@@ -2811,6 +1745,7 @@ export function ConnectionNavigator({
     }
 
     if (
+      actionKind === "provider-mutation" &&
       actionId === "restore" &&
       canRestoreItem(item, selectedBucketProvider)
     ) {
@@ -2818,7 +1753,11 @@ export function ConnectionNavigator({
       return;
     }
 
-    if (actionId === "changeTier" && canChangeTierItem(item, selectedBucketProvider)) {
+    if (
+      actionKind === "provider-mutation" &&
+      actionId === "changeTier" &&
+      canChangeTierItem(item, selectedBucketProvider)
+    ) {
       openChangeStorageClassModal([item]);
       return;
     }
@@ -3007,58 +1946,21 @@ export function ConnectionNavigator({
 
             const payload = event.payload;
 
-            setActiveTransfers((currentTransfers) => {
-              const existingTransfer = currentTransfers[payload.operationId];
+            setActiveTransfers((currentTransfers) =>
+              updateTransfersFromDownloadEvent(currentTransfers, payload)
+            );
+            setDownloadedFilePaths((currentPaths) =>
+              reconcileDownloadedFilePathsFromDownloadEvent(currentPaths, payload)
+            );
+            setContentItems((currentItems) =>
+              reconcileContentItemsFromDownloadEvent(currentItems, payload)
+            );
 
-              if (!existingTransfer) {
-                return currentTransfers;
-              }
+            const completionToast = buildDownloadCompletionToast(payload, t);
 
-              return {
-                ...currentTransfers,
-                [payload.operationId]: {
-                  ...existingTransfer,
-                  progressPercent: payload.progressPercent,
-                  bytesTransferred: payload.bytesReceived,
-                  totalBytes: payload.totalBytes,
-                  state: payload.state,
-                  transferKind: payload.transferKind,
-                  targetPath: payload.targetPath,
-                  error: payload.error
-                }
-              };
-            });
-
-            if (payload.state === "completed" && payload.transferKind === "cache") {
-              const fileIdentity = buildFileIdentity(
-                payload.connectionId,
-                payload.bucketName,
-                payload.objectKey
-              );
-
-              setDownloadedFilePaths((currentPaths) =>
-                currentPaths.includes(fileIdentity)
-                  ? currentPaths
-                  : [...currentPaths, fileIdentity]
-              );
-              setContentItems((currentItems) =>
-                currentItems.map((currentItem) =>
-                  currentItem.kind === "file" && currentItem.path === payload.objectKey
-                    ? { ...currentItem, downloadState: "downloaded" }
-                    : currentItem
-                )
-              );
-            }
-
-            if (payload.state === "completed" && payload.transferKind === "direct") {
-              setCompletionToast({
-                id: payload.operationId,
-                title: t("content.transfer.download_as_completed"),
-                description:
-                  payload.targetPath ?? t("content.transfer.download_as_completed_fallback"),
-                tone: "success"
-              });
-            } else if (payload.state === "failed" && payload.error) {
+            if (completionToast) {
+              setCompletionToast(completionToast);
+            } else if (shouldShowTransferError(payload) && payload.error) {
               showTransferErrorToast(payload.error);
             }
           }
@@ -3102,58 +2004,21 @@ export function ConnectionNavigator({
 
             const payload = event.payload;
 
-            setActiveTransfers((currentTransfers) => {
-              const existingTransfer = currentTransfers[payload.operationId];
+            setActiveTransfers((currentTransfers) =>
+              updateTransfersFromDownloadEvent(currentTransfers, payload)
+            );
+            setDownloadedFilePaths((currentPaths) =>
+              reconcileDownloadedFilePathsFromDownloadEvent(currentPaths, payload)
+            );
+            setContentItems((currentItems) =>
+              reconcileContentItemsFromDownloadEvent(currentItems, payload)
+            );
 
-              if (!existingTransfer) {
-                return currentTransfers;
-              }
+            const completionToast = buildDownloadCompletionToast(payload, t);
 
-              return {
-                ...currentTransfers,
-                [payload.operationId]: {
-                  ...existingTransfer,
-                  progressPercent: payload.progressPercent,
-                  bytesTransferred: payload.bytesReceived,
-                  totalBytes: payload.totalBytes,
-                  state: payload.state,
-                  transferKind: payload.transferKind,
-                  targetPath: payload.targetPath,
-                  error: payload.error
-                }
-              };
-            });
-
-            if (payload.state === "completed" && payload.transferKind === "cache") {
-              const fileIdentity = buildFileIdentity(
-                payload.connectionId,
-                payload.bucketName,
-                payload.objectKey
-              );
-
-              setDownloadedFilePaths((currentPaths) =>
-                currentPaths.includes(fileIdentity)
-                  ? currentPaths
-                  : [...currentPaths, fileIdentity]
-              );
-              setContentItems((currentItems) =>
-                currentItems.map((currentItem) =>
-                  currentItem.kind === "file" && currentItem.path === payload.objectKey
-                    ? { ...currentItem, downloadState: "downloaded" }
-                    : currentItem
-                )
-              );
-            }
-
-            if (payload.state === "completed" && payload.transferKind === "direct") {
-              setCompletionToast({
-                id: payload.operationId,
-                title: t("content.transfer.download_as_completed"),
-                description:
-                  payload.targetPath ?? t("content.transfer.download_as_completed_fallback"),
-                tone: "success"
-              });
-            } else if (payload.state === "failed" && payload.error) {
+            if (completionToast) {
+              setCompletionToast(completionToast);
+            } else if (shouldShowTransferError(payload) && payload.error) {
               showTransferErrorToast(payload.error);
             }
           }
@@ -3185,11 +2050,9 @@ export function ConnectionNavigator({
 
     hasProcessedStartupAutoConnectRef.current = true;
 
-    connections
-      .filter((connection) => connection.connectOnStartup === true)
-      .forEach((connection) => {
-        void connectConnection(connection.id, connection);
-      });
+    getStartupAutoConnectConnections(connections).forEach((connection) => {
+      void connectConnection(connection.id, connection);
+    });
   }, [connections, isLoadingConnections]);
 
   useEffect(() => {
@@ -3211,47 +2074,28 @@ export function ConnectionNavigator({
 
             const payload = event.payload;
 
-            setActiveTransfers((currentTransfers) => {
-              const existingTransfer = currentTransfers[payload.operationId];
+            setActiveTransfers((currentTransfers) =>
+              updateTransfersFromUploadEvent(currentTransfers, payload)
+            );
 
-              if (!existingTransfer) {
-                return currentTransfers;
-              }
+            const completionToast = buildUploadCompletionToast(payload, t);
 
-              return {
-                ...currentTransfers,
-                [payload.operationId]: {
-                  ...existingTransfer,
-                  progressPercent: payload.progressPercent,
-                  bytesTransferred: payload.bytesTransferred,
-                  totalBytes: payload.totalBytes,
-                  state: payload.state,
-                  error: payload.error,
-                  objectKey: payload.objectKey,
-                  localFilePath: payload.localFilePath
-                }
-              };
-            });
-
-            if (payload.state === "completed") {
-              setCompletionToast({
-                id: payload.operationId,
-                title: t("content.transfer.upload_completed"),
-                description: payload.objectKey,
-                tone: "success"
-              });
+            if (completionToast) {
+              setCompletionToast(completionToast);
 
               if (
-                payload.connectionId === selectedBucketConnectionId &&
-                payload.bucketName === selectedBucketName
+                shouldRefreshAfterUploadCompletion({
+                  uploadConnectionId: payload.connectionId,
+                  uploadBucketName: payload.bucketName,
+                  uploadObjectKey: payload.objectKey,
+                  selectedBucketConnectionId,
+                  selectedBucketName,
+                  selectedBucketPath
+                })
               ) {
-                const uploadedParentPath = getUploadParentPath(payload.objectKey);
-
-                if (uploadedParentPath === selectedBucketPath) {
-                  setContentRefreshNonce((currentValue) => currentValue + 1);
-                }
+                setContentRefreshNonce((currentValue) => currentValue + 1);
               }
-            } else if (payload.state === "failed" && payload.error) {
+            } else if (shouldShowTransferError(payload) && payload.error) {
               showTransferErrorToast(payload.error);
             }
           }
@@ -3295,47 +2139,28 @@ export function ConnectionNavigator({
 
             const payload = event.payload;
 
-            setActiveTransfers((currentTransfers) => {
-              const existingTransfer = currentTransfers[payload.operationId];
+            setActiveTransfers((currentTransfers) =>
+              updateTransfersFromUploadEvent(currentTransfers, payload)
+            );
 
-              if (!existingTransfer) {
-                return currentTransfers;
-              }
+            const completionToast = buildUploadCompletionToast(payload, t);
 
-              return {
-                ...currentTransfers,
-                [payload.operationId]: {
-                  ...existingTransfer,
-                  progressPercent: payload.progressPercent,
-                  bytesTransferred: payload.bytesTransferred,
-                  totalBytes: payload.totalBytes,
-                  state: payload.state,
-                  error: payload.error,
-                  objectKey: payload.objectKey,
-                  localFilePath: payload.localFilePath
-                }
-              };
-            });
-
-            if (payload.state === "completed") {
-              setCompletionToast({
-                id: payload.operationId,
-                title: t("content.transfer.upload_completed"),
-                description: payload.objectKey,
-                tone: "success"
-              });
+            if (completionToast) {
+              setCompletionToast(completionToast);
 
               if (
-                payload.connectionId === selectedBucketConnectionId &&
-                payload.bucketName === selectedBucketName
+                shouldRefreshAfterUploadCompletion({
+                  uploadConnectionId: payload.connectionId,
+                  uploadBucketName: payload.bucketName,
+                  uploadObjectKey: payload.objectKey,
+                  selectedBucketConnectionId,
+                  selectedBucketName,
+                  selectedBucketPath
+                })
               ) {
-                const uploadedParentPath = getUploadParentPath(payload.objectKey);
-
-                if (uploadedParentPath === selectedBucketPath) {
-                  setContentRefreshNonce((currentValue) => currentValue + 1);
-                }
+                setContentRefreshNonce((currentValue) => currentValue + 1);
               }
-            } else if (payload.state === "failed" && payload.error) {
+            } else if (shouldShowTransferError(payload) && payload.error) {
               showTransferErrorToast(payload.error);
             }
           }
@@ -3447,34 +2272,6 @@ export function ConnectionNavigator({
   ]);
 
   useEffect(() => {
-    if (!completionToast) {
-      return undefined;
-    }
-
-    const timeoutId = window.setTimeout(() => {
-      setCompletionToast((currentToast) =>
-        currentToast?.id === completionToast.id ? null : currentToast
-      );
-    }, 4200);
-
-    return () => {
-      window.clearTimeout(timeoutId);
-    };
-  }, [completionToast]);
-
-  function showTransferErrorToast(description: string) {
-    setCompletionToast({
-      id:
-        typeof globalThis.crypto !== "undefined" && "randomUUID" in globalThis.crypto
-          ? globalThis.crypto.randomUUID()
-          : `toast-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
-      title: t("content.transfer.error_title"),
-      description,
-      tone: "error"
-    });
-  }
-
-  useEffect(() => {
     if (
       !selectedBucketProvider ||
       !selectedBucketConnectionId ||
@@ -3490,14 +2287,16 @@ export function ConnectionNavigator({
 
     void (async () => {
       try {
-        const cachedFileIdentities = await resolveCachedFileIdentities(
-          selectedBucketProvider,
-          selectedBucketConnectionId,
-          selectedConnection.name,
-          selectedBucketName,
+        const cachedFileIdentities = await resolveCachedFileIdentities({
+          provider: selectedBucketProvider,
+          connectionId: selectedBucketConnectionId,
+          connectionName: selectedConnection.name,
+          bucketName: selectedBucketName,
           globalLocalCacheDirectory,
-          contentItems
-        );
+          items: contentItems,
+          findAwsCachedObjects,
+          findAzureCachedObjects
+        });
 
         if (!isActive) {
           return;
@@ -3602,7 +2401,7 @@ export function ConnectionNavigator({
     }
 
     const selectedStillExists = selectedNodeId
-      ? findNodeById(treeNodes, selectedNodeId) !== null
+      ? findTreeNodeById(treeNodes, selectedNodeId) !== null
       : false;
 
     if (!selectedStillExists) {
@@ -3674,7 +2473,7 @@ export function ConnectionNavigator({
       const nextBucketContentPaths: Record<string, string> = {};
 
       for (const connectionId of Object.keys(previousBucketContentPaths)) {
-        if (findNodeById(treeNodes, connectionId)) {
+        if (findTreeNodeById(treeNodes, connectionId)) {
           nextBucketContentPaths[connectionId] = previousBucketContentPaths[connectionId];
         }
       }
@@ -3682,39 +2481,6 @@ export function ConnectionNavigator({
       return nextBucketContentPaths;
     });
   }, [treeNodes]);
-
-  useEffect(() => {
-    if (!isResizingSidebar) {
-      return undefined;
-    }
-
-    function handlePointerMove(event: PointerEvent) {
-      const workspaceElement = workspaceRef.current;
-
-      if (!workspaceElement) {
-        return;
-      }
-
-      const workspaceRect = workspaceElement.getBoundingClientRect();
-      const nextWidth = event.clientX - workspaceRect.left;
-      const maxWidth = Math.min(MAX_SIDEBAR_WIDTH, workspaceRect.width - MIN_CONTENT_WIDTH);
-      const clampedWidth = Math.min(Math.max(nextWidth, MIN_SIDEBAR_WIDTH), maxWidth);
-
-      setSidebarWidth(clampedWidth);
-    }
-
-    function handlePointerUp() {
-      setIsResizingSidebar(false);
-    }
-
-    window.addEventListener("pointermove", handlePointerMove);
-    window.addEventListener("pointerup", handlePointerUp);
-
-    return () => {
-      window.removeEventListener("pointermove", handlePointerMove);
-      window.removeEventListener("pointerup", handlePointerUp);
-    };
-  }, [isResizingSidebar]);
 
   useEffect(() => {
     return () => {
@@ -3763,26 +2529,28 @@ export function ConnectionNavigator({
     async function loadContentItems() {
       if (!selectedBucketId || !selectedBucketConnectionId || !selectedBucketName || !selectedConnection) {
         contentRequestIdRef.current += 1;
-        setContentItems([]);
-        setContentContinuationToken(null);
-        setContentHasMore(false);
-        setContentError(null);
-        setContentActionError(null);
-        setLoadMoreContentError(null);
-        setIsLoadingContent(false);
-        setIsLoadingMoreContent(false);
+        const resetState = buildContentResetState<ContentExplorerItem>();
+        setContentItems(resetState.contentItems);
+        setContentContinuationToken(resetState.continuationToken);
+        setContentHasMore(resetState.hasMore);
+        setContentError(resetState.contentError);
+        setContentActionError(resetState.contentActionError ?? null);
+        setLoadMoreContentError(resetState.loadMoreContentError);
+        setIsLoadingContent(resetState.isLoadingContent);
+        setIsLoadingMoreContent(resetState.isLoadingMoreContent);
         return;
       }
 
       const requestId = contentRequestIdRef.current + 1;
       contentRequestIdRef.current = requestId;
-      setIsLoadingContent(true);
-      setIsLoadingMoreContent(false);
-      setContentError(null);
-      setContentActionError(null);
-      setLoadMoreContentError(null);
-      setContentContinuationToken(null);
-      setContentHasMore(false);
+      const loadingState = buildInitialContentLoadingState<ContentExplorerItem>();
+      setIsLoadingContent(loadingState.isLoadingContent);
+      setIsLoadingMoreContent(loadingState.isLoadingMoreContent);
+      setContentError(loadingState.contentError);
+      setContentActionError(loadingState.contentActionError ?? null);
+      setLoadMoreContentError(loadingState.loadMoreContentError);
+      setContentContinuationToken(loadingState.continuationToken);
+      setContentHasMore(loadingState.hasMore);
 
       try {
         const result = await listContainerItemsForSavedConnection(selectedConnection, selectedBucketName, {
@@ -3799,24 +2567,29 @@ export function ConnectionNavigator({
           return;
         }
 
-        setContentItems(
-          applyDownloadedFileState(
-            nextItems,
-            downloadedFilePathSet,
-            selectedBucketConnectionId,
-            selectedBucketName,
-            hasValidGlobalLocalCacheDirectory
-          )
+        const nextLoadedItems = applyDownloadedFileState(
+          nextItems,
+          downloadedFilePathSet,
+          selectedBucketConnectionId,
+          selectedBucketName,
+          hasValidGlobalLocalCacheDirectory
         );
-        setContentContinuationToken(result.continuationToken ?? null);
-        setContentHasMore(result.hasMore);
-        setIsLoadingContent(false);
-        setLoadMoreContentError(null);
+        const successState = buildInitialContentSuccessState(nextLoadedItems, result);
+        setContentItems(successState.contentItems);
+        setContentContinuationToken(successState.continuationToken);
+        setContentHasMore(successState.hasMore);
+        setIsLoadingContent(successState.isLoadingContent);
+        setIsLoadingMoreContent(successState.isLoadingMoreContent);
+        setContentError(successState.contentError);
+        setContentActionError(successState.contentActionError ?? null);
+        setLoadMoreContentError(successState.loadMoreContentError);
 
-        if (result.region && result.region !== selectedBucketRegion) {
+        const nextRegion = getRegionUpdate(result.region, selectedBucketRegion, selectedBucketId);
+
+        if (nextRegion) {
           updateBucketNode(selectedBucketConnectionId, selectedBucketId, (node) => ({
             ...node,
-            region: result.region ?? undefined
+            region: nextRegion
           }));
         }
       } catch (error) {
@@ -3825,12 +2598,15 @@ export function ConnectionNavigator({
         }
 
         const message = extractErrorMessage(error) ?? t("content.list.load_error");
-        setContentItems([]);
-        setContentContinuationToken(null);
-        setContentHasMore(false);
-        setContentError(message);
-        setLoadMoreContentError(null);
-        setIsLoadingContent(false);
+        const failureState = buildInitialContentFailureState<ContentExplorerItem>(message);
+        setContentItems(failureState.contentItems);
+        setContentContinuationToken(failureState.continuationToken);
+        setContentHasMore(failureState.hasMore);
+        setContentError(failureState.contentError);
+        setContentActionError(failureState.contentActionError ?? null);
+        setLoadMoreContentError(failureState.loadMoreContentError);
+        setIsLoadingContent(failureState.isLoadingContent);
+        setIsLoadingMoreContent(failureState.isLoadingMoreContent);
       }
     }
 
@@ -3848,111 +2624,30 @@ export function ConnectionNavigator({
     t
   ]);
 
-  useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
-    }
-
-    window.localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(sidebarWidth));
-  }, [sidebarWidth]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
-    }
-
-    window.localStorage.setItem(CONTENT_VIEW_MODE_STORAGE_KEY, contentViewMode);
-  }, [contentViewMode]);
-
-  useEffect(() => {
-    appSettingsStore.save({
-      globalLocalCacheDirectory: globalLocalCacheDirectory.trim() || undefined,
-      contentListingPageSize
-    });
-  }, [contentListingPageSize, globalLocalCacheDirectory]);
-
-  useEffect(() => {
-    let isActive = true;
-    const normalizedPath = globalLocalCacheDirectory.trim();
-
-    if (!normalizedPath) {
-      setLocalMappingDirectoryStatus("missing");
-      return undefined;
-    }
-
-    if (!isTauri()) {
-      setLocalMappingDirectoryStatus("valid");
-      return undefined;
-    }
-
-    setLocalMappingDirectoryStatus("checking");
-
-    void (async () => {
-      try {
-        const isValidDirectory = await validateLocalMappingDirectory(normalizedPath);
-
-        if (!isActive) {
-          return;
-        }
-
-        setLocalMappingDirectoryStatus(isValidDirectory ? "valid" : "invalid");
-      } catch {
-        if (!isActive) {
-          return;
-        }
-
-        setLocalMappingDirectoryStatus("invalid");
-      }
-    })();
-
-    return () => {
-      isActive = false;
-    };
-  }, [globalLocalCacheDirectory]);
-
-  useEffect(() => {
-    if (!isResizingSidebar) {
-      return undefined;
-    }
-
-    const previousCursor = document.body.style.cursor;
-    const previousUserSelect = document.body.style.userSelect;
-
-    document.body.style.cursor = "col-resize";
-    document.body.style.userSelect = "none";
-
-    return () => {
-      document.body.style.cursor = previousCursor;
-      document.body.style.userSelect = previousUserSelect;
-    };
-  }, [isResizingSidebar]);
-
   function resetForm() {
+    const resetState = buildResetModalFormState();
     resetConnectionTestState();
-    setConnectionName("");
-    setConnectionProvider("aws");
-    setAccessKeyId("");
-    setSecretAccessKey("");
-    setRestrictedBucketName("");
-    setStorageAccountName("");
-    setAzureAuthenticationMethod("shared_key");
-    setAzureAccountKey("");
-    setConnectOnStartup(false);
-    setDefaultAwsUploadStorageClass(DEFAULT_AWS_UPLOAD_STORAGE_CLASS);
-    setDefaultAzureUploadTier(DEFAULT_AZURE_UPLOAD_TIER);
-    setFormErrors({});
-    setSubmitError(null);
-  }
-
-  function handleResizeStart() {
-    setIsResizingSidebar(true);
+    setConnectionName(resetState.connectionName);
+    setConnectionProvider(resetState.connectionProvider);
+    setAccessKeyId(resetState.accessKeyId);
+    setSecretAccessKey(resetState.secretAccessKey);
+    setRestrictedBucketName(resetState.restrictedBucketName);
+    setStorageAccountName(resetState.storageAccountName);
+    setAzureAuthenticationMethod(resetState.azureAuthenticationMethod);
+    setAzureAccountKey(resetState.azureAccountKey);
+    setConnectOnStartup(resetState.connectOnStartup);
+    setDefaultAwsUploadStorageClass(resetState.defaultAwsUploadStorageClass);
+    setDefaultAzureUploadTier(resetState.defaultAzureUploadTier);
+    setFormErrors(resetState.formErrors);
+    setSubmitError(resetState.submitError);
   }
 
   function openCreateModal() {
-    setModalMode("create");
-    setEditingConnectionId(null);
+    const createState = buildCreateModalState();
+    setModalMode(createState.modalMode);
+    setEditingConnectionId(createState.editingConnectionId);
     resetForm();
-    setIsModalOpen(true);
+    setIsModalOpen(createState.isModalOpen);
   }
 
   async function openEditModal(connectionId: string) {
@@ -3964,93 +2659,71 @@ export function ConnectionNavigator({
     }
 
     try {
-      setSubmitError(null);
-      setModalMode("edit");
-      setEditingConnectionId(connectionId);
-      setConnectionName(connection.name);
-      setConnectionProvider(connection.provider);
-      setAccessKeyId("");
-      setSecretAccessKey("");
-      setRestrictedBucketName(
-        connection.provider === "aws" ? connection.restrictedBucketName ?? "" : ""
-      );
-      setStorageAccountName(
-        connection.provider === "azure" ? connection.storageAccountName ?? "" : ""
-      );
-      setAzureAuthenticationMethod(
-        connection.provider === "azure" ? connection.authenticationMethod : "shared_key"
-      );
-      setAzureAccountKey("");
-      setDefaultAzureUploadTier(
-        connection.provider === "azure"
-          ? normalizeAzureUploadTier(connection.defaultUploadTier)
-          : DEFAULT_AZURE_UPLOAD_TIER
-      );
-      setConnectOnStartup(connection.connectOnStartup === true);
-      setDefaultAwsUploadStorageClass(DEFAULT_AWS_UPLOAD_STORAGE_CLASS);
+      const baseEditState = buildBaseEditModalState(connection, connectionId);
+      setSubmitError(baseEditState.submitError);
+      setModalMode(baseEditState.modalMode);
+      setEditingConnectionId(baseEditState.editingConnectionId);
+      setConnectionName(baseEditState.connectionName);
+      setConnectionProvider(baseEditState.connectionProvider);
+      setAccessKeyId(baseEditState.accessKeyId);
+      setSecretAccessKey(baseEditState.secretAccessKey);
+      setRestrictedBucketName(baseEditState.restrictedBucketName);
+      setStorageAccountName(baseEditState.storageAccountName);
+      setAzureAuthenticationMethod(baseEditState.azureAuthenticationMethod);
+      setAzureAccountKey(baseEditState.azureAccountKey);
+      setDefaultAzureUploadTier(baseEditState.defaultAzureUploadTier);
+      setConnectOnStartup(baseEditState.connectOnStartup);
+      setDefaultAwsUploadStorageClass(baseEditState.defaultAwsUploadStorageClass);
       resetConnectionTestState();
-      setFormErrors({});
-      setIsModalOpen(true);
+      setFormErrors(baseEditState.formErrors);
+      setIsModalOpen(baseEditState.isModalOpen);
 
       if (connection.provider === "aws") {
         const draft = await connectionService.getAwsConnectionDraft(connectionId);
-        setAccessKeyId(draft.accessKeyId);
-        setSecretAccessKey(draft.secretAccessKey);
-        setRestrictedBucketName(draft.restrictedBucketName ?? "");
-        setConnectOnStartup(draft.connectOnStartup === true);
-        setDefaultAwsUploadStorageClass(
-          normalizeAwsUploadStorageClass(draft.defaultUploadStorageClass)
-        );
+        const awsEditState = buildAwsEditModalState(baseEditState, draft);
+        setAccessKeyId(awsEditState.accessKeyId);
+        setSecretAccessKey(awsEditState.secretAccessKey);
+        setRestrictedBucketName(awsEditState.restrictedBucketName);
+        setConnectOnStartup(awsEditState.connectOnStartup);
+        setDefaultAwsUploadStorageClass(awsEditState.defaultAwsUploadStorageClass);
         return;
       }
 
       const draft = await connectionService.getAzureConnectionDraft(connectionId);
-      setStorageAccountName(draft.storageAccountName);
-      setAzureAuthenticationMethod(draft.authenticationMethod);
-      setAzureAccountKey(draft.accountKey);
-      setConnectOnStartup(draft.connectOnStartup === true);
-      setDefaultAzureUploadTier(normalizeAzureUploadTier(draft.defaultUploadTier));
+      const azureEditState = buildAzureEditModalState(baseEditState, draft);
+      setStorageAccountName(azureEditState.storageAccountName);
+      setAzureAuthenticationMethod(azureEditState.azureAuthenticationMethod);
+      setAzureAccountKey(azureEditState.azureAccountKey);
+      setConnectOnStartup(azureEditState.connectOnStartup);
+      setDefaultAzureUploadTier(azureEditState.defaultAzureUploadTier);
     } catch (error) {
-      setSubmitError(
-        error instanceof Error
-          ? error.message
-          : t("navigation.modal.credentials_load_warning")
-      );
+      setSubmitError(buildModalLoadErrorMessage(error, t));
     }
   }
 
-  function getTransferCancelLabel(transferKind: TransferKind) {
-    return transferKind === "upload"
-      ? t("navigation.menu.cancel_upload")
-      : t("navigation.menu.cancel_download");
-  }
-
   function resetConnectionTestState() {
-    connectionTestRequestIdRef.current += 1;
-    setConnectionTestStatus("idle");
-    setConnectionTestMessage(null);
+    const nextState = buildResetConnectionTestState(connectionTestRequestIdRef.current);
+    connectionTestRequestIdRef.current = nextState.requestId;
+    setConnectionTestStatus(nextState.status);
+    setConnectionTestMessage(nextState.message);
   }
 
   function updateConnectionIndicator(connectionId: string, indicator: ConnectionIndicator) {
-    setConnectionIndicators((previousIndicators) => ({
-      ...previousIndicators,
-      [connectionId]: indicator
-    }));
+    setConnectionIndicators((previousIndicators) =>
+      updateConnectionIndicatorMap(previousIndicators, connectionId, indicator)
+    );
   }
 
   function clearConnectionBuckets(connectionId: string) {
-    setConnectionBuckets((previousConnectionBuckets) => {
-      const nextConnectionBuckets = { ...previousConnectionBuckets };
-      delete nextConnectionBuckets[connectionId];
-      return nextConnectionBuckets;
-    });
+    setConnectionBuckets((previousConnectionBuckets) =>
+      clearConnectionBucketNodes(previousConnectionBuckets, connectionId)
+    );
   }
 
   function navigateBucketPath(bucketNodeId: string, nextPath: string) {
-    setBucketContentPaths((previousBucketContentPaths) => ({
-      ...previousBucketContentPaths,
-      [bucketNodeId]: nextPath
-    }));
+    setBucketContentPaths((previousBucketContentPaths) =>
+      setBucketPath(previousBucketContentPaths, bucketNodeId, nextPath)
+    );
   }
 
   async function handleLoadMoreContent() {
@@ -4066,8 +2739,15 @@ export function ConnectionNavigator({
     }
 
     const requestId = contentRequestIdRef.current;
-    setIsLoadingMoreContent(true);
-    setLoadMoreContentError(null);
+    const loadMoreStartState = buildLoadMoreStartState(
+      contentItems,
+      contentContinuationToken,
+      contentHasMore
+    );
+    setIsLoadingContent(loadMoreStartState.isLoadingContent);
+    setIsLoadingMoreContent(loadMoreStartState.isLoadingMoreContent);
+    setContentError(loadMoreStartState.contentError);
+    setLoadMoreContentError(loadMoreStartState.loadMoreContentError);
 
     try {
       const result = await listContainerItemsForSavedConnection(selectedConnection, selectedBucketName, {
@@ -4085,24 +2765,28 @@ export function ConnectionNavigator({
         return;
       }
 
-      setContentItems((previousItems) =>
-        applyDownloadedFileState(
-          mergeContentItems(previousItems, nextItems),
-          downloadedFilePathSet,
-          selectedBucketConnectionId,
-          selectedBucketName,
-          hasValidGlobalLocalCacheDirectory
-        )
+      const nextMergedItems = applyDownloadedFileState(
+        mergeContentItems(contentItems, nextItems),
+        downloadedFilePathSet,
+        selectedBucketConnectionId,
+        selectedBucketName,
+        hasValidGlobalLocalCacheDirectory
       );
-      setContentContinuationToken(result.continuationToken ?? null);
-      setContentHasMore(result.hasMore);
-      setIsLoadingMoreContent(false);
-      setLoadMoreContentError(null);
+      const loadMoreSuccessState = buildLoadMoreSuccessState(nextMergedItems, result);
+      setContentItems(loadMoreSuccessState.contentItems);
+      setContentContinuationToken(loadMoreSuccessState.continuationToken);
+      setContentHasMore(loadMoreSuccessState.hasMore);
+      setIsLoadingContent(loadMoreSuccessState.isLoadingContent);
+      setIsLoadingMoreContent(loadMoreSuccessState.isLoadingMoreContent);
+      setContentError(loadMoreSuccessState.contentError);
+      setLoadMoreContentError(loadMoreSuccessState.loadMoreContentError);
 
-      if (result.region && result.region !== selectedBucketRegion && selectedBucketId) {
+      const nextRegion = getRegionUpdate(result.region, selectedBucketRegion, selectedBucketId);
+
+      if (nextRegion && selectedBucketId) {
         updateBucketNode(selectedBucketConnectionId, selectedBucketId, (node) => ({
           ...node,
-          region: result.region ?? undefined
+          region: nextRegion
         }));
       }
     } catch (error) {
@@ -4110,31 +2794,40 @@ export function ConnectionNavigator({
         return;
       }
 
-      setLoadMoreContentError(extractErrorMessage(error) ?? t("content.list.load_error"));
-      setIsLoadingMoreContent(false);
+      const failureState = buildLoadMoreFailureState(
+        contentItems,
+        contentContinuationToken,
+        contentHasMore,
+        extractErrorMessage(error) ?? t("content.list.load_error")
+      );
+      setContentItems(failureState.contentItems);
+      setContentContinuationToken(failureState.continuationToken);
+      setContentHasMore(failureState.hasMore);
+      setIsLoadingContent(failureState.isLoadingContent);
+      setIsLoadingMoreContent(failureState.isLoadingMoreContent);
+      setContentError(failureState.contentError);
+      setLoadMoreContentError(failureState.loadMoreContentError);
     }
   }
 
   async function handleRefreshCurrentView() {
-    if (!selectedNode) {
-      return;
-    }
-
     clearContentSelection();
+    const refreshPlan = getRefreshPlan({
+      hasSelectedNode: !!selectedNode,
+      selectedNodeKind: selectedNode?.kind,
+      connectionStatus: selectedConnectionIndicator.status,
+      isLoadingContent,
+      isLoadingMoreContent
+    });
 
-    if (selectedNode.kind === "connection") {
-      if (selectedConnectionIndicator.status === "connected") {
-        await connectConnection(selectedNode.id);
-      }
-
+    if (refreshPlan === "reconnect-connection" && selectedNode) {
+      await connectConnection(selectedNode.id);
       return;
     }
 
-    if (isLoadingContent || isLoadingMoreContent) {
-      return;
+    if (refreshPlan === "reload-bucket") {
+      setContentRefreshNonce((currentValue) => currentValue + 1);
     }
-
-    setContentRefreshNonce((currentValue) => currentValue + 1);
   }
 
   function updateBucketNode(
@@ -4142,12 +2835,9 @@ export function ConnectionNavigator({
     bucketNodeId: string,
     updater: (node: ExplorerTreeNode) => ExplorerTreeNode
   ) {
-    setConnectionBuckets((previousConnectionBuckets) => ({
-      ...previousConnectionBuckets,
-      [connectionId]: (previousConnectionBuckets[connectionId] ?? []).map((bucket) =>
-        bucket.id === bucketNodeId ? updater(bucket) : bucket
-      )
-    }));
+    setConnectionBuckets((previousConnectionBuckets) =>
+      updateBucketNodeMap(previousConnectionBuckets, connectionId, bucketNodeId, updater)
+    );
   }
 
   async function hydrateBucketRegions(
@@ -4207,16 +2897,15 @@ export function ConnectionNavigator({
       return;
     }
 
-    const requestId = (connectionRequestIdsRef.current[connectionId] ?? 0) + 1;
-    connectionRequestIdsRef.current[connectionId] = requestId;
+    const nextRequest = buildNextConnectionRequestId(connectionRequestIdsRef.current, connectionId);
+    const requestId = nextRequest.requestId;
+    connectionRequestIdsRef.current = nextRequest.requestIds;
 
-    setConnectionProviderAccountIds((previousProviderAccountIds) => {
-      const nextProviderAccountIds = { ...previousProviderAccountIds };
-      delete nextProviderAccountIds[connectionId];
-      return nextProviderAccountIds;
-    });
+    setConnectionProviderAccountIds((previousProviderAccountIds) =>
+      clearConnectionProviderAccountId(previousProviderAccountIds, connectionId)
+    );
     clearConnectionBuckets(connectionId);
-    updateConnectionIndicator(connectionId, { status: "connecting" });
+    updateConnectionIndicator(connectionId, buildConnectingIndicator());
 
     try {
       const result = await testConnectionForSavedConnection(connection);
@@ -4226,20 +2915,24 @@ export function ConnectionNavigator({
       }
 
       if (!result.accountLabel) {
-        updateConnectionIndicator(connectionId, {
-          status: "error",
-          message:
+        updateConnectionIndicator(
+          connectionId,
+          buildConnectionErrorIndicator(
             connection.provider === "aws"
               ? t("navigation.modal.aws.test_connection_failure")
               : t("navigation.modal.azure.test_connection_failure")
-        });
+          )
+        );
         return;
       }
 
-      setConnectionProviderAccountIds((previousProviderAccountIds) => ({
-        ...previousProviderAccountIds,
-        [connectionId]: result.accountLabel
-      }));
+      setConnectionProviderAccountIds((previousProviderAccountIds) =>
+        setConnectionProviderAccountId(
+          previousProviderAccountIds,
+          connectionId,
+          result.accountLabel
+        )
+      );
       const buckets = await listContainersForSavedConnection(connection);
 
       if (connectionRequestIdsRef.current[connectionId] !== requestId) {
@@ -4248,7 +2941,7 @@ export function ConnectionNavigator({
 
       setConnectionBuckets((previousConnectionBuckets) => ({
         ...previousConnectionBuckets,
-        [connectionId]: buildBucketNodes(connection, buckets)
+        [connectionId]: buildBucketNodes(connection, buckets, BUCKET_REGION_PLACEHOLDER)
       }));
 
       if (connection.provider === "aws") {
@@ -4268,97 +2961,60 @@ export function ConnectionNavigator({
         );
       }
 
-      updateConnectionIndicator(connectionId, { status: "connected" });
+      updateConnectionIndicator(connectionId, buildConnectedIndicator());
     } catch (error) {
       if (connectionRequestIdsRef.current[connectionId] !== requestId) {
         return;
       }
 
-      setConnectionProviderAccountIds((previousProviderAccountIds) => {
-        const nextProviderAccountIds = { ...previousProviderAccountIds };
-        delete nextProviderAccountIds[connectionId];
-        return nextProviderAccountIds;
-      });
-      updateConnectionIndicator(connectionId, {
-        status: "error",
-        message: buildConnectionFailureMessage(error, t)
-      });
+      setConnectionProviderAccountIds((previousProviderAccountIds) =>
+        clearConnectionProviderAccountId(previousProviderAccountIds, connectionId)
+      );
+      updateConnectionIndicator(
+        connectionId,
+        buildConnectionErrorIndicator(buildConnectionFailureMessage(error, t))
+      );
       clearConnectionBuckets(connectionId);
     }
   }
 
   async function disconnectConnection(connectionId: string) {
-    connectionRequestIdsRef.current[connectionId] =
-      (connectionRequestIdsRef.current[connectionId] ?? 0) + 1;
-    setConnectionProviderAccountIds((previousProviderAccountIds) => {
-      const nextProviderAccountIds = { ...previousProviderAccountIds };
-      delete nextProviderAccountIds[connectionId];
-      return nextProviderAccountIds;
-    });
+    const nextRequest = buildNextConnectionRequestId(connectionRequestIdsRef.current, connectionId);
+    connectionRequestIdsRef.current = nextRequest.requestIds;
+    setConnectionProviderAccountIds((previousProviderAccountIds) =>
+      clearConnectionProviderAccountId(previousProviderAccountIds, connectionId)
+    );
     clearConnectionBuckets(connectionId);
-    updateConnectionIndicator(connectionId, { status: "disconnected" });
+    updateConnectionIndicator(connectionId, buildDisconnectedIndicator());
   }
 
   async function cancelConnectionAttempt(connectionId: string) {
-    connectionRequestIdsRef.current[connectionId] =
-      (connectionRequestIdsRef.current[connectionId] ?? 0) + 1;
-    setConnectionProviderAccountIds((previousProviderAccountIds) => {
-      const nextProviderAccountIds = { ...previousProviderAccountIds };
-      delete nextProviderAccountIds[connectionId];
-      return nextProviderAccountIds;
-    });
+    const nextRequest = buildNextConnectionRequestId(connectionRequestIdsRef.current, connectionId);
+    connectionRequestIdsRef.current = nextRequest.requestIds;
+    setConnectionProviderAccountIds((previousProviderAccountIds) =>
+      clearConnectionProviderAccountId(previousProviderAccountIds, connectionId)
+    );
     clearConnectionBuckets(connectionId);
-    updateConnectionIndicator(connectionId, { status: "disconnected" });
+    updateConnectionIndicator(connectionId, buildDisconnectedIndicator());
   }
 
   function toggleConnectionCollapsed(connectionId: string) {
-    setCollapsedConnectionIds((currentCollapsedConnectionIds) => ({
-      ...currentCollapsedConnectionIds,
-      [connectionId]: !currentCollapsedConnectionIds[connectionId]
-    }));
+    setCollapsedConnectionIds((currentCollapsedConnectionIds) =>
+      toggleCollapsedConnection(currentCollapsedConnectionIds, connectionId)
+    );
   }
 
   function validateConnectionTestFields(): FormErrors {
-    const nextErrors: FormErrors = {};
-
-    if (connectionProvider === "aws") {
-      if (!accessKeyId.trim()) {
-        nextErrors.accessKeyId = t("navigation.modal.validation.access_key_required");
-      }
-
-      if (!secretAccessKey.trim()) {
-        nextErrors.secretAccessKey = t("navigation.modal.validation.secret_key_required");
-      }
-
-      if (
-        restrictedBucketName.trim() &&
-        !isRestrictedBucketNameFormatValid(restrictedBucketName.trim())
-      ) {
-        nextErrors.restrictedBucketName = t("navigation.modal.validation.restricted_bucket_invalid");
-      }
-    } else {
-      if (!storageAccountName.trim()) {
-        nextErrors.storageAccountName = t(
-          "navigation.modal.validation.storage_account_name_required"
-        );
-      } else if (!isStorageAccountNameFormatValid(storageAccountName.trim())) {
-        nextErrors.storageAccountName = t(
-          "navigation.modal.validation.storage_account_name_invalid"
-        );
-      }
-
-      if (azureAuthenticationMethod !== "shared_key") {
-        nextErrors.authenticationMethod = t(
-          "navigation.modal.validation.azure_authentication_method_invalid"
-        );
-      }
-
-      if (!azureAccountKey.trim()) {
-        nextErrors.accountKey = t("navigation.modal.validation.account_key_required");
-      }
-    }
-
-    return nextErrors;
+    return validateNavigationConnectionTestFields({
+      provider: connectionProvider,
+      accessKeyId,
+      secretAccessKey,
+      restrictedBucketName,
+      storageAccountName,
+      azureAuthenticationMethod,
+      azureAccountKey,
+      t
+    });
   }
 
   async function handleTestConnection() {
@@ -4366,23 +3022,20 @@ export function ConnectionNavigator({
     setFormErrors(nextErrors);
 
     if (Object.keys(nextErrors).length > 0) {
-      setConnectionTestStatus("error");
-      setConnectionTestMessage(
-        connectionProvider === "aws"
-          ? t("navigation.modal.aws.test_connection_validation_error")
-          : t("navigation.modal.azure.test_connection_validation_error")
-      );
+      const failureState = buildConnectionTestValidationFailureState(connectionProvider, t);
+      setConnectionTestStatus(failureState.status);
+      setConnectionTestMessage(failureState.message);
       return;
     }
 
-    setConnectionTestStatus("testing");
-    setConnectionTestMessage(
-      connectionProvider === "aws"
-        ? t("navigation.modal.aws.test_connection_in_progress")
-        : t("navigation.modal.azure.test_connection_in_progress")
+    const inProgressState = buildConnectionTestInProgressState(
+      connectionProvider,
+      connectionTestRequestIdRef.current,
+      t
     );
-
-    const requestId = connectionTestRequestIdRef.current + 1;
+    setConnectionTestStatus(inProgressState.status);
+    setConnectionTestMessage(inProgressState.message);
+    const requestId = inProgressState.requestId;
     connectionTestRequestIdRef.current = requestId;
 
     try {
@@ -4398,18 +3051,15 @@ export function ConnectionNavigator({
         }
 
         if (!result.accountId) {
-          setConnectionTestStatus("error");
-          setConnectionTestMessage(t("navigation.modal.aws.test_connection_failure"));
+          const missingAccountState = buildConnectionTestMissingAccountState("aws", t);
+          setConnectionTestStatus(missingAccountState.status);
+          setConnectionTestMessage(missingAccountState.message);
           return;
         }
 
-        setConnectionTestStatus("success");
-        setConnectionTestMessage(
-          t("navigation.modal.aws.test_connection_success").replace(
-            "{accountId}",
-            result.accountId
-          )
-        );
+        const successState = buildConnectionTestSuccessState("aws", result.accountId, t);
+        setConnectionTestStatus(successState.status);
+        setConnectionTestMessage(successState.message);
         return;
       }
 
@@ -4420,18 +3070,19 @@ export function ConnectionNavigator({
       }
 
       if (!result.storageAccountName) {
-        setConnectionTestStatus("error");
-        setConnectionTestMessage(t("navigation.modal.azure.test_connection_failure"));
+        const missingAccountState = buildConnectionTestMissingAccountState("azure", t);
+        setConnectionTestStatus(missingAccountState.status);
+        setConnectionTestMessage(missingAccountState.message);
         return;
       }
 
-      setConnectionTestStatus("success");
-      setConnectionTestMessage(
-        t("navigation.modal.azure.test_connection_success").replace(
-          "{storageAccountName}",
-          result.storageAccountName
-        )
+      const successState = buildConnectionTestSuccessState(
+        "azure",
+        result.storageAccountName,
+        t
       );
+      setConnectionTestStatus(successState.status);
+      setConnectionTestMessage(successState.message);
     } catch (error) {
       if (connectionTestRequestIdRef.current !== requestId) {
         return;
@@ -4454,47 +3105,59 @@ export function ConnectionNavigator({
   }
 
   function openUploadSettingsModal() {
-    if (!selectedConnection) {
+    const nextState = buildOpenedUploadSettingsModalState(selectedConnection, {
+      uploadSettingsStorageClass,
+      uploadSettingsAzureTier
+    });
+
+    if (!nextState) {
       return;
     }
 
-    if (selectedConnection.provider === "aws") {
-      setUploadSettingsStorageClass(
-        normalizeAwsUploadStorageClass(selectedConnection.defaultUploadStorageClass)
-      );
-    } else {
-      setUploadSettingsAzureTier(normalizeAzureUploadTier(selectedConnection.defaultUploadTier));
-    }
-    setUploadSettingsSubmitError(null);
-    setIsUploadSettingsModalOpen(true);
+    setUploadSettingsStorageClass(nextState.uploadSettingsStorageClass);
+    setUploadSettingsAzureTier(nextState.uploadSettingsAzureTier);
+    setUploadSettingsSubmitError(nextState.uploadSettingsSubmitError);
+    setIsUploadSettingsModalOpen(nextState.isUploadSettingsModalOpen);
+    setIsSavingUploadSettings(nextState.isSavingUploadSettings);
   }
 
   function closeUploadSettingsModal() {
-    setIsUploadSettingsModalOpen(false);
-    setUploadSettingsSubmitError(null);
-    setIsSavingUploadSettings(false);
+    const nextState = buildClosedUploadSettingsModalState();
+    setIsUploadSettingsModalOpen(nextState.isUploadSettingsModalOpen);
+    setUploadSettingsSubmitError(nextState.uploadSettingsSubmitError);
+    setIsSavingUploadSettings(nextState.isSavingUploadSettings);
   }
 
   function openCreateFolderModal() {
-    if (selectedNode?.kind !== "bucket" || !selectedBucketProvider) {
+    if (
+      !canOpenCreateFolderModal({
+        selectedNodeKind: selectedNode?.kind,
+        hasSelectedBucketProvider: !!selectedBucketProvider
+      })
+    ) {
       return;
     }
 
-    setContentAreaMenuAnchor(null);
-    setNewFolderName("");
-    setCreateFolderError(null);
-    setIsCreatingFolder(false);
-    setIsCreateFolderModalOpen(true);
+    const nextState = buildOpenedCreateFolderModalState();
+    setContentAreaMenuAnchor(nextState.contentAreaMenuAnchor);
+    setNewFolderName(nextState.newFolderName);
+    setCreateFolderError(nextState.createFolderError);
+    setIsCreatingFolder(nextState.isCreatingFolder);
+    setIsCreateFolderModalOpen(nextState.isCreateFolderModalOpen);
   }
 
   function closeCreateFolderModal(force = false) {
-    if (isCreatingFolder && !force) {
+    if (!canCloseCreateFolderModal(isCreatingFolder, force)) {
       return;
     }
 
-    setIsCreateFolderModalOpen(false);
-    setNewFolderName("");
-    setCreateFolderError(null);
+    const nextState = buildClosedCreateFolderModalState({
+      contentAreaMenuAnchor,
+      isCreatingFolder
+    });
+    setIsCreateFolderModalOpen(nextState.isCreateFolderModalOpen);
+    setNewFolderName(nextState.newFolderName);
+    setCreateFolderError(nextState.createFolderError);
   }
 
   async function handleCreateFolder() {
@@ -4556,16 +3219,15 @@ export function ConnectionNavigator({
   }
 
   function handleOpenContentAreaContextMenu(event: React.MouseEvent<HTMLElement>) {
-    if (!selectedNode) {
-      return;
-    }
-
     const target = event.target as HTMLElement | null;
 
     if (
-      target?.closest(".content-list-item") ||
-      target?.closest(".content-list-header") ||
-      target?.closest(".tree-menu-popup")
+      !shouldOpenContentAreaContextMenu({
+        hasSelectedNode: !!selectedNode,
+        clickedContentListItem: !!target?.closest(".content-list-item"),
+        clickedContentListHeader: !!target?.closest(".content-list-header"),
+        clickedTreeMenuPopup: !!target?.closest(".tree-menu-popup")
+      })
     ) {
       return;
     }
@@ -4581,19 +3243,20 @@ export function ConnectionNavigator({
 
   async function handleContentAreaMenuAction(actionId: "createFolder" | "refresh") {
     setContentAreaMenuAnchor(null);
-
-    if (actionId === "createFolder") {
-      openCreateFolderModal();
-      return;
-    }
-
-    await handleRefreshCurrentView();
+    await executeContentAreaActionDispatch({
+      step: getContentAreaActionDispatchStep(actionId),
+      handlers: {
+        openCreateFolder: openCreateFolderModal,
+        refresh: handleRefreshCurrentView
+      }
+    });
   }
 
   function handleSelectHome() {
-    setSelectedView("home");
-    setSelectedNodeId(null);
-    setOpenMenuConnectionId(null);
+    const nextSelectionState = buildHomeSelectionState();
+    setSelectedView(nextSelectionState.selectedView);
+    setSelectedNodeId(nextSelectionState.selectedNodeId);
+    setOpenMenuConnectionId(nextSelectionState.openMenuConnectionId);
   }
 
   function handleSelectNode(node: ExplorerTreeNode) {
@@ -4601,68 +3264,27 @@ export function ConnectionNavigator({
       navigateBucketPath(node.id, "");
     }
 
-    setSelectedView("node");
-    setSelectedNodeId(node.id);
-    setOpenMenuConnectionId(null);
+    const nextSelectionState = buildNodeSelectionState(node.id);
+    setSelectedView(nextSelectionState.selectedView);
+    setSelectedNodeId(nextSelectionState.selectedNodeId);
+    setOpenMenuConnectionId(nextSelectionState.openMenuConnectionId);
   }
 
   function validateForm(): FormErrors {
-    const nextErrors: FormErrors = {};
-    const normalizedConnectionName = connectionName.trim();
-
-    if (!normalizedConnectionName) {
-      nextErrors.connectionName = t("navigation.modal.validation.connection_name_required");
-    } else if (!isConnectionNameFormatValid(normalizedConnectionName)) {
-      nextErrors.connectionName = t("navigation.modal.validation.connection_name_invalid").replace(
-        "{max}",
-        String(MAX_CONNECTION_NAME_LENGTH)
-      );
-    } else {
-      const hasDuplicateName = connections.some(
-        (connection) =>
-          connection.id !== (modalMode === "edit" ? editingConnectionId : null) &&
-          connection.name.trim().toLocaleLowerCase() === normalizedConnectionName.toLocaleLowerCase()
-      );
-
-      if (hasDuplicateName) {
-        nextErrors.connectionName = t("navigation.modal.validation.connection_name_duplicate");
-      }
-    }
-
-    if (connectionProvider === "aws") {
-      if (!accessKeyId.trim()) {
-        nextErrors.accessKeyId = t("navigation.modal.validation.access_key_required");
-      }
-
-      if (!secretAccessKey.trim()) {
-        nextErrors.secretAccessKey = t("navigation.modal.validation.secret_key_required");
-      }
-
-      if (
-        restrictedBucketName.trim() &&
-        !isRestrictedBucketNameFormatValid(restrictedBucketName.trim())
-      ) {
-        nextErrors.restrictedBucketName = t("navigation.modal.validation.restricted_bucket_invalid");
-      }
-    } else {
-      if (!storageAccountName.trim()) {
-        nextErrors.storageAccountName = t("navigation.modal.validation.storage_account_name_required");
-      } else if (!isStorageAccountNameFormatValid(storageAccountName.trim())) {
-        nextErrors.storageAccountName = t("navigation.modal.validation.storage_account_name_invalid");
-      }
-
-      if (azureAuthenticationMethod !== "shared_key") {
-        nextErrors.authenticationMethod = t(
-          "navigation.modal.validation.azure_authentication_method_invalid"
-        );
-      }
-
-      if (!azureAccountKey.trim()) {
-        nextErrors.accountKey = t("navigation.modal.validation.account_key_required");
-      }
-    }
-
-    return nextErrors;
+    return validateNavigationConnectionForm({
+      provider: connectionProvider,
+      connectionName,
+      connections,
+      modalMode,
+      editingConnectionId,
+      accessKeyId,
+      secretAccessKey,
+      restrictedBucketName,
+      storageAccountName,
+      azureAuthenticationMethod,
+      azureAccountKey,
+      t
+    });
   }
 
   async function handleSaveConnection() {
@@ -4746,8 +3368,9 @@ export function ConnectionNavigator({
   }
 
   async function handleRemoveConnection(connectionId: string) {
-    setPendingDeleteConnectionId(connectionId);
-    setOpenMenuConnectionId(null);
+    const nextState = buildPendingRemoveConnectionState(connectionId);
+    setPendingDeleteConnectionId(nextState.pendingDeleteConnectionId);
+    setOpenMenuConnectionId(nextState.openMenuConnectionId);
   }
 
   async function confirmRemoveConnection() {
@@ -4763,7 +3386,7 @@ export function ConnectionNavigator({
       const savedConnections = await connectionService.listConnections();
       setConnections(savedConnections);
     } catch (error) {
-      setSubmitError(error instanceof Error ? error.message : t("navigation.connections.delete_error"));
+      setSubmitError(buildConnectionDeleteErrorMessage(error, t));
     }
   }
 
@@ -4771,46 +3394,28 @@ export function ConnectionNavigator({
     actionId: "connect" | "cancelConnect" | "disconnect" | "edit" | "remove",
     connectionId: string
   ) {
-    if (actionId === "connect") {
-      setOpenMenuConnectionId(null);
-      await connectConnection(connectionId);
-      return;
-    }
-
-    if (actionId === "cancelConnect") {
-      await cancelConnectionAttempt(connectionId);
-      setOpenMenuConnectionId(null);
-      return;
-    }
-
-    if (actionId === "disconnect") {
-      await disconnectConnection(connectionId);
-      setOpenMenuConnectionId(null);
-      return;
-    }
-
-    if (actionId === "edit") {
-      await openEditModal(connectionId);
-      setOpenMenuConnectionId(null);
-      return;
-    }
-
-    await handleRemoveConnection(connectionId);
+    await executeConnectionActionDispatch({
+      steps: getConnectionActionDispatchSteps(actionId),
+      handlers: {
+        closeMenu: () => setOpenMenuConnectionId(null),
+        connect: () => connectConnection(connectionId),
+        cancelConnect: () => cancelConnectionAttempt(connectionId),
+        disconnect: () => disconnectConnection(connectionId),
+        edit: () => openEditModal(connectionId),
+        remove: () => handleRemoveConnection(connectionId)
+      }
+    });
   }
 
   async function handleDefaultConnectionAction(connectionId: string) {
     const indicator = connectionIndicators[connectionId] ?? { status: "disconnected" };
-
-    if (indicator.status === "connecting") {
-      return;
-    }
-
-    if (indicator.status === "connected") {
-      await openEditModal(connectionId);
-      return;
-    }
-
-    await connectConnection(connectionId);
+    await executeDefaultConnectionAction({
+      step: getDefaultConnectionActionStep({ status: indicator.status }),
+      handlers: {
+        connect: () => connectConnection(connectionId),
+        edit: () => openEditModal(connectionId)
+      }
+    });
   }
 
   return (
@@ -4822,112 +3427,38 @@ export function ConnectionNavigator({
           gridTemplateColumns: `${sidebarWidth}px 12px minmax(0, 1fr)`
         }}
       >
-        <aside className="sidebar-panel" aria-label={t("navigation.sidebar_aria_label")}>
-          <div className="sidebar-header">
-            <div>
-              <p className="sidebar-eyebrow">{t("navigation.eyebrow")}</p>
-              <h2 className="sidebar-title">{t("navigation.title")}</h2>
-            </div>
-
-            <div className="sidebar-actions">
-              <button
-                type="button"
-                className={`icon-button icon-button-secondary${selectedView === "home" ? " is-active" : ""}`}
-                aria-label={t("navigation.home")}
-                title={t("navigation.home")}
-                onClick={handleSelectHome}
-              >
-                <Settings size={18} strokeWidth={2} />
-              </button>
-
-              <button
-                type="button"
-                className="icon-button"
-                aria-label={t("navigation.new_connection")}
-                title={t("navigation.new_connection")}
-                onClick={openCreateModal}
-              >
-                <Plus size={18} strokeWidth={2.2} />
-              </button>
-            </div>
-          </div>
-
-          <div className="panel-filter">
-            <label className="filter-field" htmlFor="sidebar-filter">
-              <Search size={16} strokeWidth={2} className="filter-field-icon" />
-              <input
-                id="sidebar-filter"
-                type="text"
-                className="filter-field-input"
-                value={sidebarFilterText}
-                onChange={(event) => setSidebarFilterText(event.target.value)}
-                placeholder={t("navigation.filter.placeholder")}
-                aria-label={t("navigation.filter.label")}
-              />
-              {sidebarFilterText ? (
-                <button
-                  type="button"
-                  className="filter-field-clear"
-                  aria-label={t("common.clear")}
-                  title={t("common.clear")}
-                  onClick={() => setSidebarFilterText("")}
-                >
-                  <X size={14} strokeWidth={2.2} />
-                </button>
-              ) : null}
-            </label>
-          </div>
-
-          {connections.length === 0 && !isLoadingConnections ? (
-            <div className="empty-tree-state">
-              <p className="empty-tree-title">{t("navigation.empty.title")}</p>
-              <p className="empty-tree-copy">{t("navigation.empty.description")}</p>
-              <button type="button" className="primary-button" onClick={openCreateModal}>
-                {t("navigation.empty.cta")}
-              </button>
-            </div>
-          ) : (
-            <div className="tree-panel">
-              {filteredTreeNodes.length === 0 ? (
-                <p className="panel-filter-empty">{t("navigation.filter.empty")}</p>
-              ) : (
-              <ul className="tree-root">
-                {filteredTreeNodes.map((connection) => (
-                  <li key={connection.id} className="tree-item">
-                    <ConnectionTreeNodeItem
-                      node={connection}
-                      selectedNodeId={selectedNodeId}
-                      connectionIndicators={connectionIndicators}
-                      isCollapsed={collapsedConnectionIds[connection.id] === true}
-                      shouldForceExpand={normalizedSidebarFilter.length > 0}
-                      menuState={{
-                        isOpen: openMenuConnectionId === connection.id,
-                        onToggle: setOpenMenuConnectionId,
-                        onAction: (actionId, connectionId) => {
-                          void handleConnectionAction(actionId, connectionId);
-                        }
-                      }}
-                      onSelect={handleSelectNode}
-                      onToggleCollapsed={toggleConnectionCollapsed}
-                      onConnectionDoubleClick={(connectionId) => {
-                        void handleDefaultConnectionAction(connectionId);
-                      }}
-                      t={t}
-                    />
-                  </li>
-                ))}
-              </ul>
-              )}
-            </div>
-          )}
-        </aside>
+        <ConnectionsSidebar
+          selectedView={selectedView}
+          selectedNodeId={selectedNodeId}
+          connectionsCount={connections.length}
+          isLoadingConnections={isLoadingConnections}
+          sidebarFilterText={sidebarFilterText}
+          filteredTreeNodes={filteredTreeNodes}
+          normalizedSidebarFilterLength={normalizedSidebarFilter.length}
+          collapsedConnectionIds={collapsedConnectionIds}
+          openMenuConnectionId={openMenuConnectionId}
+          connectionIndicators={connectionIndicators}
+          t={t}
+          onSelectHome={handleSelectHome}
+          onOpenCreateModal={openCreateModal}
+          onSidebarFilterTextChange={setSidebarFilterText}
+          onSelectNode={handleSelectNode}
+          onToggleCollapsed={toggleConnectionCollapsed}
+          onOpenMenuConnectionChange={setOpenMenuConnectionId}
+          onConnectionAction={(actionId, connectionId) => {
+            void handleConnectionAction(actionId, connectionId);
+          }}
+          onDefaultConnectionAction={(connectionId) => {
+            void handleDefaultConnectionAction(connectionId);
+          }}
+        />
 
         <div
           className="sidebar-resizer"
           role="separator"
           aria-orientation="vertical"
           aria-label={t("navigation.sidebar_aria_label")}
-          onPointerDown={handleResizeStart}
+          onPointerDown={startResizing}
         >
           <span className="sidebar-resizer-handle" aria-hidden="true" />
         </div>
@@ -5002,177 +3533,43 @@ export function ConnectionNavigator({
           }}
         >
           {selectedView === "home" ? null : (
-            <div className="content-toolbar">
-              <div className="content-toolbar-copy">
-                <p className="content-eyebrow">{t("content.eyebrow")}</p>
-                <h1 className="content-title">
-                  {displayedContentTitle}
-                </h1>
+            <ContentExplorerHeader
+              title={displayedContentTitle}
+              selectedNodeKind={selectedNode?.kind ?? null}
+              breadcrumbs={selectedBreadcrumbs}
+              connectionIndicator={
+                selectedConnection
+                  ? connectionIndicators[selectedConnection.id] ?? { status: "disconnected" }
+                  : null
+              }
+              contentFilterText={contentFilterText}
+              contentStatusFilters={contentStatusFilters}
+              allContentStatusFilters={ALL_CONTENT_STATUS_FILTERS}
+              contentStatusSummaryItems={contentStatusSummaryItems}
+              contentViewMode={contentViewMode}
+              t={t}
+              onNavigateConnectionBreadcrumb={() => {
+                if (!selectedNode) {
+                  return;
+                }
 
-                {selectedNode?.kind === "bucket" ? (
-                  <nav
-                    className="content-breadcrumb"
-                    aria-label={t("content.breadcrumb.aria_label")}
-                  >
-                    {selectedBreadcrumbs.map((breadcrumb, index) => {
-                      const isCurrent = index === selectedBreadcrumbs.length - 1;
+                const connectionNode = treeNodes.find(
+                  (node) => node.id === selectedNode.connectionId
+                );
 
-                      return (
-                        <span
-                          key={`${breadcrumb.path}:${index}`}
-                          className="content-breadcrumb-item"
-                        >
-                          {index > 0 ? (
-                            <ChevronRight
-                              size={14}
-                              strokeWidth={2}
-                              className="content-breadcrumb-separator"
-                            />
-                          ) : null}
-
-                          {isCurrent ? (
-                            <span className="content-breadcrumb-current">
-                              {breadcrumb.label}
-                            </span>
-                          ) : (
-                            <button
-                              type="button"
-                              className="content-breadcrumb-link"
-                              onClick={() => {
-                                if (breadcrumb.path === null) {
-                                  const connectionNode = treeNodes.find(
-                                    (node) => node.id === selectedNode.connectionId
-                                  );
-
-                                  if (connectionNode) {
-                                    handleSelectNode(connectionNode);
-                                  }
-
-                                  return;
-                                }
-
-                                navigateBucketPath(selectedNode.id, breadcrumb.path);
-                              }}
-                            >
-                              {breadcrumb.label}
-                            </button>
-                          )}
-                        </span>
-                      );
-                    })}
-                  </nav>
-                ) : null}
-              </div>
-
-              {selectedConnection ? (
-                <div className="content-toolbar-side">
-                  <div className="content-toolbar-status">
-                    <ConnectionStatusIcon
-                      indicator={
-                        connectionIndicators[selectedConnection.id] ?? { status: "disconnected" }
-                      }
-                      connectingTitle={t(CONNECTING_CONNECTION_TITLE_KEY)}
-                      connectedTitle={t(CONNECTED_CONNECTION_TITLE_KEY)}
-                      disconnectedTitle={t(DISCONNECTED_CONNECTION_TITLE_KEY)}
-                      size={22}
-                    />
-                    <span>
-                      {getConnectionStatusLabel(
-                        connectionIndicators[selectedConnection.id] ?? { status: "disconnected" },
-                        t
-                      )}
-                    </span>
-                  </div>
-
-                  {selectedNode && (selectedNode.kind === "bucket" || selectedNode.kind === "connection") ? (
-                    <div className="content-toolbar-controls">
-                      <label className="filter-field content-toolbar-filter" htmlFor="content-filter">
-                        <Search size={16} strokeWidth={2} className="filter-field-icon" />
-                        <input
-                          id="content-filter"
-                          type="text"
-                          className="filter-field-input"
-                          value={contentFilterText}
-                          onChange={(event) => setContentFilterText(event.target.value)}
-                          placeholder={t(
-                            selectedNode.kind === "connection"
-                              ? "content.filter.placeholder_buckets"
-                              : "content.filter.placeholder"
-                          )}
-                          aria-label={t("content.filter.label")}
-                        />
-                        {contentFilterText ? (
-                          <button
-                            type="button"
-                            className="filter-field-clear"
-                            aria-label={t("common.clear")}
-                            title={t("common.clear")}
-                            onClick={() => setContentFilterText("")}
-                          >
-                            <X size={14} strokeWidth={2.2} />
-                          </button>
-                        ) : null}
-                      </label>
-
-                      {selectedNode.kind === "bucket" ? (
-                        <div
-                          className="content-status-filter-group"
-                          role="group"
-                          aria-label={t("content.filter.status_label")}
-                        >
-                          {ALL_CONTENT_STATUS_FILTERS.map((status) => {
-                            const isSelected = contentStatusFilters.includes(status);
-                            const summaryItem = contentStatusSummaryMap.get(status);
-                            const label = summaryItem?.label ?? t(`content.filter.status.${status}`);
-                            const count = summaryItem?.count ?? 0;
-
-                            return (
-                              <button
-                                key={status}
-                                type="button"
-                                className={`content-status-filter-button${
-                                  isSelected ? " is-selected" : ""
-                                }`}
-                                aria-pressed={isSelected}
-                                title={`${label}: ${count}`}
-                                onClick={() => toggleContentStatusFilter(status)}
-                              >
-                                <ContentCounterStatus status={status} label={label} count={count} />
-                              </button>
-                            );
-                          })}
-                        </div>
-                      ) : null}
-
-                      <div
-                        className="content-view-switcher"
-                        role="group"
-                        aria-label={t("content.view_mode.label")}
-                      >
-                        <button
-                          type="button"
-                          className={`content-view-button${contentViewMode === "list" ? " is-active" : ""}`}
-                          aria-label={t("content.view_mode.list")}
-                          title={t("content.view_mode.list")}
-                          onClick={() => setContentViewMode("list")}
-                        >
-                          <List size={16} strokeWidth={2} />
-                        </button>
-                        <button
-                          type="button"
-                          className={`content-view-button${contentViewMode === "compact" ? " is-active" : ""}`}
-                          aria-label={t("content.view_mode.compact")}
-                          title={t("content.view_mode.compact")}
-                          onClick={() => setContentViewMode("compact")}
-                        >
-                          <LayoutGrid size={16} strokeWidth={2} />
-                        </button>
-                      </div>
-                    </div>
-                      ) : null}
-                </div>
-              ) : null}
-            </div>
+                if (connectionNode) {
+                  handleSelectNode(connectionNode);
+                }
+              }}
+              onNavigateBucketBreadcrumb={(path) => {
+                if (selectedNode?.kind === "bucket") {
+                  navigateBucketPath(selectedNode.id, path);
+                }
+              }}
+              onContentFilterTextChange={setContentFilterText}
+              onToggleContentStatusFilter={toggleContentStatusFilter}
+              onContentViewModeChange={setContentViewMode}
+            />
           )}
 
           <div className="content-panel-scroll-viewport">
@@ -5494,7 +3891,13 @@ export function ConnectionNavigator({
                         className="content-load-more-button content-load-more-button-icon"
                         onClick={handleBatchChangeTierSelection}
                         disabled={!batchSelectionActions.canBatchChangeTier}
-                        title={getBatchChangeTierTooltip()}
+                        title={getBatchChangeTierTooltip({
+                          items: selectedContentItems,
+                          provider: selectedBucketProvider,
+                          isContentSelectionActive,
+                          canBatchChangeTier: batchSelectionActions.canBatchChangeTier,
+                          t
+                        })}
                         aria-label={t("navigation.menu.change_tier")}
                       >
                         <Settings size={15} strokeWidth={2} />
@@ -5586,352 +3989,36 @@ export function ConnectionNavigator({
                   ) : filteredContentItems.length === 0 ? (
                     <p className="content-list-state">{t("content.filter.empty")}</p>
                   ) : (
-                    <>
-                      {shouldRenderListHeaders ? (
-                        <div className="content-list-header content-list-header-files">
-                          <span aria-hidden="true" />
-                          <span>{t("navigation.modal.name_label")}</span>
-                          <span>{t("content.detail.storage_class")}</span>
-                          <span>{t("content.detail.local_state")}</span>
-                          <span>{t("content.detail.type")}</span>
-                          <span>{t("content.detail.size")}</span>
-                          <span>{t("content.detail.last_modified")}</span>
-                        </div>
-                      ) : null}
-
-                      <div
-                        className={`content-list${contentViewMode === "compact" ? " is-compact" : ""}`}
-                      >
-                        {filteredContentItems.map((item) =>
-                          item.kind === "directory" ? (
-                            <div
-                              key={item.id}
-                              className={`content-list-item content-list-item-action content-list-item-file-row${contentViewMode === "compact" ? " is-compact" : ""}${
-                                selectedContentItemIdSet.has(item.id) ? " is-selected" : ""
-                              }`}
-                              onContextMenu={(event) => {
-                                if (isContentSelectionActive) {
-                                  return;
-                                }
-
-                                event.preventDefault();
-                                setOpenContentMenuItemId(item.id);
-                                setContentMenuAnchor({
-                                  itemId: item.id,
-                                  x: event.clientX,
-                                  y: event.clientY
-                                });
-                              }}
-                            >
-                              {contentViewMode === "compact" ? null : (
-                                <label
-                                  className="content-list-item-checkbox"
-                                  onClick={(event) => event.stopPropagation()}
-                                >
-                                  <input
-                                    type="checkbox"
-                                    checked={selectedContentItemIdSet.has(item.id)}
-                                    onChange={() => toggleContentItemSelection(item.id)}
-                                    aria-label={t("content.selection.select_item").replace(
-                                      "{name}",
-                                      item.name
-                                    )}
-                                  />
-                                </label>
-                              )}
-                              <button
-                                type="button"
-                                className={`content-list-item-main-button${
-                                  contentViewMode === "compact" ? " is-compact" : ""
-                                }`}
-                                onClick={() => {
-                                  navigateBucketPath(selectedNode.id, item.path);
-                                }}
-                              >
-                                {contentViewMode === "compact" ? (
-                                  <span className="content-list-item-main">
-                                    {renderCompactItemTopline(item)}
-                                    <span className="content-list-item-copy content-list-item-copy-directory">
-                                      <strong title={item.name}>{item.name}</strong>
-                                    </span>
-                                  </span>
-                                ) : (
-                                  <>
-                                    <span className="content-list-item-main">
-                                      <span className="content-list-item-icon content-list-item-icon-directory">
-                                        <Folder size={18} strokeWidth={1.9} />
-                                      </span>
-                                      <span className="content-list-item-copy content-list-item-copy-directory">
-                                        <strong>{item.name}</strong>
-                                      </span>
-                                    </span>
-                                    <span className="content-list-item-column">-</span>
-                                    <span className="content-list-item-column">-</span>
-                                    <span className="content-list-item-column">
-                                      {t("content.type.directory")}
-                                    </span>
-                                    <span className="content-list-item-column content-list-item-column-end">-</span>
-                                    <span className="content-list-item-column content-list-item-column-end">-</span>
-                                  </>
-                                )}
-                              </button>
-
-                              {contentViewMode === "compact" ? (
-                                <>
-                                  <span className="content-list-item-compact-footer">
-                                    <span className="content-list-item-topline-label">
-                                      {getCompactFigureLabel(item)}
-                                    </span>
-                                    <label
-                                      className="content-list-item-checkbox"
-                                      onClick={(event) => event.stopPropagation()}
-                                    >
-                                      <input
-                                        type="checkbox"
-                                        checked={selectedContentItemIdSet.has(item.id)}
-                                        onChange={() => toggleContentItemSelection(item.id)}
-                                        aria-label={t("content.selection.select_item").replace(
-                                          "{name}",
-                                          item.name
-                                        )}
-                                      />
-                                    </label>
-                                  </span>
-                                  <span className="content-list-item-actions">
-                                    <ContentItemMenu
-                                      item={item}
-                                      canRestore={false}
-                                      canChangeTier={false}
-                                      canDownload={false}
-                                      canDownloadAs={false}
-                                      canCancelDownload={false}
-                                      canOpenFile={false}
-                                      canOpenInExplorer={false}
-                                      canDelete={!!selectedBucketProvider}
-                                      isOpen={openContentMenuItemId === item.id}
-                                      showTrigger={false}
-                                      anchorPosition={
-                                        contentMenuAnchor?.itemId === item.id
-                                          ? { x: contentMenuAnchor.x, y: contentMenuAnchor.y }
-                                          : null
-                                      }
-                                      onToggle={(itemId, anchorPosition) => {
-                                        setOpenContentMenuItemId(itemId);
-                                        setContentMenuAnchor(
-                                          itemId && anchorPosition
-                                            ? { itemId, x: anchorPosition.x, y: anchorPosition.y }
-                                            : null
-                                        );
-                                      }}
-                                      onAction={handlePreviewFileAction}
-                                      t={t}
-                                    />
-                                  </span>
-                                </>
-                              ) : null}
-                            </div>
-                          ) : (
-                            <div
-                              key={item.id}
-                              className={`content-list-item content-list-item-action content-list-item-file-row${
-                                contentViewMode === "compact" ? " is-compact" : ""
-                              }${selectedContentItemIdSet.has(item.id) ? " is-selected" : ""}`}
-                              onClick={(event) => {
-                                if (isContentSelectionActive) {
-                                  return;
-                                }
-
-                                const nextIsOpen = openContentMenuItemId !== item.id;
-                                setOpenContentMenuItemId(nextIsOpen ? item.id : null);
-                                setContentMenuAnchor(
-                                  nextIsOpen
-                                    ? {
-                                        itemId: item.id,
-                                        x: event.clientX,
-                                        y: event.clientY
-                                      }
-                                    : null
-                                );
-                              }}
-                            >
-                              {contentViewMode === "compact" ? null : (
-                                <label
-                                  className="content-list-item-checkbox"
-                                  onClick={(event) => event.stopPropagation()}
-                                >
-                                  <input
-                                    type="checkbox"
-                                    checked={selectedContentItemIdSet.has(item.id)}
-                                    onChange={() => toggleContentItemSelection(item.id)}
-                                    aria-label={t("content.selection.select_item").replace(
-                                      "{name}",
-                                      item.name
-                                    )}
-                                  />
-                                </label>
-                              )}
-                              <span className="content-list-item-main">
-                                {contentViewMode === "compact" ? (
-                                  renderCompactItemTopline(item)
-                                ) : (
-                                  <span className="content-list-item-icon content-list-item-icon-file">
-                                    <File size={18} strokeWidth={1.9} />
-                                  </span>
-                                )}
-                                <span className="content-list-item-copy content-list-item-copy-file">
-                                  <strong title={contentViewMode === "compact" ? item.name : undefined}>
-                                    {item.name}
-                                  </strong>
-                                  {selectedBucketConnectionId && selectedBucketName ? (
-                                    (() => {
-                                      const fileIdentity = buildFileIdentity(
-                                        selectedBucketConnectionId,
-                                        selectedBucketName,
-                                        item.path
-                                      );
-                                      const activeDownload =
-                                        activeTrackedDownloadIdentityMap.get(fileIdentity);
-
-                                      return activeDownload ? (
-                                        <span className="content-file-download-progress">
-                                          <span className="content-file-download-progress-copy">
-                                            {Math.max(
-                                              0,
-                                              Math.min(
-                                                100,
-                                                Math.round(activeDownload.progressPercent)
-                                              )
-                                            )}
-                                            %
-                                          </span>
-                                          <span className="content-file-download-progress-track">
-                                            <span
-                                              className="content-file-download-progress-bar"
-                                              style={{
-                                                width: `${Math.max(
-                                                  4,
-                                                  Math.min(
-                                                    100,
-                                                    activeDownload.progressPercent || 4
-                                                  )
-                                                )}%`
-                                              }}
-                                            />
-                                          </span>
-                                        </span>
-                                      ) : null;
-                                    })()
-                                  ) : null}
-                                </span>
-                              </span>
-
-                              {contentViewMode === "compact" ? null : (
-                                <>
-                                  <span className="content-list-item-column">
-                                    {item.storageClass ?? "-"}
-                                  </span>
-                                  <span className="content-list-item-column content-list-item-column-status">
-                                    {item.availabilityStatus && item.downloadState
-                                      ? getPreferredFileStatusBadgeDescriptors(item, locale, t).map(
-                                          (descriptor, index) => (
-                                            <FileStatusBadge
-                                              key={`${descriptor.status}-${index}`}
-                                              label={descriptor.label}
-                                              status={descriptor.status}
-                                              title={descriptor.title}
-                                            />
-                                          )
-                                        )
-                                      : "-"}
-                                  </span>
-                                  <span className="content-list-item-column">
-                                    {t("content.type.file")}
-                                  </span>
-                                  <span className="content-list-item-column content-list-item-column-end">
-                                    {formatBytes(item.size, locale)}
-                                  </span>
-                                  <span className="content-list-item-column content-list-item-column-end">
-                                    {formatDateTime(item.lastModified, locale)}
-                                  </span>
-                                </>
-                              )}
-
-                              {contentViewMode === "compact" ? (
-                                <span className="content-list-item-compact-footer">
-                                  <span className="content-list-item-topline-label">
-                                    {getCompactFigureLabel(item)}
-                                  </span>
-                                  <label
-                                    className="content-list-item-checkbox"
-                                    onClick={(event) => event.stopPropagation()}
-                                  >
-                                    <input
-                                      type="checkbox"
-                                      checked={selectedContentItemIdSet.has(item.id)}
-                                      onChange={() => toggleContentItemSelection(item.id)}
-                                      aria-label={t("content.selection.select_item").replace(
-                                        "{name}",
-                                        item.name
-                                      )}
-                                    />
-                                  </label>
-                                </span>
-                              ) : null}
-                              <span className="content-list-item-actions">
-                                <ContentItemMenu
-                                  item={item}
-                                  canRestore={canRestoreItem(item, selectedBucketProvider)}
-                                  canChangeTier={canChangeTierItem(item, selectedBucketProvider)}
-                                  canDownload={canDownloadItem(item, fileActionAvailabilityContext)}
-                                  canDownloadAs={canDownloadAsItem(
-                                    item,
-                                    fileActionAvailabilityContext,
-                                    activeDirectDownloadItemIds
-                                  )}
-                                  canCancelDownload={
-                                    selectedBucketConnectionId && selectedBucketName
-                                      ? activeTransferIdentityMap.has(
-                                          buildFileIdentity(
-                                            selectedBucketConnectionId,
-                                            selectedBucketName,
-                                            item.path
-                                          )
-                                        )
-                                      : false
-                                  }
-                                  canOpenFile={
-                                    hasValidGlobalLocalCacheDirectory &&
-                                    item.downloadState === "downloaded"
-                                  }
-                                  canOpenInExplorer={
-                                    hasValidGlobalLocalCacheDirectory &&
-                                    item.downloadState === "downloaded"
-                                  }
-                                  canDelete={!!selectedBucketProvider}
-                                  isOpen={openContentMenuItemId === item.id}
-                                  showTrigger={false}
-                                  anchorPosition={
-                                    contentMenuAnchor?.itemId === item.id
-                                      ? { x: contentMenuAnchor.x, y: contentMenuAnchor.y }
-                                      : null
-                                  }
-                                  onToggle={(itemId, anchorPosition) => {
-                                    setOpenContentMenuItemId(itemId);
-                                    setContentMenuAnchor(
-                                      itemId && anchorPosition
-                                        ? { itemId, x: anchorPosition.x, y: anchorPosition.y }
-                                        : null
-                                    );
-                                  }}
-                                  onAction={handlePreviewFileAction}
-                                  t={t}
-                                />
-                              </span>
-                            </div>
-                          )
-                        )}
-                      </div>
-                    </>
+                    <ContentItemList
+                      items={filteredContentItems}
+                      contentViewMode={contentViewMode}
+                      shouldRenderListHeaders={shouldRenderListHeaders}
+                      selectedContentItemIdSet={selectedContentItemIdSet}
+                      isContentSelectionActive={isContentSelectionActive}
+                      selectedBucketConnectionId={selectedBucketConnectionId}
+                      selectedBucketName={selectedBucketName}
+                      selectedBucketProvider={selectedBucketProvider}
+                      hasValidGlobalLocalCacheDirectory={hasValidGlobalLocalCacheDirectory}
+                      activeTransferIdentityMap={activeTransferIdentityMap}
+                      activeTrackedDownloadIdentityMap={activeTrackedDownloadIdentityMap}
+                      activeDirectDownloadItemIds={activeDirectDownloadItemIds}
+                      fileActionAvailabilityContext={fileActionAvailabilityContext}
+                      openContentMenuItemId={openContentMenuItemId}
+                      contentMenuAnchor={contentMenuAnchor}
+                      locale={locale}
+                      t={t}
+                      onNavigateDirectory={(path) => navigateBucketPath(selectedNode.id, path)}
+                      onToggleContentItemSelection={toggleContentItemSelection}
+                      onOpenContentMenu={(itemId, anchorPosition) => {
+                        setOpenContentMenuItemId(itemId);
+                        setContentMenuAnchor(
+                          itemId && anchorPosition
+                            ? { itemId, x: anchorPosition.x, y: anchorPosition.y }
+                            : null
+                        );
+                      }}
+                      onPreviewFileAction={handlePreviewFileAction}
+                    />
                   )}
                 </div>
               )}
@@ -6051,1001 +4138,148 @@ export function ConnectionNavigator({
         </section>
       </div>
 
-      {restoreRequest ? (
-        <RestoreRequestModal
-          locale={locale}
-          request={restoreRequest.request}
-          isSubmitting={isSubmittingRestoreRequest}
-          submitError={restoreSubmitError}
-          onCancel={closeRestoreRequestModal}
-          onSubmitAwsRequest={handleSubmitAwsRestoreRequest}
-          onSubmitAzureRequest={handleSubmitAzureRehydrationRequest}
-          t={t}
-        />
-      ) : null}
-
-      {changeStorageClassRequest ? (
-        <ChangeStorageClassModal
-          provider={changeStorageClassRequest.provider}
-          locale={locale}
-          request={changeStorageClassRequest.request}
-          initialStorageClass={changeStorageClassRequest.currentStorageClass}
-          isSubmitting={isSubmittingStorageClassChange}
-          submitError={changeStorageClassSubmitError}
-          onCancel={closeChangeStorageClassModal}
-          onSubmit={handleSubmitChangeStorageClass}
-          t={t}
-        />
-      ) : null}
-
-      {isTransferModalOpen ? (
-        <div className="modal-backdrop" role="presentation">
-          <div
-            className="modal-card"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="transfer-summary-modal-title"
-          >
-            <div className="modal-header">
-              <div>
-                <p className="modal-eyebrow">{t("content.transfer.modal_eyebrow")}</p>
-                <h2 id="transfer-summary-modal-title" className="modal-title">
-                  {t("content.transfer.modal_title")}
-                </h2>
-              </div>
-            </div>
-
-            <div className="transfer-modal-list">
-              {activeTransferList.length === 0 ? (
-                <p className="modal-copy">{t("content.transfer.modal_empty")}</p>
-              ) : (
-                activeTransferList.map((download) => (
-                  <article key={download.operationId} className="transfer-modal-item">
-                    <div className="transfer-modal-item-header">
-                      <strong>{download.fileName}</strong>
-                      <span>{Math.max(0, Math.min(100, Math.round(download.progressPercent)))}%</span>
-                    </div>
-                    <p className="transfer-modal-item-copy">
-                      {download.transferKind === "direct"
-                        ? t("content.transfer.direct_download_label")
-                        : download.transferKind === "upload"
-                        ? t("content.transfer.simple_upload_label")
-                        : t("content.transfer.tracked_download_label")}
-                      {" · "}
-                      {download.bucketName}
-                    </p>
-                    {download.transferKind === "direct" && download.targetPath ? (
-                      <p className="transfer-modal-item-copy transfer-modal-item-copy-secondary">
-                        {download.targetPath}
-                      </p>
-                    ) : null}
-                    {download.transferKind === "upload" && download.objectKey ? (
-                      <p className="transfer-modal-item-copy transfer-modal-item-copy-secondary">
-                        {download.objectKey}
-                      </p>
-                    ) : null}
-                    <div className="transfer-progress">
-                      <span
-                        className="transfer-progress-bar"
-                        style={{
-                          width: `${Math.max(4, Math.min(100, download.progressPercent || 4))}%`
-                        }}
-                      />
-                    </div>
-                    <p className="transfer-modal-item-meta">
-                      {formatBytes(download.bytesTransferred, locale)} /{" "}
-                      {download.totalBytes > 0
-                        ? formatBytes(download.totalBytes, locale)
-                        : t("content.transfer.size_unknown")}
-                    </p>
-                    <div className="transfer-modal-item-actions">
-                      <button
-                        type="button"
-                        className="secondary-button"
-                        onClick={() =>
-                          handleCancelActiveTransfer(download.operationId, download.transferKind)
-                        }
-                      >
-                        {getTransferCancelLabel(download.transferKind)}
-                      </button>
-                    </div>
-                  </article>
-                ))
-              )}
-            </div>
-
-            <div className="modal-actions">
-              <button
-                type="button"
-                className="secondary-button"
-                onClick={() => setIsTransferModalOpen(false)}
-              >
-                {t("common.close")}
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-
-      {completionToast ? (
-        <div className="toast-stack" aria-live="polite" aria-atomic="true">
-          <article
-            className={`toast-card${completionToast.tone === "error" ? " is-error" : ""}`}
-          >
-            <div className="toast-card-copy">
-              <strong>{completionToast.title}</strong>
-              <p>{completionToast.description}</p>
-            </div>
-            <button
-              type="button"
-              className="toast-card-close"
-              onClick={() => setCompletionToast(null)}
-              aria-label={t("common.close")}
-            >
-              <X size={14} strokeWidth={2} />
-            </button>
-          </article>
-        </div>
-      ) : null}
-
-      {isModalOpen ? (
-        <div className="modal-backdrop" role="presentation">
-          <div
-            className="modal-card modal-card-wide"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="connection-modal-title"
-          >
-            <div className="modal-header">
-              <div>
-                <p className="modal-eyebrow">
-                  {modalMode === "edit"
-                    ? t("navigation.modal.edit_eyebrow")
-                    : t("navigation.modal.eyebrow")}
-                </p>
-                <h2 id="connection-modal-title" className="modal-title">
-                  {modalMode === "edit"
-                    ? t("navigation.modal.edit_title")
-                    : t("navigation.modal.title")}
-                </h2>
-              </div>
-            </div>
-
-            <form
-              className="modal-form"
-              onSubmit={(event) => {
-                event.preventDefault();
-                void handleSaveConnection();
-              }}
-            >
-              <div className="modal-scroll-panel">
-                <div className="modal-scroll-viewport">
-                  <label className="field-group" htmlFor={nameFieldId}>
-                    <span>{t("navigation.modal.name_label")}</span>
-                    <input
-                      id={nameFieldId}
-                      type="text"
-                      value={connectionName}
-                      placeholder={t("navigation.modal.name_placeholder")}
-                      onChange={(event) => {
-                        setConnectionName(event.target.value);
-                        resetConnectionTestState();
-                      }}
-                      autoFocus
-                    />
-                    {formErrors.connectionName ? (
-                      <span className="field-error">{formErrors.connectionName}</span>
-                    ) : null}
-                  </label>
-
-                  <label className="field-group" htmlFor={providerFieldId}>
-                    <span>{t("navigation.modal.type_label")}</span>
-                    <select
-                      id={providerFieldId}
-                      value={connectionProvider}
-                      disabled={modalMode === "edit"}
-                      onChange={(event) => {
-                        setConnectionProvider(event.target.value as ConnectionProvider);
-                        resetConnectionTestState();
-                      }}
-                    >
-                      <option value="aws">{t("content.provider.aws")}</option>
-                      <option value="azure">{t("content.provider.azure")}</option>
-                    </select>
-                  </label>
-
-                  {connectionProvider === "aws" ? (
-                    <AwsConnectionFields
-                      locale={locale}
-                      accessKeyFieldId={accessKeyFieldId}
-                      secretKeyFieldId={secretKeyFieldId}
-                      restrictedBucketNameFieldId={restrictedBucketNameFieldId}
-                      connectOnStartupFieldId={connectOnStartupFieldId}
-                      accessKeyId={accessKeyId}
-                      secretAccessKey={secretAccessKey}
-                      restrictedBucketName={restrictedBucketName}
-                      connectOnStartup={connectOnStartup}
-                      defaultUploadStorageClass={defaultAwsUploadStorageClass}
-                      errors={{
-                        accessKeyId: formErrors.accessKeyId,
-                        secretAccessKey: formErrors.secretAccessKey,
-                        restrictedBucketName: formErrors.restrictedBucketName
-                      }}
-                      onAccessKeyIdChange={(value) => {
-                        setAccessKeyId(value);
-                        resetConnectionTestState();
-                      }}
-                      onSecretAccessKeyChange={(value) => {
-                        setSecretAccessKey(value);
-                        resetConnectionTestState();
-                      }}
-                      onRestrictedBucketNameChange={(value) => {
-                        setRestrictedBucketName(value);
-                        resetConnectionTestState();
-                      }}
-                      onConnectOnStartupChange={setConnectOnStartup}
-                      onDefaultUploadStorageClassChange={setDefaultAwsUploadStorageClass}
-                      t={t}
-                    />
-                  ) : (
-                    <AzureConnectionFields
-                      storageAccountNameFieldId={storageAccountNameFieldId}
-                      authenticationMethodFieldId={azureAuthenticationMethodFieldId}
-                      accountKeyFieldId={azureAccountKeyFieldId}
-                      connectOnStartupFieldId={connectOnStartupFieldId}
-                      storageAccountName={storageAccountName}
-                      authenticationMethod={azureAuthenticationMethod}
-                      accountKey={azureAccountKey}
-                      connectOnStartup={connectOnStartup}
-                      defaultUploadTier={defaultAzureUploadTier}
-                      errors={{
-                        storageAccountName: formErrors.storageAccountName,
-                        authenticationMethod: formErrors.authenticationMethod,
-                        accountKey: formErrors.accountKey
-                      }}
-                      onStorageAccountNameChange={(value) => {
-                        setStorageAccountName(value);
-                        resetConnectionTestState();
-                      }}
-                      onAuthenticationMethodChange={(value) => {
-                        setAzureAuthenticationMethod(value);
-                        resetConnectionTestState();
-                      }}
-                      onAccountKeyChange={(value) => {
-                        setAzureAccountKey(value);
-                        resetConnectionTestState();
-                      }}
-                      onConnectOnStartupChange={setConnectOnStartup}
-                      onDefaultUploadTierChange={setDefaultAzureUploadTier}
-                      t={t}
-                    />
-                  )}
-
-                  {submitError ? <p className="status-message-error">{submitError}</p> : null}
-                </div>
-              </div>
-
-              <div className="connection-modal-footer">
-                <div className="connection-test-footer">
-                  <button
-                    type="button"
-                    className="secondary-button"
-                    disabled={isSubmitting || connectionTestStatus === "testing"}
-                    onClick={handleTestConnection}
-                    title={t(
-                      connectionProvider === "aws"
-                        ? "navigation.modal.aws.test_connection_helper"
-                        : "navigation.modal.azure.test_connection_helper"
-                    )}
-                  >
-                    {t(
-                      connectionProvider === "aws"
-                        ? "navigation.modal.aws.test_connection_button"
-                        : "navigation.modal.azure.test_connection_button"
-                    )}
-                  </button>
-
-                  {connectionTestStatus !== "idle" ? (
-                    <span
-                      className={`connection-test-status-icon is-${connectionTestStatus}`}
-                      title={`${t(
-                        `navigation.modal.${connectionProvider}.test_connection_status.${connectionTestStatus}`
-                      )}${connectionTestMessage ? `: ${connectionTestMessage}` : ""}`}
-                      aria-label={`${t(
-                        `navigation.modal.${connectionProvider}.test_connection_status.${connectionTestStatus}`
-                      )}${connectionTestMessage ? `: ${connectionTestMessage}` : ""}`}
-                    >
-                      {connectionTestStatus === "success" ? (
-                        <CheckCircle2 size={16} strokeWidth={2} />
-                      ) : connectionTestStatus === "error" ? (
-                        <XCircle size={16} strokeWidth={2} />
-                      ) : connectionTestStatus === "testing" ? (
-                        <LoaderCircle
-                          size={16}
-                          strokeWidth={2}
-                          className="connection-test-spinner"
-                        />
-                      ) : (
-                        <AlertCircle size={16} strokeWidth={2} />
-                      )}
-                    </span>
-                  ) : null}
-                </div>
-
-                <div className="modal-actions modal-actions-inline">
-                  <button type="button" className="secondary-button" onClick={closeModal}>
-                    {t("common.cancel")}
-                  </button>
-                  <button
-                    type="submit"
-                    className="primary-button"
-                    disabled={isSubmitting}
-                  >
-                    {modalMode === "edit" ? t("common.update") : t("common.save")}
-                  </button>
-                </div>
-              </div>
-            </form>
-          </div>
-        </div>
-      ) : null}
-
-      {isUploadSettingsModalOpen && selectedConnection ? (
-        <div className="modal-backdrop" role="presentation">
-          <div
-            className="modal-card modal-card-wide"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="upload-settings-modal-title"
-          >
-            <div className="modal-header">
-              <div>
-                <p className="modal-eyebrow">{t("content.transfer.upload_settings_eyebrow")}</p>
-                <h2 id="upload-settings-modal-title" className="modal-title">
-                  {t("content.transfer.upload_settings_title").replace(
-                    "{name}",
-                    selectedConnection.name
-                  )}
-                </h2>
-              </div>
-            </div>
-
-            <form
-              className="modal-form"
-              onSubmit={(event) => {
-                event.preventDefault();
-                void handleSaveUploadSettings();
-              }}
-            >
-              <div className="modal-scroll-panel">
-                <div className="modal-scroll-viewport">
-                  {selectedConnection.provider === "aws" ? (
-                    <AwsUploadStorageClassField
-                      locale={locale}
-                      value={uploadSettingsStorageClass}
-                      onChange={setUploadSettingsStorageClass}
-                    />
-                  ) : (
-                    <AzureUploadTierField
-                      value={uploadSettingsAzureTier}
-                      onChange={setUploadSettingsAzureTier}
-                    />
-                  )}
-
-                  {uploadSettingsSubmitError ? (
-                    <p className="status-message-error">{uploadSettingsSubmitError}</p>
-                  ) : null}
-                </div>
-              </div>
-
-              <div className="modal-actions">
-                <button
-                  type="button"
-                  className="secondary-button"
-                  onClick={closeUploadSettingsModal}
-                >
-                  {t("common.cancel")}
-                </button>
-                <button type="submit" className="primary-button" disabled={isSavingUploadSettings}>
-                  {t("common.save")}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      ) : null}
-
-      {isCreateFolderModalOpen && canCreateFolderInCurrentContext ? (
-        <div className="modal-backdrop" role="presentation">
-          <div
-            className="modal-card modal-card-compact"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="create-folder-modal-title"
-          >
-            <div className="modal-header">
-              <div>
-                <p className="modal-eyebrow">{t("content.folder.create_eyebrow")}</p>
-                <h2 id="create-folder-modal-title" className="modal-title">
-                  {t("content.folder.create_title")}
-                </h2>
-              </div>
-            </div>
-
-            <form
-              className="modal-form"
-              onSubmit={(event) => {
-                event.preventDefault();
-                void handleCreateFolder();
-              }}
-            >
-              <label className="field-group" htmlFor={newFolderNameFieldId}>
-                <span>{t("content.folder.name_label")}</span>
-                <input
-                  id={newFolderNameFieldId}
-                  type="text"
-                  value={newFolderName}
-                  placeholder={t("content.folder.name_placeholder")}
-                  onChange={(event) => {
-                    setNewFolderName(event.target.value);
-                    if (createFolderError) {
-                      setCreateFolderError(null);
-                    }
-                  }}
-                  autoFocus
-                />
-                <span className="field-helper">
-                  {t("content.folder.name_helper").replace("{path}", [
-                    selectedBucketProvider?.toUpperCase() ?? t("content.provider.aws"),
-                    selectedBucketName ?? "",
-                    selectedBucketPath
-                  ].filter((segment) => segment.length > 0).join("/"))}
-                </span>
-              </label>
-
-              {createFolderError ? (
-                <p className="status-message-error">{createFolderError}</p>
-              ) : null}
-
-              <div className="modal-actions">
-                <button
-                  type="button"
-                  className="secondary-button"
-                  onClick={() => closeCreateFolderModal()}
-                  disabled={isCreatingFolder}
-                >
-                  {t("common.cancel")}
-                </button>
-                <button type="submit" className="primary-button" disabled={isCreatingFolder}>
-                  {isCreatingFolder
-                    ? t("content.folder.creating_button")
-                    : t("content.folder.create_button")}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      ) : null}
-
-      {pendingContentDelete ? (
-        <div className="modal-backdrop" role="presentation">
-          <div
-            className="modal-card modal-card-compact"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="delete-content-modal-title"
-          >
-            <div className="modal-header">
-              <div>
-                <p className="modal-eyebrow">{t("content.delete.eyebrow")}</p>
-                <h2 id="delete-content-modal-title" className="modal-title">
-                  {pendingContentDelete.items.length === 1
-                    ? t(
-                        pendingContentDelete.directoryCount === 1
-                          ? "content.delete.title_single_folder"
-                          : "content.delete.title_single_file"
-                      ).replace("{name}", pendingContentDelete.items[0]?.name ?? "")
-                    : t("content.delete.title_batch").replace(
-                        "{count}",
-                        String(pendingContentDelete.items.length)
-                      )}
-                </h2>
-              </div>
-            </div>
-
-            <div className="modal-scroll-panel">
-              <div className="modal-scroll-viewport">
-                <p className="modal-copy">
-                  {pendingContentDelete.directoryCount > 0
-                    ? t("content.delete.description_recursive")
-                        .replace("{files}", String(pendingContentDelete.fileCount))
-                        .replace("{folders}", String(pendingContentDelete.directoryCount))
-                    : t("content.delete.description_files").replace(
-                        "{count}",
-                        String(pendingContentDelete.fileCount)
-                      )}
-                </p>
-                <p className="modal-copy">
-                  {t("content.delete.confirmation_instruction").replace(
-                    "{value}",
-                    CONTENT_DELETE_CONFIRMATION_TEXT
-                  )}
-                </p>
-                <label className="field-group" htmlFor="delete-content-confirmation-input">
-                  <span>{t("content.delete.confirmation_label")}</span>
-                  <input
-                    id="delete-content-confirmation-input"
-                    type="text"
-                    value={deleteConfirmationValue}
-                    onChange={(event) => {
-                      setDeleteConfirmationValue(event.target.value);
-                      if (deleteContentError) {
-                        setDeleteContentError(null);
-                      }
-                    }}
-                    autoFocus
-                  />
-                </label>
-
-                <div className="content-delete-summary">
-                  <span>
-                    <File size={14} strokeWidth={1.9} />
-                    {t("content.delete.summary_files").replace(
-                      "{count}",
-                      String(pendingContentDelete.fileCount)
-                    )}
-                  </span>
-                  <span>
-                    <Folder size={14} strokeWidth={1.9} />
-                    {t("content.delete.summary_folders").replace(
-                      "{count}",
-                      String(pendingContentDelete.directoryCount)
-                    )}
-                  </span>
-                </div>
-
-                {deleteContentError ? (
-                  <p className="status-message-error">{deleteContentError}</p>
-                ) : null}
-              </div>
-            </div>
-
-            <div className="modal-actions">
-              <button
-                type="button"
-                className="secondary-button"
-                onClick={() => closeDeleteContentModal()}
-                disabled={isDeletingContent}
-              >
-                {t("common.cancel")}
-              </button>
-              <button
-                type="button"
-                className="secondary-button secondary-button-danger"
-                onClick={() => {
-                  void handleConfirmDeleteContent();
-                }}
-                disabled={
-                  isDeletingContent ||
-                  deleteConfirmationValue.trim() !== CONTENT_DELETE_CONFIRMATION_TEXT
-                }
-              >
-                {isDeletingContent ? t("content.delete.deleting") : t("content.delete.action")}
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      {pendingDeleteConnection ? (
-        <div className="modal-backdrop" role="presentation">
-          <div
-            className="modal-card modal-card-compact"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="delete-connection-modal-title"
-          >
-            <div className="modal-header">
-              <div>
-                <p className="modal-eyebrow">{t("navigation.connections.delete_title")}</p>
-                <h2 id="delete-connection-modal-title" className="modal-title">
-                  {t("navigation.connections.delete_confirm").replace(
-                    "{name}",
-                    pendingDeleteConnection.name
-                  )}
-                </h2>
-              </div>
-            </div>
-
-            <p className="modal-copy">
-              {t("navigation.connections.delete_description")
-                .replace("{name}", pendingDeleteConnection.name)
-                .replace(
-                  "{provider}",
-                  t(`content.provider.${pendingDeleteConnection.provider}`)
-                )}
-            </p>
-
-            <div className="modal-actions">
-              <button
-                type="button"
-                className="secondary-button"
-                onClick={() => setPendingDeleteConnectionId(null)}
-              >
-                {t("common.cancel")}
-              </button>
-              <button
-                type="button"
-                className="secondary-button secondary-button-danger"
-                onClick={() => {
-                  void confirmRemoveConnection();
-                }}
-              >
-                {t("navigation.menu.remove")}
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      {uploadConflictPrompt ? (
-        <div className="modal-backdrop" role="presentation">
-          <div
-            className="modal-card modal-card-compact"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="upload-conflict-modal-title"
-          >
-            <div className="modal-header">
-              <div>
-                <p className="modal-eyebrow">{t("content.transfer.conflict_modal_eyebrow")}</p>
-                <h2 id="upload-conflict-modal-title" className="modal-title">
-                  {t("content.transfer.conflict_modal_title").replace(
-                    "{name}",
-                    uploadConflictPrompt.fileName
-                  )}
-                </h2>
-              </div>
-            </div>
-
-            <p className="modal-copy">
-              {t("content.transfer.conflict_modal_progress")
-                .replace("{current}", String(uploadConflictPrompt.currentConflictIndex))
-                .replace("{total}", String(uploadConflictPrompt.totalConflicts))}
-            </p>
-            <p className="modal-copy">{t("content.transfer.conflict_modal_body")}</p>
-            <p className="modal-copy">
-              <strong>{t("content.transfer.conflict_modal_destination_label")}:</strong>{" "}
-              {uploadConflictPrompt.objectKey}
-            </p>
-
-            <div className="modal-actions">
-              <button
-                type="button"
-                className="secondary-button"
-                onClick={() => resolveUploadConflict("skip")}
-              >
-                {t("content.transfer.conflict_skip")}
-              </button>
-              <button
-                type="button"
-                className="secondary-button"
-                onClick={() => resolveUploadConflict("skipAll")}
-              >
-                {t("content.transfer.conflict_skip_all")}
-              </button>
-              <button
-                type="button"
-                className="primary-button"
-                onClick={() => resolveUploadConflict("overwrite")}
-              >
-                {t("content.transfer.conflict_replace")}
-              </button>
-              <button
-                type="button"
-                className="primary-button"
-                onClick={() => resolveUploadConflict("overwriteAll")}
-              >
-                {t("content.transfer.conflict_replace_all")}
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
+      <NavigatorModalOrchestrator
+        locale={locale}
+        t={t}
+        restoreRequest={restoreRequest}
+        restoreSubmitError={restoreSubmitError}
+        isSubmittingRestoreRequest={isSubmittingRestoreRequest}
+        onCloseRestoreRequestModal={closeRestoreRequestModal}
+        onSubmitAwsRestoreRequest={handleSubmitAwsRestoreRequest}
+        onSubmitAzureRehydrationRequest={handleSubmitAzureRehydrationRequest}
+        changeStorageClassRequest={changeStorageClassRequest}
+        changeStorageClassSubmitError={changeStorageClassSubmitError}
+        isSubmittingStorageClassChange={isSubmittingStorageClassChange}
+        onCloseChangeStorageClassModal={closeChangeStorageClassModal}
+        onSubmitChangeStorageClass={handleSubmitChangeStorageClass}
+        isTransferModalOpen={isTransferModalOpen}
+        activeTransferList={activeTransferList}
+        onCancelActiveTransfer={handleCancelActiveTransfer}
+        onCloseTransferModal={() => setIsTransferModalOpen(false)}
+        completionToast={completionToast}
+        onCloseCompletionToast={() => setCompletionToast(null)}
+        connectionFormProps={{
+          isOpen: isModalOpen,
+          locale,
+          fieldIds: {
+            nameFieldId,
+            providerFieldId,
+            accessKeyFieldId,
+            secretKeyFieldId,
+            restrictedBucketNameFieldId,
+            storageAccountNameFieldId,
+            azureAuthenticationMethodFieldId,
+            azureAccountKeyFieldId,
+            connectOnStartupFieldId
+          },
+          modalMode,
+          connectionName,
+          connectionProvider,
+          accessKeyId,
+          secretAccessKey,
+          restrictedBucketName,
+          storageAccountName,
+          azureAuthenticationMethod,
+          azureAccountKey,
+          connectOnStartup,
+          defaultAwsUploadStorageClass,
+          defaultAzureUploadTier,
+          formErrors,
+          submitError,
+          isSubmitting,
+          connectionTestStatus,
+          connectionTestMessage,
+          t,
+          onConnectionNameChange: (value) => {
+            setConnectionName(value);
+            resetConnectionTestState();
+          },
+          onConnectionProviderChange: (value) => {
+            setConnectionProvider(value);
+            resetConnectionTestState();
+          },
+          onAccessKeyIdChange: (value) => {
+            setAccessKeyId(value);
+            resetConnectionTestState();
+          },
+          onSecretAccessKeyChange: (value) => {
+            setSecretAccessKey(value);
+            resetConnectionTestState();
+          },
+          onRestrictedBucketNameChange: (value) => {
+            setRestrictedBucketName(value);
+            resetConnectionTestState();
+          },
+          onStorageAccountNameChange: (value) => {
+            setStorageAccountName(value);
+            resetConnectionTestState();
+          },
+          onAzureAuthenticationMethodChange: (value) => {
+            setAzureAuthenticationMethod(value);
+            resetConnectionTestState();
+          },
+          onAzureAccountKeyChange: (value) => {
+            setAzureAccountKey(value);
+            resetConnectionTestState();
+          },
+          onConnectOnStartupChange: setConnectOnStartup,
+          onDefaultAwsUploadStorageClassChange: setDefaultAwsUploadStorageClass,
+          onDefaultAzureUploadTierChange: setDefaultAzureUploadTier,
+          onTestConnection: handleTestConnection,
+          onSaveConnection: () => {
+            void handleSaveConnection();
+          },
+          onClose: closeModal
+        }}
+        isUploadSettingsModalOpen={isUploadSettingsModalOpen}
+        selectedConnection={selectedConnection}
+        uploadSettingsStorageClass={uploadSettingsStorageClass}
+        uploadSettingsAzureTier={uploadSettingsAzureTier}
+        uploadSettingsSubmitError={uploadSettingsSubmitError}
+        isSavingUploadSettings={isSavingUploadSettings}
+        onUploadSettingsStorageClassChange={setUploadSettingsStorageClass}
+        onUploadSettingsAzureTierChange={setUploadSettingsAzureTier}
+        onSaveUploadSettings={() => {
+          void handleSaveUploadSettings();
+        }}
+        onCloseUploadSettingsModal={closeUploadSettingsModal}
+        isCreateFolderModalOpen={isCreateFolderModalOpen}
+        canCreateFolderInCurrentContext={canCreateFolderInCurrentContext}
+        newFolderNameFieldId={newFolderNameFieldId}
+        newFolderName={newFolderName}
+        createFolderError={createFolderError}
+        isCreatingFolder={isCreatingFolder}
+        selectedBucketProvider={selectedBucketProvider}
+        selectedBucketName={selectedBucketName}
+        selectedBucketPath={selectedBucketPath}
+        onNewFolderNameChange={setNewFolderName}
+        onClearCreateFolderError={() => setCreateFolderError(null)}
+        onCreateFolder={() => {
+          void handleCreateFolder();
+        }}
+        onCloseCreateFolderModal={() => closeCreateFolderModal()}
+        pendingContentDelete={pendingContentDelete}
+        deleteConfirmationValue={deleteConfirmationValue}
+        deleteContentError={deleteContentError}
+        isDeletingContent={isDeletingContent}
+        contentDeleteConfirmationText={CONTENT_DELETE_CONFIRMATION_TEXT}
+        onDeleteConfirmationValueChange={setDeleteConfirmationValue}
+        onClearDeleteContentError={() => setDeleteContentError(null)}
+        onCloseDeleteContentModal={() => closeDeleteContentModal()}
+        onConfirmDeleteContent={() => {
+          void handleConfirmDeleteContent();
+        }}
+        pendingDeleteConnection={pendingDeleteConnection}
+        onCancelDeleteConnection={() => setPendingDeleteConnectionId(null)}
+        onConfirmDeleteConnection={() => {
+          void confirmRemoveConnection();
+        }}
+        uploadConflictPrompt={uploadConflictPrompt}
+        onResolveUploadConflict={resolveUploadConflict}
+      />
     </>
   );
 }
-
-type ConnectionTreeNodeItemProps = {
-  node: ExplorerTreeNode;
-  selectedNodeId: string | null;
-  connectionIndicators: Record<string, ConnectionIndicator>;
-  isCollapsed?: boolean;
-  shouldForceExpand?: boolean;
-  menuState?: {
-    isOpen: boolean;
-    onToggle: (connectionId: string | null) => void;
-    onAction: (
-      actionId: "connect" | "cancelConnect" | "disconnect" | "edit" | "remove",
-      connectionId: string
-    ) => void;
-  };
-  onSelect: (node: ExplorerTreeNode) => void;
-  onToggleCollapsed: (connectionId: string) => void;
-  onConnectionDoubleClick: (connectionId: string) => void;
-  t: (key: string) => string;
-};
-
-function ConnectionTreeNodeItem({
-  node,
-  selectedNodeId,
-  connectionIndicators,
-  isCollapsed = false,
-  shouldForceExpand = false,
-  menuState,
-  onSelect,
-  onToggleCollapsed,
-  onConnectionDoubleClick,
-  t
-}: ConnectionTreeNodeItemProps) {
-  const isSelected = selectedNodeId === node.id;
-  const isConnectionNode = node.kind === "connection";
-  const indicator = connectionIndicators[node.connectionId] ?? { status: "disconnected" };
-  const hasChildren = Boolean(node.children && node.children.length > 0);
-  const isExpanded = !isCollapsed || shouldForceExpand;
-
-  return (
-    <div className="tree-node-branch">
-      <div
-        className={`tree-node-row${isConnectionNode ? " tree-node-row-connection" : " tree-node-row-container"}${
-          isSelected ? " is-selected" : ""
-        }`}
-      >
-        {isConnectionNode ? (
-          hasChildren ? (
-            <button
-              type="button"
-              className="tree-toggle-button tree-toggle-button-connection"
-              aria-label={t(isExpanded ? "navigation.collapse" : "navigation.expand")}
-              aria-expanded={isExpanded}
-              onClick={() => onToggleCollapsed(node.connectionId)}
-            >
-              <ChevronRight
-                size={16}
-                strokeWidth={2}
-                className={`tree-toggle-icon${isExpanded ? " is-expanded" : ""}`}
-              />
-            </button>
-          ) : (
-            <span className="tree-toggle-spacer" aria-hidden="true" />
-          )
-        ) : null}
-
-        <button
-          type="button"
-          className={`tree-node-button${isConnectionNode ? " tree-node-button-connection" : " tree-node-button-container tree-node-nested"}${isSelected ? " is-selected" : ""}`}
-          onClick={() => onSelect(node)}
-          onDoubleClick={() => {
-            if (isConnectionNode) {
-              onConnectionDoubleClick(node.connectionId);
-            }
-          }}
-        >
-          <span className="tree-node-main">
-            {isConnectionNode ? (
-              <ConnectionStatusIcon
-                indicator={indicator}
-                connectingTitle={t(CONNECTING_CONNECTION_TITLE_KEY)}
-                connectedTitle={t(CONNECTED_CONNECTION_TITLE_KEY)}
-                disconnectedTitle={t(DISCONNECTED_CONNECTION_TITLE_KEY)}
-              />
-            ) : (
-              <TreeNodeIcon kind={node.kind} />
-            )}
-
-            <span className="tree-node-copy">
-              <span className={isConnectionNode ? "tree-node-title tree-node-title-connection" : "tree-node-title"}>
-                {node.name}
-              </span>
-            </span>
-            {node.kind === "connection" ? (
-              <span className={`provider-badge provider-${node.provider}`}>
-                {node.provider.toUpperCase()}
-              </span>
-            ) : node.region ? (
-              <span className="tree-node-meta tree-node-meta-bucket">{node.region}</span>
-            ) : null}
-          </span>
-        </button>
-
-        {isConnectionNode && menuState ? (
-          <TreeItemMenu
-            connectionId={node.id}
-            indicator={indicator}
-            isOpen={menuState.isOpen}
-            onToggle={menuState.onToggle}
-            onAction={menuState.onAction}
-            t={t}
-          />
-        ) : null}
-      </div>
-
-      {hasChildren && isExpanded ? (
-        <ul className="tree-children">
-          {(node.children ?? []).map((childNode) => (
-            <li key={childNode.id} className="tree-item">
-              <ConnectionTreeNodeItem
-                node={childNode}
-                selectedNodeId={selectedNodeId}
-                connectionIndicators={connectionIndicators}
-                onToggleCollapsed={onToggleCollapsed}
-                onSelect={onSelect}
-                onConnectionDoubleClick={onConnectionDoubleClick}
-                t={t}
-              />
-            </li>
-          ))}
-        </ul>
-      ) : null}
-    </div>
-  );
-}
-
-function TreeNodeIcon({ kind }: { kind: TreeNodeKind }) {
-  return (
-    <span
-      className={`tree-node-glyph ${
-        kind === "bucket" ? "tree-node-glyph-bucket" : "tree-node-glyph-folder"
-      }`}
-      aria-hidden="true"
-    >
-      {kind === "bucket" ? (
-        <Database size={16} strokeWidth={1.9} />
-      ) : (
-        <Folder size={16} strokeWidth={1.9} />
-      )}
-    </span>
-  );
-}
-
-type ConnectionStatusIconProps = {
-  indicator: ConnectionIndicator;
-  connectingTitle: string;
-  connectedTitle: string;
-  disconnectedTitle: string;
-  size?: number;
-};
-
-function ConnectionStatusIcon({
-  indicator,
-  connectingTitle,
-  connectedTitle,
-  disconnectedTitle,
-  size = 16
-}: ConnectionStatusIconProps) {
-  if (indicator.status === "connecting") {
-    return (
-      <span className="connection-status-icon connection-status-icon-connecting" title={connectingTitle}>
-        <LoaderCircle size={size} strokeWidth={2} />
-      </span>
-    );
-  }
-
-  if (indicator.status === "connected") {
-    return (
-      <span className="connection-status-icon connection-status-icon-connected" title={connectedTitle}>
-        <Cloud size={size} strokeWidth={1.9} />
-      </span>
-    );
-  }
-
-  if (indicator.status === "error") {
-    return (
-      <span
-        className="connection-status-icon connection-status-icon-error"
-        title={indicator.message ?? disconnectedTitle}
-      >
-        <CircleAlert size={size} strokeWidth={2} />
-      </span>
-    );
-  }
-
-  return (
-    <span className="connection-status-icon connection-status-icon-disconnected" title={disconnectedTitle}>
-      <Cloud size={size} strokeWidth={1.9} />
-    </span>
-  );
-}
-
-type TreeItemMenuProps = {
-  connectionId: string;
-  indicator: ConnectionIndicator;
-  isOpen: boolean;
-  onToggle: (connectionId: string | null) => void;
-  onAction: (
-    actionId: "connect" | "cancelConnect" | "disconnect" | "edit" | "remove",
-    connectionId: string
-  ) => void;
-  t: (key: string) => string;
-};
-
-function TreeItemMenu({
-  connectionId,
-  indicator,
-  isOpen,
-  onToggle,
-  onAction,
-  t
-}: TreeItemMenuProps) {
-  const menuRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    if (!isOpen) {
-      return undefined;
-    }
-
-    function handlePointerDown(event: PointerEvent) {
-      if (!menuRef.current?.contains(event.target as Node)) {
-        onToggle(null);
-      }
-    }
-
-    window.addEventListener("pointerdown", handlePointerDown);
-
-    return () => {
-      window.removeEventListener("pointerdown", handlePointerDown);
-    };
-  }, [isOpen, onToggle]);
-
-  return (
-    <div ref={menuRef} className="tree-item-menu">
-      <button
-        type="button"
-        className="tree-menu-trigger"
-        aria-label={t("navigation.item_menu")}
-        onClick={() => onToggle(isOpen ? null : connectionId)}
-      >
-        <Ellipsis size={16} strokeWidth={2} />
-      </button>
-
-      {isOpen ? (
-        <div className="tree-menu-popup" role="menu">
-          {getConnectionActions(t, indicator).map((action) => (
-            <button
-              key={action.id}
-              type="button"
-              className={`tree-menu-action${action.variant === "danger" ? " tree-menu-action-danger" : ""}`}
-              disabled={action.disabled}
-              role="menuitem"
-              onClick={() => onAction(action.id, connectionId)}
-            >
-              {action.label}
-            </button>
-          ))}
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-type ContentItemMenuProps = {
-  item: ContentExplorerItem;
-  canRestore: boolean;
-  canChangeTier: boolean;
-  canDownload: boolean;
-  canDownloadAs: boolean;
-  canCancelDownload: boolean;
-  canOpenFile: boolean;
-  canOpenInExplorer: boolean;
-  canDelete: boolean;
-  isOpen: boolean;
-  showTrigger: boolean;
-  anchorPosition: { x: number; y: number } | null;
-  onToggle: (itemId: string | null, anchorPosition?: { x: number; y: number } | null) => void;
-  onAction: (actionId: FileActionId, item: ContentExplorerItem) => void;
-  t: (key: string) => string;
-};
 
 type ContentAreaContextMenuProps = {
   canCreateFolder: boolean;
@@ -7108,310 +4342,4 @@ function ContentAreaContextMenu({
       </button>
     </div>
   );
-}
-
-function ContentItemMenu({
-  item,
-  canRestore,
-  canChangeTier,
-  canDownload,
-  canDownloadAs,
-  canCancelDownload,
-  canOpenFile,
-  canOpenInExplorer,
-  canDelete,
-  isOpen,
-  showTrigger,
-  anchorPosition,
-  onToggle,
-  onAction,
-  t
-}: ContentItemMenuProps) {
-  const menuRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    if (!isOpen) {
-      return undefined;
-    }
-
-    function handlePointerDown(event: PointerEvent) {
-      if (!menuRef.current?.contains(event.target as Node)) {
-        onToggle(null, null);
-      }
-    }
-
-    window.addEventListener("pointerdown", handlePointerDown);
-
-    return () => {
-      window.removeEventListener("pointerdown", handlePointerDown);
-    };
-  }, [isOpen, onToggle]);
-
-  return (
-    <div ref={menuRef} className="tree-item-menu">
-      {showTrigger ? (
-        <button
-          type="button"
-          className="tree-menu-trigger"
-          aria-label={t("navigation.item_menu")}
-          onClick={(event) => {
-            event.stopPropagation();
-            onToggle(
-              isOpen ? null : item.id,
-              isOpen ? null : null
-            );
-          }}
-        >
-          <Ellipsis size={16} strokeWidth={2} />
-        </button>
-      ) : null}
-
-      {isOpen ? (
-        <div
-          className={`tree-menu-popup${anchorPosition ? " tree-menu-popup-floating" : ""}`}
-          role="menu"
-          style={
-            anchorPosition
-              ? {
-                  left: `${anchorPosition.x}px`,
-                  top: `${anchorPosition.y}px`
-                }
-              : undefined
-          }
-          onClick={(event) => event.stopPropagation()}
-        >
-          {item.kind === "file" ? (
-            <>
-              <button
-                type="button"
-                className="tree-menu-action"
-                role="menuitem"
-                disabled={!canOpenFile}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onAction("openFile", item);
-                }}
-              >
-                {t("navigation.menu.open_file")}
-              </button>
-              <button
-                type="button"
-                className="tree-menu-action"
-                role="menuitem"
-                disabled={!canOpenInExplorer}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onAction("openInExplorer", item);
-                }}
-              >
-                {t("navigation.menu.open_in_file_explorer")}
-              </button>
-              {canRestore ? (
-                <button
-                  type="button"
-                  className="tree-menu-action"
-                  role="menuitem"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onAction("restore", item);
-                  }}
-                >
-                  {t("navigation.menu.restore")}
-                </button>
-              ) : null}
-              <button
-                type="button"
-                className="tree-menu-action"
-                role="menuitem"
-                disabled={!canChangeTier}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onAction("changeTier", item);
-                }}
-              >
-                {t("navigation.menu.change_tier")}
-              </button>
-              {canCancelDownload ? (
-                <button
-                  type="button"
-                  className="tree-menu-action"
-                  role="menuitem"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onAction("cancelDownload", item);
-                  }}
-                >
-                  {t("navigation.menu.cancel_download")}
-                </button>
-              ) : null}
-              <button
-                type="button"
-                className="tree-menu-action"
-                role="menuitem"
-                disabled={!canDownload}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onAction("download", item);
-                }}
-              >
-                {t("navigation.menu.download")}
-              </button>
-              <button
-                type="button"
-                className="tree-menu-action"
-                role="menuitem"
-                disabled={!canDownloadAs}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onAction("downloadAs", item);
-                }}
-              >
-                {t("navigation.menu.download_as")}
-              </button>
-            </>
-          ) : null}
-          {canDelete ? (
-            <button
-              type="button"
-              className="tree-menu-action tree-menu-action-danger"
-              role="menuitem"
-              onClick={(event) => {
-                event.stopPropagation();
-                onAction("delete", item);
-              }}
-            >
-              {t("content.delete.action")}
-            </button>
-          ) : null}
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-type FileStatusBadgeProps = {
-  label: string;
-  status: "available" | "downloaded" | "archived" | "restoring";
-  title?: string;
-};
-
-function FileStatusBadge({ label, status, title }: FileStatusBadgeProps) {
-  let icon = <CircleAlert size={12} strokeWidth={2} />;
-
-  if (status === "available") {
-    icon = <Cloud size={12} strokeWidth={2} />;
-  } else if (status === "downloaded") {
-    icon = <Cloud size={12} strokeWidth={2} className="is-filled" />;
-  } else if (status === "archived") {
-    icon = <Snowflake size={12} strokeWidth={2} />;
-  } else {
-    icon = <LoaderCircle size={12} strokeWidth={2} />;
-  }
-
-  return (
-    <span className={`file-status-badge file-status-badge-${status}`} title={title ?? label}>
-      {icon}
-      <span>{label}</span>
-    </span>
-  );
-}
-
-type ContentCounterStatusProps = {
-  status: "directory" | "available" | "downloaded" | "archived" | "restoring";
-  label: string;
-  count: number;
-};
-
-function ContentCounterStatus({ status, label, count }: ContentCounterStatusProps) {
-  let icon = <CircleAlert size={12} strokeWidth={2} />;
-
-  if (status === "directory") {
-    icon = <Folder size={12} strokeWidth={2} />;
-  } else if (status === "available") {
-    icon = <Cloud size={12} strokeWidth={2} />;
-  } else if (status === "downloaded") {
-    icon = <Cloud size={12} strokeWidth={2} className="is-filled" />;
-  } else if (status === "archived") {
-    icon = <Snowflake size={12} strokeWidth={2} />;
-  } else if (status === "restoring") {
-    icon = <LoaderCircle size={12} strokeWidth={2} className="content-counter-status-spinner" />;
-  }
-
-  return (
-    <span className={`content-counter-status content-counter-status-${status}`} title={label}>
-      {icon}
-      <strong>{count}</strong>
-    </span>
-  );
-}
-
-type CompactFileStatusIconsProps = {
-  item: ContentExplorerItem;
-  locale: Locale;
-  t: (key: string) => string;
-};
-
-function CompactFileStatusIcons({ item, locale, t }: CompactFileStatusIconsProps) {
-  const items = getPreferredFileStatusBadgeDescriptors(item, locale, t).map((descriptor) => ({
-    icon:
-      descriptor.status === "downloaded" ? (
-        <Cloud size={12} strokeWidth={2} className="is-filled" />
-      ) : descriptor.status === "available" ? (
-        <Cloud size={12} strokeWidth={2} />
-      ) : descriptor.status === "restoring" ? (
-        <LoaderCircle size={12} strokeWidth={2} />
-      ) : (
-        <Snowflake size={12} strokeWidth={2} />
-      ),
-    label: descriptor.title,
-    className:
-      descriptor.status === "downloaded"
-        ? "is-downloaded"
-        : descriptor.status === "available"
-        ? "is-available"
-        : descriptor.status === "restoring"
-        ? "is-restoring"
-        : "is-archived"
-  }));
-
-  if (items.length === 0) {
-    return null;
-  }
-
-  return (
-    <span
-      className={`content-file-status-icons${items.length > 1 ? " has-multiple" : ""}`}
-      aria-label={t("content.detail.local_state")}
-    >
-      {items.map((item, index) => (
-        <span
-          key={`${item.className}-${index}`}
-          className={`content-file-status-icon ${item.className}`}
-          title={item.label}
-          aria-label={item.label}
-        >
-          {item.icon}
-        </span>
-      ))}
-    </span>
-  );
-}
-
-function getConnectionStatusLabel(
-  indicator: ConnectionIndicator,
-  t: (key: string) => string
-): string {
-  if (indicator.status === "connected") {
-    return t(CONNECTED_CONNECTION_TITLE_KEY);
-  }
-
-  if (indicator.status === "connecting") {
-    return t(CONNECTING_CONNECTION_TITLE_KEY);
-  }
-
-  if (indicator.status === "error") {
-    return t("navigation.connection_status.error");
-  }
-
-  return t(DISCONNECTED_CONNECTION_TITLE_KEY);
 }

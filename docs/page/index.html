@@ -6,7 +6,7 @@
     <title>CloudEasyFiles</title>
     <meta
       name="description"
-      content="CloudEasyFiles makes it easier to use cloud storage and archive services for backup, restore, and file access."
+      content="CloudEasyFiles makes it easier to use cloud storage and archive services for backup, restore, and file access. Built with Rust and Tauri using Spec Driven Development and AI-assisted workflows."
     />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -29,10 +29,13 @@
         <span>CloudEasyFiles</span>
       </a>
 
-      <div class="topbar-links">
-        <a href="https://github.com/andre-luiz-pires-silva/cloudeasyfiles/releases/latest">Download</a>
+      <nav class="topbar-links" aria-label="Site navigation">
+        <a href="#features">Features</a>
+        <a href="#methodology">Methodology</a>
+        <a href="#about">About</a>
+        <a href="#download">Download</a>
         <a href="https://github.com/andre-luiz-pires-silva/cloudeasyfiles">Repository</a>
-      </div>
+      </nav>
     </header>
 
     <main>
@@ -49,27 +52,29 @@
           <div class="hero-actions">
             <a
               class="button button-primary"
-              href="https://github.com/andre-luiz-pires-silva/cloudeasyfiles/tree/main/docs"
+              href="https://github.com/andre-luiz-pires-silva/cloudeasyfiles/releases/latest"
             >
-              Read the docs
+              Download latest version
             </a>
             <a
               class="button button-secondary"
-              href="https://github.com/andre-luiz-pires-silva/cloudeasyfiles"
+              href="#methodology"
             >
-              Open repository
+              How it was built
             </a>
           </div>
 
           <ul class="hero-tags" aria-label="Project highlights">
             <li>Low-cost backup</li>
-            <li>Simple archive restore</li>
-            <li>AWS and Azure today</li>
+            <li>AWS &amp; Azure</li>
+            <li>Rust + Tauri</li>
+            <li>Spec Driven Development</li>
+            <li>AI-Assisted</li>
           </ul>
         </div>
       </section>
 
-      <section class="section section-product reveal">
+      <section class="section section-product reveal" id="features">
         <div class="section-heading">
           <p class="eyebrow">Why This Matters</p>
           <h2>Backups are essential, but the common options are often expensive, fragile, or hard to use.</h2>
@@ -120,6 +125,7 @@
               <li>Save connections securely for AWS S3 and Azure Blob Storage</li>
               <li>Browse folders and files with filtering, upload, and download</li>
               <li>See clear file states such as Available, Archived, and Restoring</li>
+              <li>Understand restore cost and timing tradeoffs before starting a retrieval</li>
             </ul>
             <div class="product-aside">
               <span class="aside-label">Focus</span>
@@ -170,42 +176,104 @@
         </div>
       </section>
 
-      <section class="section section-story">
-        <div class="story-intro reveal">
-          <p class="eyebrow">About The Project</p>
-          <h2>Created from a real personal need, and developed as a serious software project.</h2>
+      <section class="section section-methodology" id="methodology">
+        <div class="section-heading reveal">
+          <p class="eyebrow">Case Study</p>
+          <h2>Built as a deliberate experiment in AI-assisted Spec Driven Development.</h2>
+        </div>
+
+        <div class="methodology-body reveal">
           <p>
-            CloudEasyFiles started as a personal project to make low-cost cloud backup
-            and archive services easier to use in everyday life. It also became a way to
-            build and refine a practical development process with clear planning, strong
-            documentation, and modern AI tools used with discipline.
+            CloudEasyFiles was designed from the start as a personal case study: a real problem,
+            a real product, and a deliberate choice of unfamiliar technology. I chose Rust and Tauri —
+            languages and frameworks I had never worked with — specifically to create an honest
+            challenge. If a methodology only works with comfortable tools, it is not a methodology.
+          </p>
+          <p>
+            The result was an extreme success. A working, well-documented desktop application with
+            clear architecture decisions, comprehensive test coverage, and a consistent feature
+            delivery cadence — all built with a productivity and quality level that would not have
+            been achievable through traditional approaches in an unfamiliar stack.
           </p>
         </div>
 
-        <div class="builder-note reveal">
-          <p class="builder-label">Built by</p>
-          <h3>Andre Luiz Pires Silva</h3>
-          <p>
-            Software developer with more than 15 years of experience across backend
-            engineering, cloud platforms, serverless systems, software architecture,
-            and multi-platform product delivery.
-          </p>
-          <p>
-            If the project is relevant to your work, if you want to suggest an improvement,
-            discuss an idea, or explore a partnership, feel free to get in touch.
-          </p>
-          <div class="builder-links">
-            <a class="builder-link" href="https://www.linkedin.com/in/andre-pires-68a0b722/">
-              LinkedIn profile
-            </a>
-            <a class="builder-link" href="mailto:andre.luiz.pires.silva@gmail.com">
-              Send e-mail
-            </a>
+        <div class="methodology-pillars">
+          <div class="pillar reveal">
+            <span class="aside-label">Spec Driven Development</span>
+            <h3>Every feature starts as a written spec, not as code.</h3>
+            <p>
+              Before any implementation begins, the feature is described in a clear specification:
+              its goal, behavior, edge cases, and constraints. This keeps the developer and the AI
+              aligned throughout the build, and creates a durable artifact that outlives the
+              implementation itself.
+            </p>
+          </div>
+
+          <div class="pillar reveal">
+            <span class="aside-label">AI as a Development Partner</span>
+            <h3>AI drives the implementation loop, not just individual tasks.</h3>
+            <p>
+              AI is used across the full development cycle — from spec refinement and architecture
+              review to code generation, test writing, and documentation. The key discipline is
+              keeping the developer in charge of intent and quality, while letting the AI
+              handle velocity.
+            </p>
+          </div>
+
+          <div class="pillar reveal">
+            <span class="aside-label">Deliberate Stack Choice</span>
+            <h3>Rust and Tauri were chosen for the challenge, not for comfort.</h3>
+            <p>
+              With no prior experience in either, the stack was selected precisely to test the
+              limits of this approach. Rust's strictness and Tauri's cross-platform model demanded
+              real understanding — and the methodology delivered, at speed.
+            </p>
           </div>
         </div>
       </section>
 
-      <section class="section section-links reveal">
+      <section class="section section-story" id="about">
+        <div class="story-intro reveal">
+          <p class="eyebrow">About The Builder</p>
+          <h2>15+ years of experience. A deep focus on what AI-assisted development can really achieve.</h2>
+          <p>
+            CloudEasyFiles is both a working product and a proof of concept. I built it to develop
+            a rigorous, repeatable methodology for AI-assisted development — one grounded in
+            real outcomes, not in demos.
+          </p>
+        </div>
+
+        <div class="builder-card reveal">
+          <div class="builder-photo-col">
+            <img src="./assets/andre-IA-avatar.jpg" alt="Andre Luiz Pires Silva" class="builder-photo" />
+          </div>
+          <div class="builder-info">
+            <p class="builder-label">Built by</p>
+            <h3>Andre Luiz Pires Silva</h3>
+            <p>
+              Software developer with more than 15 years of experience across backend
+              engineering, cloud platforms, serverless systems, software architecture,
+              and multi-platform product delivery.
+            </p>
+            <p>
+              This project is my personal case study for Spec Driven Development with AI.
+              If you are exploring what modern AI-assisted development looks like in practice —
+              or want to discuss the methodology, the results, or a potential partnership —
+              feel free to reach out.
+            </p>
+            <div class="builder-links">
+              <a class="builder-link" href="https://www.linkedin.com/in/andre-pires-68a0b722/">
+                LinkedIn profile
+              </a>
+              <a class="builder-link" href="mailto:andre.luiz.pires.silva@gmail.com">
+                Send e-mail
+              </a>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section section-links reveal" id="download">
         <div class="section-heading">
           <p class="eyebrow">Download</p>
           <h2>Download the latest version.</h2>
@@ -222,6 +290,12 @@
             >
               Download latest version
             </a>
+            <a
+              class="button button-secondary"
+              href="https://github.com/andre-luiz-pires-silva/cloudeasyfiles"
+            >
+              Open repository
+            </a>
           </div>
         </div>
       </section>
@@ -237,7 +311,7 @@
       </div>
       <div class="footer-links">
         <a href="https://github.com/andre-luiz-pires-silva/cloudeasyfiles">Repository</a>
-        <a href="./../../PROJECT.md">Documentation</a>
+        <a href="https://github.com/andre-luiz-pires-silva/cloudeasyfiles/tree/main/docs">Documentation</a>
       </div>
     </footer>
 

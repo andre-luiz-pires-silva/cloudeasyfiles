@@ -1,7 +1,7 @@
 use crate::domain::azure_connection::{
     AzureBlobSummary, AzureCacheDownloadResult, AzureConnectionTestInput,
-    AzureConnectionTestResult, AzureContainerItemsResult, AzureContainerSummary,
-    AzureDeleteResult, AzureVirtualDirectorySummary,
+    AzureConnectionTestResult, AzureContainerItemsResult, AzureContainerSummary, AzureDeleteResult,
+    AzureVirtualDirectorySummary,
 };
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use chrono::Utc;
@@ -12,7 +12,9 @@ use reqwest::{Client, Method, Response, StatusCode, Url};
 use serde::Deserialize;
 use sha2::Sha256;
 use std::collections::BTreeMap;
+use std::future::Future;
 use std::path::PathBuf;
+use std::pin::Pin;
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, LazyLock, Mutex};
@@ -162,33 +164,33 @@ impl AzureConnectionService {
     pub async fn test_connection(
         input: AzureConnectionTestInput,
     ) -> Result<AzureConnectionTestResult, String> {
-        let storage_account_name = normalize_storage_account_name(&input.storage_account_name)?;
+        let prepared = prepare_connection_test_request(input)?;
         let client = Client::new();
 
         Self::list_containers_internal(
             &client,
-            &storage_account_name,
-            &input.account_key,
+            &prepared.storage_account_name,
+            &prepared.account_key,
             None,
             Some(1),
         )
         .await?;
 
         Ok(AzureConnectionTestResult {
-            storage_account_name: storage_account_name.clone(),
-            account_url: build_account_url(&storage_account_name),
+            storage_account_name: prepared.storage_account_name.clone(),
+            account_url: build_account_url(&prepared.storage_account_name),
         })
     }
 
     pub async fn list_containers(
         input: AzureConnectionTestInput,
     ) -> Result<Vec<AzureContainerSummary>, String> {
-        let storage_account_name = normalize_storage_account_name(&input.storage_account_name)?;
+        let prepared = prepare_connection_test_request(input)?;
         let client = Client::new();
         let (containers, _) = Self::list_containers_internal(
             &client,
-            &storage_account_name,
-            &input.account_key,
+            &prepared.storage_account_name,
+            &prepared.account_key,
             None,
             Some(DEFAULT_MAX_RESULTS),
         )
@@ -204,43 +206,28 @@ impl AzureConnectionService {
         continuation_token: Option<String>,
         page_size: Option<i32>,
     ) -> Result<AzureContainerItemsResult, String> {
-        let storage_account_name = normalize_storage_account_name(&input.storage_account_name)?;
-        let normalized_container_name = container_name.trim().to_string();
-
-        if normalized_container_name.is_empty() {
-            return Err("The Azure container name is required.".to_string());
-        }
-
+        let prepared = prepare_list_container_items_request(
+            input,
+            container_name,
+            prefix,
+            continuation_token,
+            page_size,
+        )?;
         let client = Client::new();
-        let page_size = normalize_listing_page_size(page_size);
-        let mut query = vec![
-            ("restype".to_string(), "container".to_string()),
-            ("comp".to_string(), "list".to_string()),
-            ("delimiter".to_string(), "/".to_string()),
-            ("include".to_string(), "metadata".to_string()),
-            ("maxresults".to_string(), page_size.to_string()),
-        ];
-
-        let normalized_prefix = normalize_prefix(prefix);
-
-        if let Some(prefix_value) = normalized_prefix.clone() {
-            query.push(("prefix".to_string(), prefix_value));
-        }
-
-        if let Some(marker_value) = continuation_token.filter(|value| !value.trim().is_empty()) {
-            query.push(("marker".to_string(), marker_value));
-        }
-
-        let url = build_container_url(&storage_account_name, &normalized_container_name, &query)?;
+        let url = build_container_url(
+            &prepared.storage_account_name,
+            &prepared.normalized_container_name,
+            &prepared.query,
+        )?;
         let response_text = execute_signed_get(
             &client,
-            &storage_account_name,
-            &input.account_key,
+            &prepared.storage_account_name,
+            &prepared.account_key,
             url,
-            format!("/{normalized_container_name}"),
+            format!("/{}", prepared.normalized_container_name),
         )
         .await?;
-        parse_blob_listing_response(&response_text, normalized_prefix.as_deref())
+        parse_blob_listing_response(&response_text, prepared.normalized_prefix.as_deref())
     }
 
     pub async fn blob_exists(
@@ -248,28 +235,31 @@ impl AzureConnectionService {
         container_name: String,
         blob_name: String,
     ) -> Result<bool, String> {
-        let storage_account_name = normalize_storage_account_name(&input.storage_account_name)?;
-        let normalized_container_name = container_name.trim().to_string();
-        let normalized_blob_name = blob_name.trim().to_string();
-
-        if normalized_container_name.is_empty() || normalized_blob_name.is_empty() {
-            return Ok(false);
-        }
+        let prepared = match prepare_blob_exists_request(input, container_name, blob_name) {
+            Ok(prepared) => prepared,
+            Err(error) if error == "The Azure container and blob names are required." => {
+                return Ok(false);
+            }
+            Err(error) => return Err(error),
+        };
 
         let client = Client::new();
         let url = build_blob_url(
-            &storage_account_name,
-            &normalized_container_name,
-            &normalized_blob_name,
+            &prepared.storage_account_name,
+            &prepared.normalized_container_name,
+            &prepared.normalized_blob_name,
             &[],
         )?;
         let response = execute_signed_request(
             &client,
             Method::HEAD,
-            &storage_account_name,
-            &input.account_key,
+            &prepared.storage_account_name,
+            &prepared.account_key,
             url,
-            format!("/{normalized_container_name}/{normalized_blob_name}"),
+            format!(
+                "/{}/{}",
+                prepared.normalized_container_name, prepared.normalized_blob_name
+            ),
             None,
             Vec::new(),
         )
@@ -282,7 +272,9 @@ impl AzureConnectionService {
         if !response.status().is_success() {
             let status = response.status();
             let body = response.text().await.map_err(|error| error.to_string())?;
-            return Err(format!("Azure Blob Storage request failed ({status}): {body}"));
+            return Err(format!(
+                "Azure Blob Storage request failed ({status}): {body}"
+            ));
         }
 
         Ok(true)
@@ -294,40 +286,16 @@ impl AzureConnectionService {
         parent_path: Option<String>,
         folder_name: String,
     ) -> Result<(), String> {
-        let storage_account_name = normalize_storage_account_name(&input.storage_account_name)?;
-        let normalized_container_name = container_name.trim().to_string();
-        let normalized_folder_name = folder_name.trim().to_string();
-        let normalized_parent_path = parent_path
-            .unwrap_or_default()
-            .trim()
-            .trim_matches('/')
-            .to_string();
-
-        if normalized_container_name.is_empty() {
-            return Err("The Azure container name is required.".to_string());
-        }
-
-        if normalized_folder_name.is_empty() {
-            return Err("Folder name is required.".to_string());
-        }
-
-        if normalized_folder_name.contains('/') || normalized_folder_name.contains('\\') {
-            return Err("Folder name cannot contain path separators.".to_string());
-        }
-
-        let folder_blob_name = if normalized_parent_path.is_empty() {
-            format!("{normalized_folder_name}/")
-        } else {
-            format!("{normalized_parent_path}/{normalized_folder_name}/")
-        };
+        let prepared =
+            prepare_create_folder_request(input, container_name, parent_path, folder_name)?;
 
         let client = Client::new();
         upload_blob_single_request(
             &client,
-            &storage_account_name,
-            &input.account_key,
-            &normalized_container_name,
-            &folder_blob_name,
+            &prepared.storage_account_name,
+            &prepared.account_key,
+            &prepared.normalized_container_name,
+            &prepared.folder_blob_name,
             Vec::new(),
             None,
             Some(vec![(
@@ -343,30 +311,20 @@ impl AzureConnectionService {
         container_name: String,
         object_keys: Vec<String>,
     ) -> Result<AzureDeleteResult, String> {
-        let storage_account_name = normalize_storage_account_name(&input.storage_account_name)?;
-        let normalized_container_name = container_name.trim().to_string();
-        let normalized_object_keys = normalize_delete_object_keys(object_keys);
-
-        if normalized_container_name.is_empty() {
-            return Err("The Azure container name is required for delete requests.".to_string());
-        }
-
-        if normalized_object_keys.is_empty() {
-            return Err("At least one blob name is required for delete requests.".to_string());
-        }
+        let prepared = prepare_delete_objects_request(input, container_name, object_keys)?;
 
         let client = Client::new();
         delete_blob_names(
             &client,
-            &storage_account_name,
-            &input.account_key,
-            &normalized_container_name,
-            &normalized_object_keys,
+            &prepared.storage_account_name,
+            &prepared.account_key,
+            &prepared.normalized_container_name,
+            &prepared.normalized_object_keys,
         )
         .await?;
 
         Ok(AzureDeleteResult {
-            deleted_object_count: normalized_object_keys.len() as i64,
+            deleted_object_count: prepared.normalized_object_keys.len() as i64,
             deleted_directory_count: 0,
         })
     }
@@ -376,58 +334,39 @@ impl AzureConnectionService {
         container_name: String,
         prefix: String,
     ) -> Result<AzureDeleteResult, String> {
-        let storage_account_name = normalize_storage_account_name(&input.storage_account_name)?;
-        let normalized_container_name = container_name.trim().to_string();
-        let normalized_prefix = prefix
-            .trim()
-            .trim_start_matches('/')
-            .trim_end_matches('/')
-            .to_string();
-
-        if normalized_container_name.is_empty() {
-            return Err("The Azure container name is required for delete requests.".to_string());
-        }
-
-        if normalized_prefix.is_empty() {
-            return Err("Directory prefix is required for recursive delete requests.".to_string());
-        }
+        let prepared = prepare_delete_prefix_request(input, container_name, prefix)?;
 
         let client = Client::new();
-        let recursive_prefix = format!("{normalized_prefix}/");
         let mut marker = None;
         let mut object_keys = Vec::new();
 
         loop {
             let (mut batch, next_marker) = list_blob_names_with_prefix(
                 &client,
-                &storage_account_name,
-                &input.account_key,
-                &normalized_container_name,
-                &recursive_prefix,
+                &prepared.storage_account_name,
+                &prepared.account_key,
+                &prepared.normalized_container_name,
+                &prepared.recursive_prefix,
                 marker.clone(),
             )
             .await?;
             object_keys.append(&mut batch);
 
-            if next_marker
-                .as_ref()
-                .map(|value| value.trim().is_empty())
-                .unwrap_or(true)
-            {
+            if !has_next_marker(next_marker.as_deref()) {
                 break;
             }
 
             marker = next_marker;
         }
 
-        object_keys.push(recursive_prefix);
+        object_keys.push(prepared.recursive_prefix);
 
         let normalized_object_keys = normalize_delete_object_keys(object_keys);
         delete_blob_names(
             &client,
-            &storage_account_name,
-            &input.account_key,
-            &normalized_container_name,
+            &prepared.storage_account_name,
+            &prepared.account_key,
+            &prepared.normalized_container_name,
             &normalized_object_keys,
         )
         .await?;
@@ -452,103 +391,50 @@ impl AzureConnectionService {
         F: FnMut(i64, i64, &str) -> Result<(), String>,
     {
         let _connection_id = connection_id.trim().to_string();
-        let connection_name = connection_name.trim().to_string();
-        let storage_account_name = normalize_storage_account_name(&input.storage_account_name)?;
-        let normalized_container_name = container_name.trim().to_string();
-        let normalized_blob_name = blob_name.trim().to_string();
-        let global_local_cache_directory = global_local_cache_directory.trim().to_string();
+        let prepared = prepare_download_to_cache_request(
+            input,
+            connection_name,
+            container_name,
+            blob_name,
+            global_local_cache_directory,
+        )?;
         let (cancellation_flag, _cancellation_guard) =
             Self::register_download_cancellation(&operation_id)?;
-
-        if global_local_cache_directory.is_empty() {
-            return Err("Local cache directory is required for tracked downloads.".to_string());
-        }
 
         let client = Client::new();
         let response = download_blob_response(
             &client,
-            &storage_account_name,
-            &input.account_key,
-            &normalized_container_name,
-            &normalized_blob_name,
+            &prepared.storage_account_name,
+            &prepared.account_key,
+            &prepared.normalized_container_name,
+            &prepared.normalized_blob_name,
         )
         .await?;
         let total_bytes = response.content_length().unwrap_or(0) as i64;
-        let final_path = Self::build_primary_cache_object_path(
-            &global_local_cache_directory,
-            &connection_name,
-            &normalized_container_name,
-            &normalized_blob_name,
+        let prepared_paths = prepare_cache_download_paths(
+            &prepared.global_local_cache_directory,
+            &prepared.connection_name,
+            &prepared.normalized_container_name,
+            &prepared.normalized_blob_name,
         )?;
-        let temp_path = Self::build_cache_temp_object_path(
-            &global_local_cache_directory,
-            &connection_name,
-            &normalized_container_name,
-            &normalized_blob_name,
-        )?;
-
-        if let Some(parent_directory) = final_path.parent() {
-            fs::create_dir_all(parent_directory)
-                .await
-                .map_err(|error| error.to_string())?;
-        }
-
-        if let Some(temp_parent_directory) = temp_path.parent() {
-            fs::create_dir_all(temp_parent_directory)
-                .await
-                .map_err(|error| error.to_string())?;
-        }
-
-        let mut file = fs::File::create(&temp_path)
-            .await
-            .map_err(|error| error.to_string())?;
         let mut response = response;
-        let mut written_bytes = 0_i64;
-        let final_path_string = final_path.to_string_lossy().to_string();
-
-        if cancellation_flag.load(Ordering::SeqCst) {
-            Self::remove_temp_file_if_exists(&temp_path).await?;
-            return Err(AZURE_DOWNLOAD_CANCELLED_ERROR.to_string());
-        }
-
-        while let Some(chunk) = response.chunk().await.map_err(|error| error.to_string())? {
-            if cancellation_flag.load(Ordering::SeqCst) {
-                drop(file);
-                Self::remove_temp_file_if_exists(&temp_path).await?;
-                return Err(AZURE_DOWNLOAD_CANCELLED_ERROR.to_string());
-            }
-
-            file.write_all(&chunk)
-                .await
-                .map_err(|error| error.to_string())?;
-
-            written_bytes += chunk.len() as i64;
-            on_progress(written_bytes, total_bytes, &final_path_string)?;
-        }
-
-        file.flush().await.map_err(|error| error.to_string())?;
-        drop(file);
-
-        if cancellation_flag.load(Ordering::SeqCst) {
-            Self::remove_temp_file_if_exists(&temp_path).await?;
-            return Err(AZURE_DOWNLOAD_CANCELLED_ERROR.to_string());
-        }
-
-        if fs::try_exists(&final_path)
-            .await
-            .map_err(|error| error.to_string())?
-        {
-            fs::remove_file(&final_path)
-                .await
-                .map_err(|error| error.to_string())?;
-        }
-
-        fs::rename(&temp_path, &final_path)
-            .await
-            .map_err(|error| error.to_string())?;
+        let written_bytes = Self::write_download_stream_to_paths(
+            &prepared_paths,
+            total_bytes,
+            &cancellation_flag,
+            &mut response,
+            |response| Box::pin(async move {
+                response
+                    .chunk()
+                    .await
+                    .map_err(|error| error.to_string())
+            }),
+            &mut on_progress,
+        )
+        .await?;
 
         Ok(AzureCacheDownloadResult {
-            local_path: final_path_string,
+            local_path: prepared_paths.destination_path,
             bytes_written: written_bytes,
         })
     }
@@ -564,84 +450,39 @@ impl AzureConnectionService {
     where
         F: FnMut(i64, i64, &str) -> Result<(), String>,
     {
-        let storage_account_name = normalize_storage_account_name(&input.storage_account_name)?;
-        let normalized_container_name = container_name.trim().to_string();
-        let normalized_blob_name = blob_name.trim().to_string();
-        let destination_path = destination_path.trim().to_string();
+        let prepared =
+            prepare_download_to_path_request(input, container_name, blob_name, destination_path)?;
         let (cancellation_flag, _cancellation_guard) =
             Self::register_download_cancellation(&operation_id)?;
-
-        if destination_path.is_empty() {
-            return Err("Destination path is required for direct downloads.".to_string());
-        }
 
         let client = Client::new();
         let response = download_blob_response(
             &client,
-            &storage_account_name,
-            &input.account_key,
-            &normalized_container_name,
-            &normalized_blob_name,
+            &prepared.storage_account_name,
+            &prepared.account_key,
+            &prepared.normalized_container_name,
+            &prepared.normalized_blob_name,
         )
         .await?;
-        let final_path = PathBuf::from(&destination_path);
-        let temp_path = Self::build_temp_file_path(&final_path)?;
+        let prepared_paths = prepare_direct_download_paths(&prepared.destination_path)?;
         let total_bytes = response.content_length().unwrap_or(0) as i64;
-
-        if let Some(parent_directory) = final_path.parent() {
-            fs::create_dir_all(parent_directory)
-                .await
-                .map_err(|error| error.to_string())?;
-        }
-
-        let mut file = fs::File::create(&temp_path)
-            .await
-            .map_err(|error| error.to_string())?;
         let mut response = response;
-        let mut written_bytes = 0_i64;
+        Self::write_download_stream_to_paths(
+            &prepared_paths,
+            total_bytes,
+            &cancellation_flag,
+            &mut response,
+            |response| Box::pin(async move {
+                response
+                    .chunk()
+                    .await
+                    .map_err(|error| error.to_string())
+            }),
+            &mut on_progress,
+        )
+        .await?;
 
-        if cancellation_flag.load(Ordering::SeqCst) {
-            Self::remove_temp_file_if_exists(&temp_path).await?;
-            return Err(AZURE_DOWNLOAD_CANCELLED_ERROR.to_string());
-        }
-
-        while let Some(chunk) = response.chunk().await.map_err(|error| error.to_string())? {
-            if cancellation_flag.load(Ordering::SeqCst) {
-                drop(file);
-                Self::remove_temp_file_if_exists(&temp_path).await?;
-                return Err(AZURE_DOWNLOAD_CANCELLED_ERROR.to_string());
-            }
-
-            file.write_all(&chunk)
-                .await
-                .map_err(|error| error.to_string())?;
-
-            written_bytes += chunk.len() as i64;
-            on_progress(written_bytes, total_bytes, &destination_path)?;
-        }
-
-        file.flush().await.map_err(|error| error.to_string())?;
-        drop(file);
-
-        if cancellation_flag.load(Ordering::SeqCst) {
-            Self::remove_temp_file_if_exists(&temp_path).await?;
-            return Err(AZURE_DOWNLOAD_CANCELLED_ERROR.to_string());
-        }
-
-        if fs::try_exists(&final_path)
-            .await
-            .map_err(|error| error.to_string())?
-        {
-            fs::remove_file(&final_path)
-                .await
-                .map_err(|error| error.to_string())?;
-        }
-
-        fs::rename(&temp_path, &final_path)
-            .await
-            .map_err(|error| error.to_string())?;
-
-        Ok(destination_path)
+        Ok(prepared.destination_path)
     }
 
     pub async fn change_blob_access_tier(
@@ -650,22 +491,17 @@ impl AzureConnectionService {
         blob_name: String,
         target_tier: String,
     ) -> Result<(), String> {
-        let storage_account_name = normalize_storage_account_name(&input.storage_account_name)?;
-        let normalized_container_name = container_name.trim().to_string();
-        let normalized_blob_name = blob_name.trim().to_string();
-        let normalized_target_tier =
-            parse_access_tier(Some(target_tier.as_str()))?.ok_or_else(|| {
-                "A target Azure access tier is required.".to_string()
-            })?;
+        let prepared =
+            prepare_change_access_tier_request(input, container_name, blob_name, target_tier)?;
         let client = Client::new();
 
         set_blob_access_tier(
             &client,
-            &storage_account_name,
-            &input.account_key,
-            &normalized_container_name,
-            &normalized_blob_name,
-            &normalized_target_tier,
+            &prepared.storage_account_name,
+            &prepared.account_key,
+            &prepared.normalized_container_name,
+            &prepared.normalized_blob_name,
+            &prepared.normalized_target_tier,
             None,
         )
         .await
@@ -678,22 +514,23 @@ impl AzureConnectionService {
         target_tier: String,
         priority: String,
     ) -> Result<(), String> {
-        let storage_account_name = normalize_storage_account_name(&input.storage_account_name)?;
-        let normalized_container_name = container_name.trim().to_string();
-        let normalized_blob_name = blob_name.trim().to_string();
-        let normalized_target_tier =
-            parse_rehydration_target_tier(target_tier.as_str())?;
-        let normalized_priority = parse_rehydration_priority(priority.as_str())?;
+        let prepared = prepare_rehydrate_blob_request(
+            input,
+            container_name,
+            blob_name,
+            target_tier,
+            priority,
+        )?;
         let client = Client::new();
 
         set_blob_access_tier(
             &client,
-            &storage_account_name,
-            &input.account_key,
-            &normalized_container_name,
-            &normalized_blob_name,
-            &normalized_target_tier,
-            Some(normalized_priority.as_str()),
+            &prepared.storage_account_name,
+            &prepared.account_key,
+            &prepared.normalized_container_name,
+            &prepared.normalized_blob_name,
+            &prepared.normalized_target_tier,
+            Some(prepared.normalized_priority.as_str()),
         )
         .await
     }
@@ -861,50 +698,42 @@ impl AzureConnectionService {
             return Err("The selected local path is not a regular file.".to_string());
         }
 
-        let storage_account_name = normalize_storage_account_name(&input.storage_account_name)?;
-        let normalized_container_name = container_name.trim().to_string();
-        let normalized_blob_name = blob_name.trim().to_string();
-        let normalized_access_tier = parse_access_tier(access_tier.as_deref())?;
-        let total_bytes = i64::try_from(metadata.len())
-            .map_err(|_| "The selected file is too large to upload.".to_string())?;
+        let prepared = prepare_upload_from_path_request(
+            input,
+            container_name,
+            blob_name,
+            local_file_path,
+            access_tier,
+            metadata.len(),
+        )?;
         let client = Client::new();
         let (cancellation_flag, _cancellation_guard) =
             Self::register_upload_cancellation(&operation_id)?;
 
-        if normalized_container_name.is_empty() {
-            return Err("The Azure container name is required.".to_string());
-        }
-
-        if normalized_blob_name.is_empty() {
-            return Err("Blob name is required for uploads.".to_string());
-        }
-
-        if cancellation_flag.load(Ordering::SeqCst) {
-            return Err(AZURE_UPLOAD_CANCELLED_ERROR.to_string());
-        }
+        ensure_upload_not_cancelled(&cancellation_flag)?;
 
         let mut file = fs::File::open(&file_path)
             .await
             .map_err(|error| error.to_string())?;
 
-        if metadata.len() <= AZURE_UPLOAD_BLOCK_SIZE as u64 {
-            let mut file_bytes = Vec::with_capacity(metadata.len() as usize);
+        if should_use_single_request_upload(prepared.object_size) {
+            let mut file_bytes = Vec::with_capacity(prepared.object_size);
             file.read_to_end(&mut file_bytes)
                 .await
                 .map_err(|error| error.to_string())?;
             upload_blob_single_request(
                 &client,
-                &storage_account_name,
-                &input.account_key,
-                &normalized_container_name,
-                &normalized_blob_name,
+                &prepared.storage_account_name,
+                &prepared.account_key,
+                &prepared.normalized_container_name,
+                &prepared.normalized_blob_name,
                 file_bytes,
-                normalized_access_tier.as_deref(),
+                prepared.normalized_access_tier.as_deref(),
                 None,
             )
             .await?;
-            on_progress(total_bytes, total_bytes)?;
-            return Ok(local_file_path);
+            on_progress(prepared.total_bytes, prepared.total_bytes)?;
+            return Ok(prepared.local_file_path);
         }
 
         let mut transferred_bytes = 0_i64;
@@ -913,9 +742,7 @@ impl AzureConnectionService {
         let mut next_block_index = 0_usize;
 
         loop {
-            if cancellation_flag.load(Ordering::SeqCst) {
-                return Err(AZURE_UPLOAD_CANCELLED_ERROR.to_string());
-            }
+            ensure_upload_not_cancelled(&cancellation_flag)?;
 
             let bytes_read = file
                 .read(&mut chunk_buffer)
@@ -926,13 +753,13 @@ impl AzureConnectionService {
                 break;
             }
 
-            let block_id = BASE64_STANDARD.encode(format!("{next_block_index:08}"));
+            let block_id = build_block_id(next_block_index);
             upload_blob_block(
                 &client,
-                &storage_account_name,
-                &input.account_key,
-                &normalized_container_name,
-                &normalized_blob_name,
+                &prepared.storage_account_name,
+                &prepared.account_key,
+                &prepared.normalized_container_name,
+                &prepared.normalized_blob_name,
                 &block_id,
                 chunk_buffer[..bytes_read].to_vec(),
             )
@@ -940,26 +767,24 @@ impl AzureConnectionService {
             block_ids.push(block_id);
             transferred_bytes +=
                 i64::try_from(bytes_read).map_err(|_| "Chunk too large.".to_string())?;
-            on_progress(transferred_bytes, total_bytes)?;
+            on_progress(transferred_bytes, prepared.total_bytes)?;
             next_block_index += 1;
         }
 
-        if cancellation_flag.load(Ordering::SeqCst) {
-            return Err(AZURE_UPLOAD_CANCELLED_ERROR.to_string());
-        }
+        ensure_upload_not_cancelled(&cancellation_flag)?;
 
         commit_blob_blocks(
             &client,
-            &storage_account_name,
-            &input.account_key,
-            &normalized_container_name,
-            &normalized_blob_name,
+            &prepared.storage_account_name,
+            &prepared.account_key,
+            &prepared.normalized_container_name,
+            &prepared.normalized_blob_name,
             &block_ids,
-            normalized_access_tier.as_deref(),
+            prepared.normalized_access_tier.as_deref(),
         )
         .await?;
 
-        Ok(local_file_path)
+        Ok(prepared.local_file_path)
     }
 
     pub async fn upload_blob_from_bytes<F>(
@@ -975,89 +800,73 @@ impl AzureConnectionService {
     where
         F: FnMut(i64, i64) -> Result<(), String>,
     {
-        let storage_account_name = normalize_storage_account_name(&input.storage_account_name)?;
-        let normalized_container_name = container_name.trim().to_string();
-        let normalized_blob_name = blob_name.trim().to_string();
-        let normalized_file_name = file_name.trim().to_string();
-        let normalized_access_tier = parse_access_tier(access_tier.as_deref())?;
-        let total_bytes = i64::try_from(file_bytes.len())
-            .map_err(|_| "The selected file is too large to upload.".to_string())?;
+        let prepared = prepare_upload_from_bytes_request(
+            input,
+            container_name,
+            blob_name,
+            file_name,
+            file_bytes,
+            access_tier,
+        )?;
         let client = Client::new();
         let (cancellation_flag, _cancellation_guard) =
             Self::register_upload_cancellation(&operation_id)?;
 
-        if normalized_container_name.is_empty() {
-            return Err("The Azure container name is required.".to_string());
-        }
+        ensure_upload_not_cancelled(&cancellation_flag)?;
 
-        if normalized_blob_name.is_empty() {
-            return Err("Blob name is required for uploads.".to_string());
-        }
-
-        if normalized_file_name.is_empty() {
-            return Err("File name is required for uploads.".to_string());
-        }
-
-        if cancellation_flag.load(Ordering::SeqCst) {
-            return Err(AZURE_UPLOAD_CANCELLED_ERROR.to_string());
-        }
-
-        if file_bytes.len() <= AZURE_UPLOAD_BLOCK_SIZE {
+        if should_use_single_request_upload(prepared.file_bytes.len()) {
             upload_blob_single_request(
                 &client,
-                &storage_account_name,
-                &input.account_key,
-                &normalized_container_name,
-                &normalized_blob_name,
-                file_bytes,
-                normalized_access_tier.as_deref(),
+                &prepared.storage_account_name,
+                &prepared.account_key,
+                &prepared.normalized_container_name,
+                &prepared.normalized_blob_name,
+                prepared.file_bytes,
+                prepared.normalized_access_tier.as_deref(),
                 None,
             )
             .await?;
-            on_progress(total_bytes, total_bytes)?;
-            return Ok(normalized_file_name);
+            on_progress(prepared.total_bytes, prepared.total_bytes)?;
+            return Ok(prepared.normalized_file_name);
         }
 
         let mut transferred_bytes = 0_i64;
         let mut block_ids = Vec::new();
 
-        for (index, chunk) in file_bytes.chunks(AZURE_UPLOAD_BLOCK_SIZE).enumerate() {
-            if cancellation_flag.load(Ordering::SeqCst) {
-                return Err(AZURE_UPLOAD_CANCELLED_ERROR.to_string());
-            }
+        for (index, chunk) in prepared.file_bytes.chunks(AZURE_UPLOAD_BLOCK_SIZE).enumerate() {
+            ensure_upload_not_cancelled(&cancellation_flag)?;
 
-            let block_id = BASE64_STANDARD.encode(format!("{index:08}"));
+            let block_id = build_block_id(index);
             upload_blob_block(
                 &client,
-                &storage_account_name,
-                &input.account_key,
-                &normalized_container_name,
-                &normalized_blob_name,
+                &prepared.storage_account_name,
+                &prepared.account_key,
+                &prepared.normalized_container_name,
+                &prepared.normalized_blob_name,
                 &block_id,
                 chunk.to_vec(),
             )
             .await?;
             block_ids.push(block_id);
-            transferred_bytes += i64::try_from(chunk.len()).map_err(|_| "Chunk too large.".to_string())?;
-            on_progress(transferred_bytes, total_bytes)?;
+            transferred_bytes +=
+                i64::try_from(chunk.len()).map_err(|_| "Chunk too large.".to_string())?;
+            on_progress(transferred_bytes, prepared.total_bytes)?;
         }
 
-        if cancellation_flag.load(Ordering::SeqCst) {
-            return Err(AZURE_UPLOAD_CANCELLED_ERROR.to_string());
-        }
+        ensure_upload_not_cancelled(&cancellation_flag)?;
 
         commit_blob_blocks(
             &client,
-            &storage_account_name,
-            &input.account_key,
-            &normalized_container_name,
-            &normalized_blob_name,
+            &prepared.storage_account_name,
+            &prepared.account_key,
+            &prepared.normalized_container_name,
+            &prepared.normalized_blob_name,
             &block_ids,
-            normalized_access_tier.as_deref(),
+            prepared.normalized_access_tier.as_deref(),
         )
         .await?;
 
-        Ok(normalized_file_name)
+        Ok(prepared.normalized_file_name)
     }
 
     async fn list_containers_internal(
@@ -1086,21 +895,87 @@ impl AzureConnectionService {
             "/".to_string(),
         )
         .await?;
-        let parsed: ListContainersEnvelope = from_str(&response_text)
-            .map_err(|error| format!("Failed to parse Azure container listing XML: {error}"))?;
-        let containers = parsed
-            .containers
-            .map(|node| {
-                node.containers
-                    .into_iter()
-                    .map(|container| AzureContainerSummary {
-                        name: container.name,
-                    })
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
+        parse_container_listing_response(&response_text)
+    }
 
-        Ok((containers, parsed.next_marker.filter(|value| !value.is_empty())))
+    async fn write_download_stream_to_paths<S, C, Next, F>(
+        prepared_paths: &PreparedAzureLocalDownloadPaths,
+        total_bytes: i64,
+        cancellation_flag: &AtomicBool,
+        source: &mut S,
+        mut next_chunk: Next,
+        mut on_progress: F,
+    ) -> Result<i64, String>
+    where
+        C: AsRef<[u8]>,
+        Next: for<'a> FnMut(
+            &'a mut S,
+        ) -> Pin<Box<dyn Future<Output = Result<Option<C>, String>> + Send + 'a>>,
+        F: FnMut(i64, i64, &str) -> Result<(), String>,
+    {
+        if let Some(parent_directory) = prepared_paths.final_path.parent() {
+            fs::create_dir_all(parent_directory)
+                .await
+                .map_err(|error| error.to_string())?;
+        }
+
+        if let Some(temp_parent_directory) = prepared_paths.temp_path.parent() {
+            fs::create_dir_all(temp_parent_directory)
+                .await
+                .map_err(|error| error.to_string())?;
+        }
+
+        let mut file = fs::File::create(&prepared_paths.temp_path)
+            .await
+            .map_err(|error| error.to_string())?;
+        let mut written_bytes = 0_i64;
+
+        if ensure_download_not_cancelled(cancellation_flag).is_err() {
+            Self::remove_temp_file_if_exists(&prepared_paths.temp_path).await?;
+            return Err(AZURE_DOWNLOAD_CANCELLED_ERROR.to_string());
+        }
+
+        while let Some(chunk) = next_chunk(source).await? {
+            if ensure_download_not_cancelled(cancellation_flag).is_err() {
+                drop(file);
+                Self::remove_temp_file_if_exists(&prepared_paths.temp_path).await?;
+                return Err(AZURE_DOWNLOAD_CANCELLED_ERROR.to_string());
+            }
+
+            file.write_all(chunk.as_ref())
+                .await
+                .map_err(|error| error.to_string())?;
+
+            written_bytes += chunk.as_ref().len() as i64;
+            on_progress(
+                written_bytes,
+                total_bytes,
+                &prepared_paths.destination_path,
+            )?;
+        }
+
+        file.flush().await.map_err(|error| error.to_string())?;
+        drop(file);
+
+        if ensure_download_not_cancelled(cancellation_flag).is_err() {
+            Self::remove_temp_file_if_exists(&prepared_paths.temp_path).await?;
+            return Err(AZURE_DOWNLOAD_CANCELLED_ERROR.to_string());
+        }
+
+        if fs::try_exists(&prepared_paths.final_path)
+            .await
+            .map_err(|error| error.to_string())?
+        {
+            fs::remove_file(&prepared_paths.final_path)
+                .await
+                .map_err(|error| error.to_string())?;
+        }
+
+        fs::rename(&prepared_paths.temp_path, &prepared_paths.final_path)
+            .await
+            .map_err(|error| error.to_string())?;
+
+        Ok(written_bytes)
     }
 
     fn register_upload_cancellation(
@@ -1170,9 +1045,9 @@ impl AzureConnectionService {
 
             let uppercase = normalized.to_ascii_uppercase();
             let reserved_names = [
-                "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6",
-                "COM7", "COM8", "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6",
-                "LPT7", "LPT8", "LPT9",
+                "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7",
+                "COM8", "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8",
+                "LPT9",
             ];
 
             if reserved_names.contains(&uppercase.as_str()) {
@@ -1195,8 +1070,11 @@ impl AzureConnectionService {
             return Err("Connection name is required for local cache operations.".to_string());
         }
 
-        Ok(PathBuf::from(global_local_cache_directory)
-            .join(Self::normalize_cache_path_segment(normalized_connection_name)))
+        Ok(
+            PathBuf::from(global_local_cache_directory).join(Self::normalize_cache_path_segment(
+                normalized_connection_name,
+            )),
+        )
     }
 
     fn build_primary_cache_object_path(
@@ -1213,9 +1091,11 @@ impl AzureConnectionService {
             path.join(Self::normalize_cache_path_segment(segment))
         });
 
-        Ok(Self::build_connection_cache_root(global_local_cache_directory, connection_name)?
-            .join(container_name)
-            .join(normalized_object_path))
+        Ok(
+            Self::build_connection_cache_root(global_local_cache_directory, connection_name)?
+                .join(container_name)
+                .join(normalized_object_path),
+        )
     }
 
     fn build_legacy_raw_cache_object_path(
@@ -1373,7 +1253,9 @@ impl AzureConnectionService {
             .await
             .map_err(|error| error.to_string())?
         {
-            fs::remove_file(path).await.map_err(|error| error.to_string())?;
+            fs::remove_file(path)
+                .await
+                .map_err(|error| error.to_string())?;
         }
 
         Ok(())
@@ -1454,7 +1336,446 @@ fn normalize_prefix(prefix: Option<String>) -> Option<String> {
     prefix
         .map(|value| value.trim().trim_start_matches('/').to_string())
         .filter(|value| !value.is_empty())
-        .map(|value| if value.ends_with('/') { value } else { format!("{value}/") })
+        .map(|value| {
+            if value.ends_with('/') {
+                value
+            } else {
+                format!("{value}/")
+            }
+        })
+}
+
+struct PreparedAzureListContainerItemsRequest {
+    storage_account_name: String,
+    account_key: String,
+    normalized_container_name: String,
+    normalized_prefix: Option<String>,
+    query: Vec<(String, String)>,
+}
+
+struct PreparedAzureDeleteObjectsRequest {
+    storage_account_name: String,
+    account_key: String,
+    normalized_container_name: String,
+    normalized_object_keys: Vec<String>,
+}
+
+struct PreparedAzureDeletePrefixRequest {
+    storage_account_name: String,
+    account_key: String,
+    normalized_container_name: String,
+    recursive_prefix: String,
+}
+
+struct PreparedAzureBlobExistsRequest {
+    storage_account_name: String,
+    account_key: String,
+    normalized_container_name: String,
+    normalized_blob_name: String,
+}
+
+struct PreparedAzureCreateFolderRequest {
+    storage_account_name: String,
+    account_key: String,
+    normalized_container_name: String,
+    folder_blob_name: String,
+}
+
+struct PreparedAzureChangeAccessTierRequest {
+    storage_account_name: String,
+    account_key: String,
+    normalized_container_name: String,
+    normalized_blob_name: String,
+    normalized_target_tier: String,
+}
+
+struct PreparedAzureRehydrateBlobRequest {
+    storage_account_name: String,
+    account_key: String,
+    normalized_container_name: String,
+    normalized_blob_name: String,
+    normalized_target_tier: String,
+    normalized_priority: String,
+}
+
+struct PreparedAzureUploadFromPathRequest {
+    storage_account_name: String,
+    account_key: String,
+    normalized_container_name: String,
+    normalized_blob_name: String,
+    local_file_path: String,
+    normalized_access_tier: Option<String>,
+    total_bytes: i64,
+    object_size: usize,
+}
+
+struct PreparedAzureUploadFromBytesRequest {
+    storage_account_name: String,
+    account_key: String,
+    normalized_container_name: String,
+    normalized_blob_name: String,
+    normalized_file_name: String,
+    file_bytes: Vec<u8>,
+    normalized_access_tier: Option<String>,
+    total_bytes: i64,
+}
+
+struct PreparedAzureConnectionTestRequest {
+    storage_account_name: String,
+    account_key: String,
+}
+
+struct PreparedAzureDownloadToCacheRequest {
+    storage_account_name: String,
+    account_key: String,
+    connection_name: String,
+    normalized_container_name: String,
+    normalized_blob_name: String,
+    global_local_cache_directory: String,
+}
+
+struct PreparedAzureDownloadToPathRequest {
+    storage_account_name: String,
+    account_key: String,
+    normalized_container_name: String,
+    normalized_blob_name: String,
+    destination_path: String,
+}
+
+struct PreparedAzureLocalDownloadPaths {
+    final_path: PathBuf,
+    temp_path: PathBuf,
+    destination_path: String,
+}
+
+fn prepare_list_container_items_request(
+    input: AzureConnectionTestInput,
+    container_name: String,
+    prefix: Option<String>,
+    continuation_token: Option<String>,
+    page_size: Option<i32>,
+) -> Result<PreparedAzureListContainerItemsRequest, String> {
+    let storage_account_name = normalize_storage_account_name(&input.storage_account_name)?;
+    let normalized_container_name = container_name.trim().to_string();
+
+    if normalized_container_name.is_empty() {
+        return Err("The Azure container name is required.".to_string());
+    }
+
+    let normalized_prefix = normalize_prefix(prefix);
+    let mut query = vec![
+        ("restype".to_string(), "container".to_string()),
+        ("comp".to_string(), "list".to_string()),
+        ("delimiter".to_string(), "/".to_string()),
+        ("include".to_string(), "metadata".to_string()),
+        (
+            "maxresults".to_string(),
+            normalize_listing_page_size(page_size).to_string(),
+        ),
+    ];
+
+    if let Some(prefix_value) = normalized_prefix.clone() {
+        query.push(("prefix".to_string(), prefix_value));
+    }
+
+    if let Some(marker_value) = continuation_token.filter(|value| !value.trim().is_empty()) {
+        query.push(("marker".to_string(), marker_value));
+    }
+
+    Ok(PreparedAzureListContainerItemsRequest {
+        storage_account_name,
+        account_key: input.account_key,
+        normalized_container_name,
+        normalized_prefix,
+        query,
+    })
+}
+
+fn prepare_delete_objects_request(
+    input: AzureConnectionTestInput,
+    container_name: String,
+    object_keys: Vec<String>,
+) -> Result<PreparedAzureDeleteObjectsRequest, String> {
+    let normalized_object_keys = normalize_delete_object_keys(object_keys);
+
+    if normalized_object_keys.is_empty() {
+        return Err("At least one blob name is required for delete requests.".to_string());
+    }
+
+    Ok(PreparedAzureDeleteObjectsRequest {
+        storage_account_name: normalize_storage_account_name(&input.storage_account_name)?,
+        account_key: input.account_key,
+        normalized_container_name: normalize_container_name_for_operation(
+            &container_name,
+            "delete requests",
+        )?,
+        normalized_object_keys,
+    })
+}
+
+fn prepare_delete_prefix_request(
+    input: AzureConnectionTestInput,
+    container_name: String,
+    prefix: String,
+) -> Result<PreparedAzureDeletePrefixRequest, String> {
+    Ok(PreparedAzureDeletePrefixRequest {
+        storage_account_name: normalize_storage_account_name(&input.storage_account_name)?,
+        account_key: input.account_key,
+        normalized_container_name: normalize_container_name_for_operation(
+            &container_name,
+            "delete requests",
+        )?,
+        recursive_prefix: normalize_recursive_delete_prefix(&prefix)?,
+    })
+}
+
+fn prepare_blob_exists_request(
+    input: AzureConnectionTestInput,
+    container_name: String,
+    blob_name: String,
+) -> Result<PreparedAzureBlobExistsRequest, String> {
+    let normalized_container_name = container_name.trim().to_string();
+    let normalized_blob_name = blob_name.trim().to_string();
+
+    if normalized_container_name.is_empty() || normalized_blob_name.is_empty() {
+        return Err("The Azure container and blob names are required.".to_string());
+    }
+
+    Ok(PreparedAzureBlobExistsRequest {
+        storage_account_name: normalize_storage_account_name(&input.storage_account_name)?,
+        account_key: input.account_key,
+        normalized_container_name,
+        normalized_blob_name,
+    })
+}
+
+fn prepare_create_folder_request(
+    input: AzureConnectionTestInput,
+    container_name: String,
+    parent_path: Option<String>,
+    folder_name: String,
+) -> Result<PreparedAzureCreateFolderRequest, String> {
+    let normalized_container_name = container_name.trim().to_string();
+
+    if normalized_container_name.is_empty() {
+        return Err("The Azure container name is required.".to_string());
+    }
+
+    Ok(PreparedAzureCreateFolderRequest {
+        storage_account_name: normalize_storage_account_name(&input.storage_account_name)?,
+        account_key: input.account_key,
+        normalized_container_name,
+        folder_blob_name: build_folder_blob_name(parent_path.as_deref(), &folder_name)?,
+    })
+}
+
+fn prepare_change_access_tier_request(
+    input: AzureConnectionTestInput,
+    container_name: String,
+    blob_name: String,
+    target_tier: String,
+) -> Result<PreparedAzureChangeAccessTierRequest, String> {
+    Ok(PreparedAzureChangeAccessTierRequest {
+        storage_account_name: normalize_storage_account_name(&input.storage_account_name)?,
+        account_key: input.account_key,
+        normalized_container_name: normalize_container_name_for_operation(
+            &container_name,
+            "access tier changes",
+        )?,
+        normalized_blob_name: normalize_blob_name_for_operation(&blob_name, "access tier changes")?,
+        normalized_target_tier: parse_access_tier(Some(target_tier.as_str()))?
+            .ok_or_else(|| "A target Azure access tier is required.".to_string())?,
+    })
+}
+
+fn prepare_rehydrate_blob_request(
+    input: AzureConnectionTestInput,
+    container_name: String,
+    blob_name: String,
+    target_tier: String,
+    priority: String,
+) -> Result<PreparedAzureRehydrateBlobRequest, String> {
+    Ok(PreparedAzureRehydrateBlobRequest {
+        storage_account_name: normalize_storage_account_name(&input.storage_account_name)?,
+        account_key: input.account_key,
+        normalized_container_name: normalize_container_name_for_operation(
+            &container_name,
+            "rehydration requests",
+        )?,
+        normalized_blob_name: normalize_blob_name_for_operation(
+            &blob_name,
+            "rehydration requests",
+        )?,
+        normalized_target_tier: parse_rehydration_target_tier(target_tier.as_str())?,
+        normalized_priority: parse_rehydration_priority(priority.as_str())?,
+    })
+}
+
+fn prepare_upload_from_path_request(
+    input: AzureConnectionTestInput,
+    container_name: String,
+    blob_name: String,
+    local_file_path: String,
+    access_tier: Option<String>,
+    object_size: u64,
+) -> Result<PreparedAzureUploadFromPathRequest, String> {
+    let local_file_path = local_file_path.trim().to_string();
+    let normalized_container_name = container_name.trim().to_string();
+    let normalized_blob_name = blob_name.trim().to_string();
+
+    if local_file_path.is_empty() {
+        return Err("Local file path is required for uploads.".to_string());
+    }
+
+    if normalized_container_name.is_empty() {
+        return Err("The Azure container name is required.".to_string());
+    }
+
+    if normalized_blob_name.is_empty() {
+        return Err("Blob name is required for uploads.".to_string());
+    }
+
+    Ok(PreparedAzureUploadFromPathRequest {
+        storage_account_name: normalize_storage_account_name(&input.storage_account_name)?,
+        account_key: input.account_key,
+        normalized_container_name,
+        normalized_blob_name,
+        local_file_path,
+        normalized_access_tier: parse_access_tier(access_tier.as_deref())?,
+        total_bytes: i64::try_from(object_size)
+            .map_err(|_| "The selected file is too large to upload.".to_string())?,
+        object_size: usize::try_from(object_size)
+            .map_err(|_| "The selected file is too large to upload.".to_string())?,
+    })
+}
+
+fn prepare_upload_from_bytes_request(
+    input: AzureConnectionTestInput,
+    container_name: String,
+    blob_name: String,
+    file_name: String,
+    file_bytes: Vec<u8>,
+    access_tier: Option<String>,
+) -> Result<PreparedAzureUploadFromBytesRequest, String> {
+    let normalized_container_name = container_name.trim().to_string();
+    let normalized_blob_name = blob_name.trim().to_string();
+    let normalized_file_name = file_name.trim().to_string();
+
+    if normalized_container_name.is_empty() {
+        return Err("The Azure container name is required.".to_string());
+    }
+
+    if normalized_blob_name.is_empty() {
+        return Err("Blob name is required for uploads.".to_string());
+    }
+
+    if normalized_file_name.is_empty() {
+        return Err("File name is required for uploads.".to_string());
+    }
+
+    Ok(PreparedAzureUploadFromBytesRequest {
+        storage_account_name: normalize_storage_account_name(&input.storage_account_name)?,
+        account_key: input.account_key,
+        normalized_container_name,
+        normalized_blob_name,
+        normalized_file_name,
+        total_bytes: i64::try_from(file_bytes.len())
+            .map_err(|_| "The selected file is too large to upload.".to_string())?,
+        file_bytes,
+        normalized_access_tier: parse_access_tier(access_tier.as_deref())?,
+    })
+}
+
+fn prepare_connection_test_request(
+    input: AzureConnectionTestInput,
+) -> Result<PreparedAzureConnectionTestRequest, String> {
+    Ok(PreparedAzureConnectionTestRequest {
+        storage_account_name: normalize_storage_account_name(&input.storage_account_name)?,
+        account_key: input.account_key,
+    })
+}
+
+fn prepare_download_to_cache_request(
+    input: AzureConnectionTestInput,
+    connection_name: String,
+    container_name: String,
+    blob_name: String,
+    global_local_cache_directory: String,
+) -> Result<PreparedAzureDownloadToCacheRequest, String> {
+    let global_local_cache_directory = global_local_cache_directory.trim().to_string();
+
+    if global_local_cache_directory.is_empty() {
+        return Err("Local cache directory is required for tracked downloads.".to_string());
+    }
+
+    Ok(PreparedAzureDownloadToCacheRequest {
+        storage_account_name: normalize_storage_account_name(&input.storage_account_name)?,
+        account_key: input.account_key,
+        connection_name: connection_name.trim().to_string(),
+        normalized_container_name: container_name.trim().to_string(),
+        normalized_blob_name: blob_name.trim().to_string(),
+        global_local_cache_directory,
+    })
+}
+
+fn prepare_download_to_path_request(
+    input: AzureConnectionTestInput,
+    container_name: String,
+    blob_name: String,
+    destination_path: String,
+) -> Result<PreparedAzureDownloadToPathRequest, String> {
+    let destination_path = destination_path.trim().to_string();
+
+    if destination_path.is_empty() {
+        return Err("Destination path is required for direct downloads.".to_string());
+    }
+
+    Ok(PreparedAzureDownloadToPathRequest {
+        storage_account_name: normalize_storage_account_name(&input.storage_account_name)?,
+        account_key: input.account_key,
+        normalized_container_name: container_name.trim().to_string(),
+        normalized_blob_name: blob_name.trim().to_string(),
+        destination_path,
+    })
+}
+
+fn prepare_cache_download_paths(
+    global_local_cache_directory: &str,
+    connection_name: &str,
+    container_name: &str,
+    blob_name: &str,
+) -> Result<PreparedAzureLocalDownloadPaths, String> {
+    let final_path = AzureConnectionService::build_primary_cache_object_path(
+        global_local_cache_directory,
+        connection_name,
+        container_name,
+        blob_name,
+    )?;
+    let temp_path = AzureConnectionService::build_cache_temp_object_path(
+        global_local_cache_directory,
+        connection_name,
+        container_name,
+        blob_name,
+    )?;
+
+    Ok(PreparedAzureLocalDownloadPaths {
+        destination_path: final_path.to_string_lossy().to_string(),
+        final_path,
+        temp_path,
+    })
+}
+
+fn prepare_direct_download_paths(
+    destination_path: &str,
+) -> Result<PreparedAzureLocalDownloadPaths, String> {
+    let final_path = PathBuf::from(destination_path);
+    let temp_path = AzureConnectionService::build_temp_file_path(&final_path)?;
+
+    Ok(PreparedAzureLocalDownloadPaths {
+        destination_path: destination_path.to_string(),
+        final_path,
+        temp_path,
+    })
 }
 
 fn normalize_delete_object_keys(object_keys: Vec<String>) -> Vec<String> {
@@ -1468,12 +1789,98 @@ fn normalize_delete_object_keys(object_keys: Vec<String>) -> Vec<String> {
             continue;
         }
 
-        if seen_object_keys.insert(normalized_object_key.clone(), ()).is_none() {
+        if seen_object_keys
+            .insert(normalized_object_key.clone(), ())
+            .is_none()
+        {
             normalized_object_keys.push(normalized_object_key);
         }
     }
 
     normalized_object_keys
+}
+
+fn normalize_container_name_for_operation(
+    container_name: &str,
+    operation: &str,
+) -> Result<String, String> {
+    let normalized_container_name = container_name.trim().to_string();
+
+    if normalized_container_name.is_empty() {
+        return Err(format!(
+            "The Azure container name is required for {operation}."
+        ));
+    }
+
+    Ok(normalized_container_name)
+}
+
+fn normalize_blob_name_for_operation(blob_name: &str, operation: &str) -> Result<String, String> {
+    let normalized_blob_name = blob_name.trim().to_string();
+
+    if normalized_blob_name.is_empty() {
+        return Err(format!("The Azure blob name is required for {operation}."));
+    }
+
+    Ok(normalized_blob_name)
+}
+
+fn normalize_recursive_delete_prefix(prefix: &str) -> Result<String, String> {
+    let normalized_prefix = prefix
+        .trim()
+        .trim_start_matches('/')
+        .trim_end_matches('/')
+        .to_string();
+
+    if normalized_prefix.is_empty() {
+        return Err("Directory prefix is required for recursive delete requests.".to_string());
+    }
+
+    Ok(format!("{normalized_prefix}/"))
+}
+
+fn build_folder_blob_name(parent_path: Option<&str>, folder_name: &str) -> Result<String, String> {
+    let normalized_folder_name = folder_name.trim();
+    let normalized_parent_path = parent_path.unwrap_or_default().trim().trim_matches('/');
+
+    if normalized_folder_name.is_empty() {
+        return Err("Folder name is required.".to_string());
+    }
+
+    if normalized_folder_name.contains('/') || normalized_folder_name.contains('\\') {
+        return Err("Folder name cannot contain path separators.".to_string());
+    }
+
+    if normalized_parent_path.is_empty() {
+        Ok(format!("{normalized_folder_name}/"))
+    } else {
+        Ok(format!(
+            "{normalized_parent_path}/{normalized_folder_name}/"
+        ))
+    }
+}
+
+fn parse_container_listing_response(
+    response_text: &str,
+) -> Result<(Vec<AzureContainerSummary>, Option<String>), String> {
+    let parsed: ListContainersEnvelope = from_str(response_text)
+        .map_err(|error| format!("Failed to parse Azure container listing XML: {error}"))?;
+    let containers = parsed
+        .containers
+        .map(|node| {
+            node.containers
+                .into_iter()
+                .map(|container| AzureContainerSummary {
+                    name: container.name,
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
+    Ok((
+        containers,
+        parsed.next_marker.filter(|value| !value.is_empty()),
+    ))
 }
 
 fn parse_blob_listing_response(
@@ -1482,9 +1889,9 @@ fn parse_blob_listing_response(
 ) -> Result<AzureContainerItemsResult, String> {
     let parsed: ListBlobsEnvelope = from_str(response_text)
         .map_err(|error| format!("Failed to parse Azure blob listing XML: {error}"))?;
-    let blobs_node = parsed
-        .blobs
-        .unwrap_or(ListBlobsNode { entries: Vec::new() });
+    let blobs_node = parsed.blobs.unwrap_or(ListBlobsNode {
+        entries: Vec::new(),
+    });
     let mut blob_entries = Vec::new();
     let mut directories = Vec::new();
 
@@ -1570,7 +1977,10 @@ fn build_account_url(storage_account_name: &str) -> String {
     format!("https://{storage_account_name}.blob.core.windows.net")
 }
 
-fn build_service_url(storage_account_name: &str, query: &[(String, String)]) -> Result<Url, String> {
+fn build_service_url(
+    storage_account_name: &str,
+    query: &[(String, String)],
+) -> Result<Url, String> {
     let mut url = Url::parse(&format!("{}/", build_account_url(storage_account_name)))
         .map_err(|error| error.to_string())?;
     {
@@ -1657,7 +2067,9 @@ async fn execute_signed_get(
     let body = response.text().await.map_err(|error| error.to_string())?;
 
     if !status.is_success() {
-        return Err(format!("Azure Blob Storage request failed ({status}): {body}"));
+        return Err(format!(
+            "Azure Blob Storage request failed ({status}): {body}"
+        ));
     }
 
     Ok(body)
@@ -1688,7 +2100,10 @@ async fn execute_signed_request(
     };
     let mut canonicalized_ms_headers = vec![
         ("x-ms-date".to_string(), request_date.clone()),
-        ("x-ms-version".to_string(), AZURE_BLOB_API_VERSION.to_string()),
+        (
+            "x-ms-version".to_string(),
+            AZURE_BLOB_API_VERSION.to_string(),
+        ),
     ];
     canonicalized_ms_headers.extend(extra_headers.clone());
     let authorization = build_shared_key_authorization(
@@ -1749,8 +2164,8 @@ fn build_shared_key_authorization(
     let key = BASE64_STANDARD
         .decode(account_key.trim())
         .map_err(|error| format!("Invalid Azure account key: {error}"))?;
-    let mut mac =
-        HmacSha256::new_from_slice(&key).map_err(|error| format!("Invalid Azure account key: {error}"))?;
+    let mut mac = HmacSha256::new_from_slice(&key)
+        .map_err(|error| format!("Invalid Azure account key: {error}"))?;
     mac.update(string_to_sign.as_bytes());
     let signature = BASE64_STANDARD.encode(mac.finalize().into_bytes());
 
@@ -1779,8 +2194,8 @@ fn build_canonicalized_resource(
     let mut resource = format!("/{storage_account_name}{path}");
 
     if let Some(query_value) = query.filter(|value| !value.is_empty()) {
-        let query_url =
-            Url::parse(&format!("https://dummy.invalid/?{query_value}")).map_err(|error| error.to_string())?;
+        let query_url = Url::parse(&format!("https://dummy.invalid/?{query_value}"))
+            .map_err(|error| error.to_string())?;
         let mut query_map = BTreeMap::<String, Vec<String>>::new();
 
         for (key, value) in query_url.query_pairs() {
@@ -1811,7 +2226,10 @@ fn get_leaf_name(path: &str) -> String {
 }
 
 fn parse_access_tier(value: Option<&str>) -> Result<Option<String>, String> {
-    let Some(value) = value.map(|value| value.trim()).filter(|value| !value.is_empty()) else {
+    let Some(value) = value
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+    else {
         return Ok(None);
     };
 
@@ -1843,6 +2261,68 @@ fn normalize_listing_page_size(value: Option<i32>) -> usize {
     }
 }
 
+fn build_access_tier_headers(
+    target_tier: &str,
+    rehydration_priority: Option<&str>,
+) -> Vec<(String, String)> {
+    let mut extra_headers = vec![("x-ms-access-tier".to_string(), target_tier.to_string())];
+
+    if let Some(rehydration_priority) = rehydration_priority {
+        extra_headers.push((
+            "x-ms-rehydrate-priority".to_string(),
+            rehydration_priority.to_string(),
+        ));
+    }
+
+    extra_headers
+}
+
+fn build_list_blob_names_query(prefix: &str, marker: Option<String>) -> Vec<(String, String)> {
+    let mut query = vec![
+        ("restype".to_string(), "container".to_string()),
+        ("comp".to_string(), "list".to_string()),
+        ("prefix".to_string(), prefix.to_string()),
+        ("include".to_string(), "metadata".to_string()),
+        ("maxresults".to_string(), DEFAULT_MAX_RESULTS.to_string()),
+    ];
+
+    if let Some(marker_value) = marker.filter(|value| !value.trim().is_empty()) {
+        query.push(("marker".to_string(), marker_value));
+    }
+
+    query
+}
+
+fn has_next_marker(marker: Option<&str>) -> bool {
+    marker
+        .map(|value| !value.trim().is_empty())
+        .unwrap_or(false)
+}
+
+fn should_use_single_request_upload(byte_count: usize) -> bool {
+    byte_count <= AZURE_UPLOAD_BLOCK_SIZE
+}
+
+fn ensure_upload_not_cancelled(cancellation_flag: &AtomicBool) -> Result<(), String> {
+    if cancellation_flag.load(Ordering::SeqCst) {
+        return Err(AZURE_UPLOAD_CANCELLED_ERROR.to_string());
+    }
+
+    Ok(())
+}
+
+fn ensure_download_not_cancelled(cancellation_flag: &AtomicBool) -> Result<(), String> {
+    if cancellation_flag.load(Ordering::SeqCst) {
+        return Err(AZURE_DOWNLOAD_CANCELLED_ERROR.to_string());
+    }
+
+    Ok(())
+}
+
+fn build_block_id(index: usize) -> String {
+    BASE64_STANDARD.encode(format!("{index:08}"))
+}
+
 async fn upload_blob_single_request(
     client: &Client,
     storage_account_name: &str,
@@ -1853,15 +2333,7 @@ async fn upload_blob_single_request(
     access_tier: Option<&str>,
     additional_headers: Option<Vec<(String, String)>>,
 ) -> Result<(), String> {
-    let mut extra_headers = vec![("x-ms-blob-type".to_string(), "BlockBlob".to_string())];
-
-    if let Some(access_tier) = access_tier {
-        extra_headers.push(("x-ms-access-tier".to_string(), access_tier.to_string()));
-    }
-
-    if let Some(mut additional_headers) = additional_headers {
-        extra_headers.append(&mut additional_headers);
-    }
+    let extra_headers = build_single_upload_headers(access_tier, additional_headers);
 
     let url = build_blob_url(storage_account_name, container_name, blob_name, &[])?;
     let response = execute_signed_request(
@@ -1915,20 +2387,8 @@ async fn commit_blob_blocks(
     block_ids: &[String],
     access_tier: Option<&str>,
 ) -> Result<(), String> {
-    let mut extra_headers = vec![("x-ms-blob-content-type".to_string(), "application/octet-stream".to_string())];
-
-    if let Some(access_tier) = access_tier {
-        extra_headers.push(("x-ms-access-tier".to_string(), access_tier.to_string()));
-    }
-
-    let block_list_xml = format!(
-        "<?xml version=\"1.0\" encoding=\"utf-8\"?><BlockList>{}</BlockList>",
-        block_ids
-            .iter()
-            .map(|block_id| format!("<Latest>{block_id}</Latest>"))
-            .collect::<String>()
-    )
-    .into_bytes();
+    let extra_headers = build_commit_blob_headers(access_tier);
+    let block_list_xml = build_block_list_xml(block_ids);
     let query = vec![("comp".to_string(), "blocklist".to_string())];
     let url = build_blob_url(storage_account_name, container_name, blob_name, &query)?;
     let response = execute_signed_request(
@@ -1945,6 +2405,47 @@ async fn commit_blob_blocks(
     ensure_success_response(response).await
 }
 
+fn build_single_upload_headers(
+    access_tier: Option<&str>,
+    additional_headers: Option<Vec<(String, String)>>,
+) -> Vec<(String, String)> {
+    let mut extra_headers = vec![("x-ms-blob-type".to_string(), "BlockBlob".to_string())];
+
+    if let Some(access_tier) = access_tier {
+        extra_headers.push(("x-ms-access-tier".to_string(), access_tier.to_string()));
+    }
+
+    if let Some(mut additional_headers) = additional_headers {
+        extra_headers.append(&mut additional_headers);
+    }
+
+    extra_headers
+}
+
+fn build_commit_blob_headers(access_tier: Option<&str>) -> Vec<(String, String)> {
+    let mut extra_headers = vec![(
+        "x-ms-blob-content-type".to_string(),
+        "application/octet-stream".to_string(),
+    )];
+
+    if let Some(access_tier) = access_tier {
+        extra_headers.push(("x-ms-access-tier".to_string(), access_tier.to_string()));
+    }
+
+    extra_headers
+}
+
+fn build_block_list_xml(block_ids: &[String]) -> Vec<u8> {
+    format!(
+        "<?xml version=\"1.0\" encoding=\"utf-8\"?><BlockList>{}</BlockList>",
+        block_ids
+            .iter()
+            .map(|block_id| format!("<Latest>{block_id}</Latest>"))
+            .collect::<String>()
+    )
+    .into_bytes()
+}
+
 async fn ensure_success_response(response: Response) -> Result<(), String> {
     let status = response.status();
 
@@ -1953,7 +2454,9 @@ async fn ensure_success_response(response: Response) -> Result<(), String> {
     }
 
     let body = response.text().await.map_err(|error| error.to_string())?;
-    Err(format!("Azure Blob Storage request failed ({status}): {body}"))
+    Err(format!(
+        "Azure Blob Storage request failed ({status}): {body}"
+    ))
 }
 
 async fn delete_blob_names(
@@ -1973,10 +2476,7 @@ async fn delete_blob_names(
             url,
             format!("/{container_name}/{blob_name}"),
             None,
-            vec![(
-                "x-ms-delete-snapshots".to_string(),
-                "include".to_string(),
-            )],
+            vec![("x-ms-delete-snapshots".to_string(), "include".to_string())],
         )
         .await?;
 
@@ -2016,7 +2516,9 @@ async fn download_blob_response(
     }
 
     let body = response.text().await.map_err(|error| error.to_string())?;
-    Err(format!("Azure Blob Storage request failed ({status}): {body}"))
+    Err(format!(
+        "Azure Blob Storage request failed ({status}): {body}"
+    ))
 }
 
 async fn set_blob_access_tier(
@@ -2030,14 +2532,7 @@ async fn set_blob_access_tier(
 ) -> Result<(), String> {
     let query = vec![("comp".to_string(), "tier".to_string())];
     let url = build_blob_url(storage_account_name, container_name, blob_name, &query)?;
-    let mut extra_headers = vec![("x-ms-access-tier".to_string(), target_tier.to_string())];
-
-    if let Some(rehydration_priority) = rehydration_priority {
-        extra_headers.push((
-            "x-ms-rehydrate-priority".to_string(),
-            rehydration_priority.to_string(),
-        ));
-    }
+    let extra_headers = build_access_tier_headers(target_tier, rehydration_priority);
 
     let response = execute_signed_request(
         client,
@@ -2062,18 +2557,7 @@ async fn list_blob_names_with_prefix(
     prefix: &str,
     marker: Option<String>,
 ) -> Result<(Vec<String>, Option<String>), String> {
-    let mut query = vec![
-        ("restype".to_string(), "container".to_string()),
-        ("comp".to_string(), "list".to_string()),
-        ("prefix".to_string(), prefix.to_string()),
-        ("include".to_string(), "metadata".to_string()),
-        ("maxresults".to_string(), DEFAULT_MAX_RESULTS.to_string()),
-    ];
-
-    if let Some(marker_value) = marker.filter(|value| !value.trim().is_empty()) {
-        query.push(("marker".to_string(), marker_value));
-    }
-
+    let query = build_list_blob_names_query(prefix, marker);
     let url = build_container_url(storage_account_name, container_name, &query)?;
     let response_text = execute_signed_get(
         client,
@@ -2098,13 +2582,24 @@ async fn list_blob_names_with_prefix(
         })
         .unwrap_or_default();
 
-    Ok((blob_names, parsed.next_marker.filter(|value| !value.is_empty())))
+    Ok((
+        blob_names,
+        parsed.next_marker.filter(|value| !value.is_empty()),
+    ))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::path::PathBuf;
+    use std::sync::atomic::Ordering;
+
+    fn azure_test_input() -> AzureConnectionTestInput {
+        AzureConnectionTestInput {
+            storage_account_name: "storageacct".to_string(),
+            account_key: "unused-key".to_string(),
+        }
+    }
 
     #[test]
     fn normalizes_storage_account_name() {
@@ -2119,7 +2614,10 @@ mod tests {
     fn normalizes_listing_page_size_with_bounds() {
         assert_eq!(normalize_listing_page_size(None), DEFAULT_MAX_RESULTS);
         assert_eq!(normalize_listing_page_size(Some(0)), 1);
-        assert_eq!(normalize_listing_page_size(Some(5000)), MAX_LISTING_PAGE_SIZE);
+        assert_eq!(
+            normalize_listing_page_size(Some(5000)),
+            MAX_LISTING_PAGE_SIZE
+        );
         assert_eq!(normalize_listing_page_size(Some(123)), 123);
     }
 
@@ -2134,6 +2632,40 @@ mod tests {
         ]);
 
         assert_eq!(normalized, vec!["photos/a.jpg", "photos/b.jpg"]);
+    }
+
+    #[test]
+    fn parses_container_listing_response_with_marker_and_empty_results() {
+        let xml = r#"<?xml version="1.0" encoding="utf-8"?>
+<EnumerationResults>
+  <Containers>
+    <Container>
+      <Name>documents</Name>
+    </Container>
+    <Container>
+      <Name>archive</Name>
+    </Container>
+  </Containers>
+  <NextMarker>cursor-1</NextMarker>
+</EnumerationResults>"#;
+
+        let (containers, marker) = parse_container_listing_response(xml).unwrap();
+
+        assert_eq!(containers.len(), 2);
+        assert_eq!(containers[0].name, "documents");
+        assert_eq!(containers[1].name, "archive");
+        assert_eq!(marker.as_deref(), Some("cursor-1"));
+
+        let empty_xml = r#"<?xml version="1.0" encoding="utf-8"?>
+<EnumerationResults>
+  <NextMarker></NextMarker>
+</EnumerationResults>"#;
+
+        let (containers, marker) = parse_container_listing_response(empty_xml).unwrap();
+
+        assert!(containers.is_empty());
+        assert_eq!(marker, None);
+        assert!(parse_container_listing_response("<EnumerationResults>").is_err());
     }
 
     #[test]
@@ -2200,6 +2732,7 @@ mod tests {
         assert!(result.files.is_empty());
         assert_eq!(result.continuation_token, None);
         assert!(!result.has_more);
+        assert!(parse_blob_listing_response("<EnumerationResults>", None).is_err());
     }
 
     #[test]
@@ -2207,7 +2740,10 @@ mod tests {
         let headers = build_canonicalized_headers(&[
             ("X-Ms-Version".to_string(), " 2023-11-03 ".to_string()),
             ("Content-Type".to_string(), "application/json".to_string()),
-            ("x-ms-date".to_string(), "Tue, 14 Apr 2026 00:00:00 GMT".to_string()),
+            (
+                "x-ms-date".to_string(),
+                "Tue, 14 Apr 2026 00:00:00 GMT".to_string(),
+            ),
         ]);
 
         assert_eq!(
@@ -2225,6 +2761,10 @@ mod tests {
         assert_eq!(
             resource,
             "/acct/container/blob.txt\ncomp:list\nprefix:docs/,logs/\nrestype:container"
+        );
+        assert_eq!(
+            build_canonicalized_resource("acct", "/container/blob.txt", Some("comp=%ZZ")).unwrap(),
+            "/acct/container/blob.txt\ncomp:%ZZ"
         );
     }
 
@@ -2250,14 +2790,1465 @@ mod tests {
                 .join("report.txt")
         );
 
-        assert!(
-            AzureConnectionService::build_primary_cache_object_path(
+        assert!(AzureConnectionService::build_primary_cache_object_path(
+            "/tmp/cache",
+            "Primary Connection",
+            "container-a",
+            "",
+        )
+        .is_err());
+        assert_eq!(
+            AzureConnectionService::build_connection_cache_root("/tmp/cache", "   ").unwrap_err(),
+            "Connection name is required for local cache operations."
+        );
+        assert_eq!(
+            AzureConnectionService::build_legacy_raw_cache_object_path(
                 "/tmp/cache",
+                "connection-123",
+                "container-a",
+                "",
+            )
+            .unwrap_err(),
+            "Blob name is required for local cache operations."
+        );
+        assert_eq!(
+            AzureConnectionService::build_legacy_encoded_cache_object_path(
+                "/tmp/cache",
+                "connection-123",
+                "container-a",
+                "",
+            )
+            .unwrap_err(),
+            "Blob name is required for local cache operations."
+        );
+        assert_eq!(
+            AzureConnectionService::build_recent_legacy_cache_object_path(
+                "/tmp/cache",
+                "container-a",
+                "",
+            )
+            .unwrap_err(),
+            "Blob name is required for local cache operations."
+        );
+        assert_eq!(
+            AzureConnectionService::build_cache_object_path_candidates(
+                "/tmp/cache",
+                "connection-123",
                 "Primary Connection",
                 "container-a",
                 "",
             )
-            .is_err()
+            .unwrap_err(),
+            "Blob name is required for local cache operations."
         );
+        assert_eq!(
+            AzureConnectionService::build_cache_temp_object_path(
+                "/tmp/cache",
+                "   ",
+                "container-a",
+                "docs/report.txt",
+            )
+            .unwrap_err(),
+            "Connection name is required for local cache operations."
+        );
+    }
+
+    #[test]
+    fn builds_cache_path_candidates_and_temp_files_with_expected_structure() {
+        let candidates = AzureConnectionService::build_cache_object_path_candidates(
+            "/tmp/cache",
+            "connection-123",
+            "Primary Connection",
+            "container-a",
+            "docs/report.txt",
+        )
+        .unwrap();
+
+        assert_eq!(candidates.len(), 4);
+        assert_eq!(
+            candidates[0],
+            PathBuf::from("/tmp/cache")
+                .join("Primary Connection")
+                .join("container-a")
+                .join("docs")
+                .join("report.txt")
+        );
+        assert_eq!(
+            candidates[1],
+            PathBuf::from("/tmp/cache")
+                .join("container-a")
+                .join("docs")
+                .join("report.txt")
+        );
+        assert_eq!(
+            candidates[2],
+            PathBuf::from("/tmp/cache")
+                .join("connection-123")
+                .join("container-a")
+                .join("docs")
+                .join("report.txt")
+        );
+        assert_eq!(
+            candidates[3],
+            PathBuf::from("/tmp/cache")
+                .join("connection-123")
+                .join("container-a")
+                .join(AzureConnectionService::encode_cache_path_segment("docs"))
+                .join(AzureConnectionService::encode_cache_path_segment(
+                    "report.txt"
+                ))
+        );
+
+        let temp_cache_path = AzureConnectionService::build_cache_temp_object_path(
+            "/tmp/cache",
+            "Primary Connection",
+            "container-a",
+            "docs/report.txt",
+        )
+        .unwrap();
+
+        assert!(temp_cache_path.starts_with(
+            PathBuf::from("/tmp/cache")
+                .join(AzureConnectionService::CACHE_TEMP_DIRECTORY)
+                .join("Primary Connection")
+        ));
+        assert_eq!(
+            temp_cache_path.file_stem().and_then(|value| value.to_str()),
+            Some("report")
+        );
+        assert!(temp_cache_path
+            .extension()
+            .and_then(|value| value.to_str())
+            .is_some_and(|value| value.starts_with("part-")));
+
+        let temp_file_path = AzureConnectionService::build_temp_file_path(std::path::Path::new(
+            "/tmp/downloads/report.txt",
+        ))
+        .unwrap();
+        let temp_file_name = temp_file_path
+            .file_name()
+            .and_then(|value| value.to_str())
+            .unwrap();
+        let temp_directory_path =
+            AzureConnectionService::build_temp_file_path(std::path::Path::new("/tmp/downloads"))
+                .unwrap();
+        let temp_directory_name = temp_directory_path
+            .file_name()
+            .and_then(|value| value.to_str())
+            .unwrap();
+
+        assert!(temp_file_path.starts_with("/tmp/downloads"));
+        assert!(temp_file_name.starts_with(".report.txt.cloudeasyfiles.part-"));
+        assert!(temp_directory_path.starts_with("/tmp"));
+        assert!(temp_directory_name.starts_with(".downloads.cloudeasyfiles.part-"));
+    }
+
+    #[test]
+    fn normalizes_prefixes_and_parses_tiers() {
+        assert_eq!(
+            normalize_prefix(Some(" /docs/reports ".to_string())),
+            Some("docs/reports/".to_string())
+        );
+        assert_eq!(normalize_prefix(Some("   ".to_string())), None);
+        assert_eq!(get_leaf_name("docs/reports/annual.pdf"), "annual.pdf");
+        assert_eq!(get_leaf_name("docs/"), "docs");
+
+        assert_eq!(
+            parse_access_tier(Some("Cool")).unwrap(),
+            Some("Cool".to_string())
+        );
+        assert_eq!(parse_access_tier(None).unwrap(), None);
+        assert_eq!(parse_rehydration_target_tier("Hot").unwrap(), "Hot");
+        assert_eq!(parse_rehydration_priority("High").unwrap(), "High");
+        assert!(parse_access_tier(Some("Premium")).is_err());
+        assert!(parse_rehydration_target_tier("Archive").is_err());
+        assert!(parse_rehydration_priority("Urgent").is_err());
+    }
+
+    #[test]
+    fn builds_azure_urls_with_expected_normalization() {
+        assert_eq!(
+            build_account_url("acct"),
+            "https://acct.blob.core.windows.net"
+        );
+
+        let service_url = build_service_url(
+            "acct",
+            &[
+                ("comp".to_string(), "list".to_string()),
+                ("restype".to_string(), "container".to_string()),
+            ],
+        )
+        .unwrap();
+        assert_eq!(
+            service_url.as_str(),
+            "https://acct.blob.core.windows.net/?comp=list&restype=container"
+        );
+
+        let container_url = build_container_url(
+            "acct",
+            "reports",
+            &[("restype".to_string(), "container".to_string())],
+        )
+        .unwrap();
+        assert_eq!(
+            container_url.as_str(),
+            "https://acct.blob.core.windows.net/reports?restype=container"
+        );
+
+        let blob_url = build_blob_url(
+            "acct",
+            "reports",
+            "annual files/report #1.csv",
+            &[("timeout".to_string(), "30".to_string())],
+        )
+        .unwrap();
+        assert_eq!(
+            blob_url.as_str(),
+            "https://acct.blob.core.windows.net/reports/annual%20files/report%20%231.csv?timeout=30"
+        );
+
+        let folder_blob_url = build_blob_url("acct", "reports", "nested/folder/", &[]).unwrap();
+        assert_eq!(
+            folder_blob_url.as_str(),
+            "https://acct.blob.core.windows.net/reports/nested/folder/?"
+        );
+    }
+
+    #[test]
+    fn builds_shared_key_authorization_and_rejects_invalid_keys() {
+        let authorization = build_shared_key_authorization(
+            "acct",
+            "dGVzdC1rZXk=",
+            "GET",
+            &[
+                (
+                    "x-ms-date".to_string(),
+                    "Tue, 14 Apr 2026 00:00:00 GMT".to_string(),
+                ),
+                (
+                    "x-ms-version".to_string(),
+                    AZURE_BLOB_API_VERSION.to_string(),
+                ),
+            ],
+            None,
+            None,
+            "/reports/blob.txt",
+            Some("comp=metadata"),
+        )
+        .expect("shared key authorization should be generated");
+
+        assert!(authorization.starts_with("SharedKey acct:"));
+        assert!(authorization.len() > "SharedKey acct:".len());
+        assert!(build_shared_key_authorization(
+            "acct",
+            "not-base64",
+            "GET",
+            &[],
+            None,
+            None,
+            "/reports/blob.txt",
+            None,
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn validates_mutation_inputs_and_access_tier_headers() {
+        assert_eq!(
+            normalize_container_name_for_operation(" reports ", "delete requests").unwrap(),
+            "reports"
+        );
+        assert!(normalize_container_name_for_operation("   ", "delete requests").is_err());
+        assert_eq!(
+            normalize_blob_name_for_operation(" docs/file.txt ", "rehydration requests").unwrap(),
+            "docs/file.txt"
+        );
+        assert!(normalize_blob_name_for_operation("   ", "access tier changes").is_err());
+        assert_eq!(
+            normalize_recursive_delete_prefix(" /docs/reports/ ").unwrap(),
+            "docs/reports/"
+        );
+        assert!(normalize_recursive_delete_prefix(" / ").is_err());
+        assert_eq!(
+            build_folder_blob_name(None, " reports ").unwrap(),
+            "reports/"
+        );
+        assert_eq!(
+            build_folder_blob_name(Some(" /docs/ "), " reports ").unwrap(),
+            "docs/reports/"
+        );
+        assert!(build_folder_blob_name(Some("docs"), "   ").is_err());
+        assert!(build_folder_blob_name(Some("docs"), "bad/name").is_err());
+        assert!(build_folder_blob_name(Some("docs"), "bad\\name").is_err());
+
+        assert_eq!(
+            build_access_tier_headers("Cool", None),
+            vec![("x-ms-access-tier".to_string(), "Cool".to_string())]
+        );
+        assert_eq!(
+            build_access_tier_headers("Hot", Some("High")),
+            vec![
+                ("x-ms-access-tier".to_string(), "Hot".to_string()),
+                ("x-ms-rehydrate-priority".to_string(), "High".to_string())
+            ]
+        );
+    }
+
+    #[test]
+    fn builds_upload_and_block_commit_payloads() {
+        assert_eq!(
+            build_single_upload_headers(
+                Some("Archive"),
+                Some(vec![(
+                    "x-ms-meta-hdi_isfolder".to_string(),
+                    "true".to_string()
+                )])
+            ),
+            vec![
+                ("x-ms-blob-type".to_string(), "BlockBlob".to_string()),
+                ("x-ms-access-tier".to_string(), "Archive".to_string()),
+                ("x-ms-meta-hdi_isfolder".to_string(), "true".to_string())
+            ]
+        );
+        assert_eq!(
+            build_single_upload_headers(None, None),
+            vec![("x-ms-blob-type".to_string(), "BlockBlob".to_string())]
+        );
+        assert_eq!(
+            build_commit_blob_headers(Some("Cool")),
+            vec![
+                (
+                    "x-ms-blob-content-type".to_string(),
+                    "application/octet-stream".to_string()
+                ),
+                ("x-ms-access-tier".to_string(), "Cool".to_string())
+            ]
+        );
+        assert_eq!(
+            String::from_utf8(build_block_list_xml(&[
+                "block-a".to_string(),
+                "block-b".to_string()
+            ]))
+            .unwrap(),
+            "<?xml version=\"1.0\" encoding=\"utf-8\"?><BlockList><Latest>block-a</Latest><Latest>block-b</Latest></BlockList>"
+        );
+        assert!(should_use_single_request_upload(AZURE_UPLOAD_BLOCK_SIZE));
+        assert!(!should_use_single_request_upload(
+            AZURE_UPLOAD_BLOCK_SIZE + 1
+        ));
+        assert_eq!(build_block_id(0), "MDAwMDAwMDA=");
+        assert_eq!(build_block_id(42), "MDAwMDAwNDI=");
+    }
+
+    #[test]
+    fn detects_cancelled_uploads_from_atomic_flags() {
+        let active = AtomicBool::new(false);
+        let cancelled = AtomicBool::new(true);
+
+        assert!(ensure_upload_not_cancelled(&active).is_ok());
+        assert_eq!(
+            ensure_upload_not_cancelled(&cancelled).unwrap_err(),
+            AZURE_UPLOAD_CANCELLED_ERROR
+        );
+    }
+
+    #[test]
+    fn detects_cancelled_downloads_from_atomic_flags() {
+        let active = AtomicBool::new(false);
+        let cancelled = AtomicBool::new(true);
+
+        assert!(ensure_download_not_cancelled(&active).is_ok());
+        assert_eq!(
+            ensure_download_not_cancelled(&cancelled).unwrap_err(),
+            AZURE_DOWNLOAD_CANCELLED_ERROR
+        );
+    }
+
+    #[tokio::test]
+    async fn rejects_provider_mutation_inputs_before_network() {
+        let input = azure_test_input();
+
+        assert!(!AzureConnectionService::blob_exists(
+            input.clone(),
+            "   ".to_string(),
+            "docs/file.txt".to_string()
+        )
+        .await
+        .expect("blank container should return false"));
+        assert_eq!(
+            AzureConnectionService::create_folder(
+                input.clone(),
+                "   ".to_string(),
+                None,
+                "reports".to_string(),
+            )
+            .await
+            .unwrap_err(),
+            "The Azure container name is required."
+        );
+        assert_eq!(
+            AzureConnectionService::delete_objects(
+                input.clone(),
+                "   ".to_string(),
+                vec!["docs/file.txt".to_string()]
+            )
+            .await
+            .unwrap_err(),
+            "The Azure container name is required for delete requests."
+        );
+        assert_eq!(
+            AzureConnectionService::delete_objects(
+                input.clone(),
+                "container-a".to_string(),
+                vec!["   ".to_string()]
+            )
+            .await
+            .unwrap_err(),
+            "At least one blob name is required for delete requests."
+        );
+        assert_eq!(
+            AzureConnectionService::delete_prefix(
+                input.clone(),
+                "container-a".to_string(),
+                " / ".to_string()
+            )
+            .await
+            .unwrap_err(),
+            "Directory prefix is required for recursive delete requests."
+        );
+        assert_eq!(
+            AzureConnectionService::change_blob_access_tier(
+                input.clone(),
+                "container-a".to_string(),
+                "docs/file.txt".to_string(),
+                "Premium".to_string()
+            )
+            .await
+            .unwrap_err(),
+            "Unsupported Azure upload access tier."
+        );
+        assert_eq!(
+            AzureConnectionService::change_blob_access_tier(
+                input.clone(),
+                "container-a".to_string(),
+                "docs/file.txt".to_string(),
+                "   ".to_string(),
+            )
+            .await
+            .unwrap_err(),
+            "A target Azure access tier is required."
+        );
+        assert_eq!(
+            AzureConnectionService::rehydrate_blob(
+                input.clone(),
+                "container-a".to_string(),
+                "docs/archive.zip".to_string(),
+                "Archive".to_string(),
+                "High".to_string()
+            )
+            .await
+            .unwrap_err(),
+            "Unsupported Azure rehydration target tier."
+        );
+        assert_eq!(
+            AzureConnectionService::rehydrate_blob(
+                input.clone(),
+                "container-a".to_string(),
+                "docs/archive.zip".to_string(),
+                "Cool".to_string(),
+                "Urgent".to_string(),
+            )
+            .await
+            .unwrap_err(),
+            "Unsupported Azure rehydration priority."
+        );
+        assert_eq!(
+            AzureConnectionService::upload_blob_from_path(
+                "azure-upload-r5-a".to_string(),
+                input.clone(),
+                "container-a".to_string(),
+                "docs/report.txt".to_string(),
+                "   ".to_string(),
+                None,
+                |_, _| Ok(())
+            )
+            .await
+            .unwrap_err(),
+            "Local file path is required for uploads."
+        );
+        assert_eq!(
+            AzureConnectionService::upload_blob_from_bytes(
+                "azure-upload-r5-b".to_string(),
+                input.clone(),
+                "   ".to_string(),
+                "docs/report.txt".to_string(),
+                "report.txt".to_string(),
+                Vec::new(),
+                None,
+                |_, _| Ok(())
+            )
+            .await
+            .unwrap_err(),
+            "The Azure container name is required."
+        );
+        assert_eq!(
+            AzureConnectionService::upload_blob_from_bytes(
+                "azure-upload-r5-c".to_string(),
+                input.clone(),
+                "container-a".to_string(),
+                "   ".to_string(),
+                "report.txt".to_string(),
+                Vec::new(),
+                None,
+                |_, _| Ok(())
+            )
+            .await
+            .unwrap_err(),
+            "Blob name is required for uploads."
+        );
+        assert_eq!(
+            AzureConnectionService::upload_blob_from_bytes(
+                "azure-upload-r5-d".to_string(),
+                input,
+                "container-a".to_string(),
+                "docs/report.txt".to_string(),
+                "   ".to_string(),
+                Vec::new(),
+                None,
+                |_, _| Ok(())
+            )
+            .await
+            .unwrap_err(),
+            "File name is required for uploads."
+        );
+    }
+
+    #[tokio::test]
+    async fn rejects_provider_download_inputs_before_network() {
+        let input = azure_test_input();
+
+        assert_eq!(
+            AzureConnectionService::download_blob_to_cache(
+                "azure-download-r16-a".to_string(),
+                AzureConnectionTestInput {
+                    storage_account_name: "   ".to_string(),
+                    account_key: "unused-key".to_string(),
+                },
+                "connection-123".to_string(),
+                "Primary Connection".to_string(),
+                "container-a".to_string(),
+                "docs/report.txt".to_string(),
+                "/tmp/cache".to_string(),
+                |_, _, _| Ok(())
+            )
+            .await
+            .unwrap_err(),
+            "The Azure storage account name is required."
+        );
+        assert_eq!(
+            AzureConnectionService::download_blob_to_cache(
+                "azure-download-r16-b".to_string(),
+                input.clone(),
+                "connection-123".to_string(),
+                "Primary Connection".to_string(),
+                "container-a".to_string(),
+                "docs/report.txt".to_string(),
+                "   ".to_string(),
+                |_, _, _| Ok(())
+            )
+            .await
+            .unwrap_err(),
+            "Local cache directory is required for tracked downloads."
+        );
+        assert_eq!(
+            AzureConnectionService::download_blob_to_path(
+                "azure-download-r16-c".to_string(),
+                input,
+                "container-a".to_string(),
+                "docs/report.txt".to_string(),
+                "   ".to_string(),
+                |_, _, _| Ok(())
+            )
+            .await
+            .unwrap_err(),
+            "Destination path is required for direct downloads."
+        );
+    }
+
+    #[tokio::test]
+    async fn rejects_provider_upload_path_inputs_before_network() {
+        let input = azure_test_input();
+        let temp_root = std::env::temp_dir().join(format!(
+            "cloudeasyfiles-azure-upload-guard-test-{}",
+            std::process::id()
+        ));
+        let upload_file = temp_root.join("report.txt");
+        fs::create_dir_all(&temp_root).await.unwrap();
+        fs::write(&upload_file, b"report").await.unwrap();
+
+        assert_eq!(
+            AzureConnectionService::upload_blob_from_path(
+                "azure-upload-r17-a".to_string(),
+                input.clone(),
+                "container-a".to_string(),
+                "docs/report.txt".to_string(),
+                temp_root.to_string_lossy().to_string(),
+                None,
+                |_, _| Ok(())
+            )
+            .await
+            .unwrap_err(),
+            "The selected local path is not a regular file."
+        );
+        assert_eq!(
+            AzureConnectionService::upload_blob_from_path(
+                "azure-upload-r17-b".to_string(),
+                AzureConnectionTestInput {
+                    storage_account_name: "   ".to_string(),
+                    account_key: "unused-key".to_string(),
+                },
+                "container-a".to_string(),
+                "docs/report.txt".to_string(),
+                upload_file.to_string_lossy().to_string(),
+                None,
+                |_, _| Ok(())
+            )
+            .await
+            .unwrap_err(),
+            "The Azure storage account name is required."
+        );
+        assert_eq!(
+            AzureConnectionService::upload_blob_from_path(
+                "azure-upload-r17-c".to_string(),
+                input,
+                "   ".to_string(),
+                "docs/report.txt".to_string(),
+                upload_file.to_string_lossy().to_string(),
+                None,
+                |_, _| Ok(())
+            )
+            .await
+            .unwrap_err(),
+            "The Azure container name is required."
+        );
+
+        fs::remove_dir_all(&temp_root).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn rejects_provider_upload_bytes_inputs_before_network() {
+        let input = azure_test_input();
+
+        assert_eq!(
+            AzureConnectionService::upload_blob_from_bytes(
+                "azure-upload-r18-a".to_string(),
+                AzureConnectionTestInput {
+                    storage_account_name: "   ".to_string(),
+                    account_key: "unused-key".to_string(),
+                },
+                "container-a".to_string(),
+                "docs/report.txt".to_string(),
+                "report.txt".to_string(),
+                b"report".to_vec(),
+                None,
+                |_, _| Ok(())
+            )
+            .await
+            .unwrap_err(),
+            "The Azure storage account name is required."
+        );
+        assert_eq!(
+            AzureConnectionService::upload_blob_from_bytes(
+                "azure-upload-r18-b".to_string(),
+                input,
+                "container-a".to_string(),
+                "docs/report.txt".to_string(),
+                "report.txt".to_string(),
+                b"report".to_vec(),
+                Some("Premium".to_string()),
+                |_, _| Ok(())
+            )
+            .await
+            .unwrap_err(),
+            "Unsupported Azure upload access tier."
+        );
+    }
+
+    #[test]
+    fn builds_listing_queries_and_marker_rules() {
+        assert_eq!(
+            build_list_blob_names_query("docs/", None),
+            vec![
+                ("restype".to_string(), "container".to_string()),
+                ("comp".to_string(), "list".to_string()),
+                ("prefix".to_string(), "docs/".to_string()),
+                ("include".to_string(), "metadata".to_string()),
+                ("maxresults".to_string(), DEFAULT_MAX_RESULTS.to_string())
+            ]
+        );
+        assert_eq!(
+            build_list_blob_names_query("docs/", Some("cursor-1".to_string())),
+            vec![
+                ("restype".to_string(), "container".to_string()),
+                ("comp".to_string(), "list".to_string()),
+                ("prefix".to_string(), "docs/".to_string()),
+                ("include".to_string(), "metadata".to_string()),
+                ("maxresults".to_string(), DEFAULT_MAX_RESULTS.to_string()),
+                ("marker".to_string(), "cursor-1".to_string())
+            ]
+        );
+        assert!(has_next_marker(Some("cursor-1")));
+        assert!(!has_next_marker(Some("   ")));
+        assert!(!has_next_marker(None));
+    }
+
+    #[test]
+    fn prepares_listing_and_delete_requests() {
+        let list_prepared = prepare_list_container_items_request(
+            AzureConnectionTestInput {
+                storage_account_name: " StorageAcct ".to_string(),
+                account_key: "unused-key".to_string(),
+            },
+            " reports ".to_string(),
+            Some(" /docs ".to_string()),
+            Some("cursor-1".to_string()),
+            Some(0),
+        )
+        .unwrap();
+        assert_eq!(list_prepared.storage_account_name, "storageacct");
+        assert_eq!(list_prepared.account_key, "unused-key");
+        assert_eq!(list_prepared.normalized_container_name, "reports");
+        assert_eq!(list_prepared.normalized_prefix.as_deref(), Some("docs/"));
+        assert_eq!(
+            list_prepared.query,
+            vec![
+                ("restype".to_string(), "container".to_string()),
+                ("comp".to_string(), "list".to_string()),
+                ("delimiter".to_string(), "/".to_string()),
+                ("include".to_string(), "metadata".to_string()),
+                ("maxresults".to_string(), "1".to_string()),
+                ("prefix".to_string(), "docs/".to_string()),
+                ("marker".to_string(), "cursor-1".to_string()),
+            ]
+        );
+
+        let delete_prepared = prepare_delete_objects_request(
+            AzureConnectionTestInput {
+                storage_account_name: " StorageAcct ".to_string(),
+                account_key: "unused-key".to_string(),
+            },
+            " reports ".to_string(),
+            vec![" docs/file.txt ".to_string(), "/docs/file.txt".to_string()],
+        )
+        .unwrap();
+        assert_eq!(delete_prepared.normalized_container_name, "reports");
+        assert_eq!(
+            delete_prepared.normalized_object_keys,
+            vec!["docs/file.txt"]
+        );
+
+        let prefix_prepared = prepare_delete_prefix_request(
+            AzureConnectionTestInput {
+                storage_account_name: " StorageAcct ".to_string(),
+                account_key: "unused-key".to_string(),
+            },
+            " reports ".to_string(),
+            " /docs/reports/ ".to_string(),
+        )
+        .unwrap();
+        assert_eq!(prefix_prepared.normalized_container_name, "reports");
+        assert_eq!(prefix_prepared.recursive_prefix, "docs/reports/");
+        assert!(prepare_list_container_items_request(
+            azure_test_input(),
+            "   ".to_string(),
+            None,
+            None,
+            None,
+        )
+        .is_err());
+        assert!(prepare_delete_objects_request(
+            azure_test_input(),
+            "reports".to_string(),
+            vec!["   ".to_string()],
+        )
+        .is_err());
+        assert!(prepare_delete_prefix_request(
+            azure_test_input(),
+            "reports".to_string(),
+            " / ".to_string(),
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn prepares_mutation_and_existence_requests() {
+        let blob_exists_prepared = prepare_blob_exists_request(
+            AzureConnectionTestInput {
+                storage_account_name: " StorageAcct ".to_string(),
+                account_key: "unused-key".to_string(),
+            },
+            " reports ".to_string(),
+            " docs/file.txt ".to_string(),
+        )
+        .unwrap();
+        assert_eq!(blob_exists_prepared.storage_account_name, "storageacct");
+        assert_eq!(blob_exists_prepared.normalized_container_name, "reports");
+        assert_eq!(blob_exists_prepared.normalized_blob_name, "docs/file.txt");
+
+        let folder_prepared = prepare_create_folder_request(
+            AzureConnectionTestInput {
+                storage_account_name: " StorageAcct ".to_string(),
+                account_key: "unused-key".to_string(),
+            },
+            " reports ".to_string(),
+            Some(" /docs ".to_string()),
+            " archive ".to_string(),
+        )
+        .unwrap();
+        assert_eq!(folder_prepared.normalized_container_name, "reports");
+        assert_eq!(folder_prepared.folder_blob_name, "docs/archive/");
+
+        let access_tier_prepared = prepare_change_access_tier_request(
+            AzureConnectionTestInput {
+                storage_account_name: " StorageAcct ".to_string(),
+                account_key: "unused-key".to_string(),
+            },
+            " reports ".to_string(),
+            " docs/file.txt ".to_string(),
+            " Cool ".to_string(),
+        )
+        .unwrap();
+        assert_eq!(access_tier_prepared.normalized_container_name, "reports");
+        assert_eq!(access_tier_prepared.normalized_blob_name, "docs/file.txt");
+        assert_eq!(access_tier_prepared.normalized_target_tier, "Cool");
+
+        let rehydrate_prepared = prepare_rehydrate_blob_request(
+            AzureConnectionTestInput {
+                storage_account_name: " StorageAcct ".to_string(),
+                account_key: "unused-key".to_string(),
+            },
+            " reports ".to_string(),
+            " docs/archive.zip ".to_string(),
+            " Hot ".to_string(),
+            " High ".to_string(),
+        )
+        .unwrap();
+        assert_eq!(rehydrate_prepared.normalized_container_name, "reports");
+        assert_eq!(rehydrate_prepared.normalized_blob_name, "docs/archive.zip");
+        assert_eq!(rehydrate_prepared.normalized_target_tier, "Hot");
+        assert_eq!(rehydrate_prepared.normalized_priority, "High");
+        assert!(prepare_blob_exists_request(
+            azure_test_input(),
+            "reports".to_string(),
+            "   ".to_string(),
+        )
+        .is_err());
+        assert!(prepare_create_folder_request(
+            azure_test_input(),
+            "   ".to_string(),
+            None,
+            "archive".to_string(),
+        )
+        .is_err());
+        assert!(prepare_change_access_tier_request(
+            azure_test_input(),
+            "reports".to_string(),
+            "docs/file.txt".to_string(),
+            "Premium".to_string(),
+        )
+        .is_err());
+        assert!(prepare_rehydrate_blob_request(
+            azure_test_input(),
+            "reports".to_string(),
+            "docs/archive.zip".to_string(),
+            "Archive".to_string(),
+            "High".to_string(),
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn prepares_upload_requests() {
+        let upload_from_path_prepared = prepare_upload_from_path_request(
+            AzureConnectionTestInput {
+                storage_account_name: " StorageAcct ".to_string(),
+                account_key: "unused-key".to_string(),
+            },
+            " reports ".to_string(),
+            " docs/report.txt ".to_string(),
+            " /tmp/report.txt ".to_string(),
+            Some("Cool".to_string()),
+            4096,
+        )
+        .unwrap();
+        assert_eq!(upload_from_path_prepared.storage_account_name, "storageacct");
+        assert_eq!(upload_from_path_prepared.normalized_container_name, "reports");
+        assert_eq!(upload_from_path_prepared.normalized_blob_name, "docs/report.txt");
+        assert_eq!(
+            upload_from_path_prepared.normalized_access_tier.as_deref(),
+            Some("Cool")
+        );
+        assert_eq!(upload_from_path_prepared.total_bytes, 4096);
+
+        let upload_from_bytes_prepared = prepare_upload_from_bytes_request(
+            AzureConnectionTestInput {
+                storage_account_name: " StorageAcct ".to_string(),
+                account_key: "unused-key".to_string(),
+            },
+            " reports ".to_string(),
+            " docs/report.txt ".to_string(),
+            " report.txt ".to_string(),
+            vec![1, 2, 3, 4],
+            Some("Hot".to_string()),
+        )
+        .unwrap();
+        assert_eq!(upload_from_bytes_prepared.storage_account_name, "storageacct");
+        assert_eq!(upload_from_bytes_prepared.normalized_container_name, "reports");
+        assert_eq!(upload_from_bytes_prepared.normalized_blob_name, "docs/report.txt");
+        assert_eq!(upload_from_bytes_prepared.normalized_file_name, "report.txt");
+        assert_eq!(
+            upload_from_bytes_prepared.normalized_access_tier.as_deref(),
+            Some("Hot")
+        );
+        assert_eq!(upload_from_bytes_prepared.total_bytes, 4);
+        assert!(prepare_upload_from_path_request(
+            azure_test_input(),
+            "reports".to_string(),
+            "   ".to_string(),
+            "/tmp/report.txt".to_string(),
+            None,
+            1,
+        )
+        .is_err());
+        assert!(prepare_upload_from_path_request(
+            azure_test_input(),
+            "reports".to_string(),
+            "docs/report.txt".to_string(),
+            "   ".to_string(),
+            None,
+            1,
+        )
+        .is_err());
+        assert!(prepare_upload_from_bytes_request(
+            azure_test_input(),
+            "reports".to_string(),
+            "docs/report.txt".to_string(),
+            "   ".to_string(),
+            vec![1],
+            None,
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn prepares_connection_and_download_requests() {
+        let connection_prepared = prepare_connection_test_request(AzureConnectionTestInput {
+            storage_account_name: " StorageAcct ".to_string(),
+            account_key: "unused-key".to_string(),
+        })
+        .unwrap();
+        assert_eq!(connection_prepared.storage_account_name, "storageacct");
+        assert_eq!(connection_prepared.account_key, "unused-key");
+
+        let download_cache_prepared = prepare_download_to_cache_request(
+            AzureConnectionTestInput {
+                storage_account_name: " StorageAcct ".to_string(),
+                account_key: "unused-key".to_string(),
+            },
+            " Primary Connection ".to_string(),
+            " reports ".to_string(),
+            " docs/report.txt ".to_string(),
+            " /tmp/cache ".to_string(),
+        )
+        .unwrap();
+        assert_eq!(download_cache_prepared.connection_name, "Primary Connection");
+        assert_eq!(download_cache_prepared.normalized_container_name, "reports");
+        assert_eq!(download_cache_prepared.normalized_blob_name, "docs/report.txt");
+        assert_eq!(download_cache_prepared.global_local_cache_directory, "/tmp/cache");
+
+        let download_path_prepared = prepare_download_to_path_request(
+            AzureConnectionTestInput {
+                storage_account_name: " StorageAcct ".to_string(),
+                account_key: "unused-key".to_string(),
+            },
+            " reports ".to_string(),
+            " docs/report.txt ".to_string(),
+            " /tmp/report.txt ".to_string(),
+        )
+        .unwrap();
+        assert_eq!(download_path_prepared.normalized_container_name, "reports");
+        assert_eq!(download_path_prepared.normalized_blob_name, "docs/report.txt");
+        assert_eq!(download_path_prepared.destination_path, "/tmp/report.txt");
+        assert!(prepare_connection_test_request(AzureConnectionTestInput {
+            storage_account_name: "   ".to_string(),
+            account_key: "unused-key".to_string(),
+        })
+        .is_err());
+        assert!(prepare_download_to_cache_request(
+            azure_test_input(),
+            "Primary Connection".to_string(),
+            "reports".to_string(),
+            "docs/report.txt".to_string(),
+            "   ".to_string(),
+        )
+        .is_err());
+        assert!(prepare_download_to_path_request(
+            azure_test_input(),
+            "reports".to_string(),
+            "docs/report.txt".to_string(),
+            "   ".to_string(),
+        )
+        .is_err());
+    }
+
+    #[tokio::test]
+    async fn writes_download_streams_to_paths() {
+        let temp_root = std::env::temp_dir().join(format!(
+            "cloudeasyfiles-azure-local-download-helper-{}",
+            std::process::id()
+        ));
+        let prepared_paths = prepare_direct_download_paths(
+            temp_root
+                .join("downloads")
+                .join("report.txt")
+                .to_string_lossy()
+                .as_ref(),
+        )
+        .unwrap();
+        let cancellation_flag = AtomicBool::new(false);
+        let mut chunks = vec![b"hello ".to_vec(), b"world".to_vec()].into_iter();
+        let mut progress_updates = Vec::new();
+
+        let written_bytes = AzureConnectionService::write_download_stream_to_paths(
+            &prepared_paths,
+            11,
+            &cancellation_flag,
+            &mut chunks,
+            |chunks| {
+                let next = chunks.next();
+                Box::pin(async move { Ok(next) })
+            },
+            |written, total, destination| {
+                progress_updates.push((written, total, destination.to_string()));
+                Ok(())
+            },
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(written_bytes, 11);
+        assert_eq!(
+            fs::read_to_string(&prepared_paths.final_path).await.unwrap(),
+            "hello world"
+        );
+        assert_eq!(
+            progress_updates,
+            vec![
+                (6, 11, prepared_paths.destination_path.clone()),
+                (11, 11, prepared_paths.destination_path.clone())
+            ]
+        );
+
+        fs::remove_dir_all(&temp_root).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn cancels_download_streams_and_removes_temp_files() {
+        let temp_root = std::env::temp_dir().join(format!(
+            "cloudeasyfiles-azure-local-download-cancel-{}",
+            std::process::id()
+        ));
+        let prepared_paths = prepare_direct_download_paths(
+            temp_root
+                .join("downloads")
+                .join("report.txt")
+                .to_string_lossy()
+                .as_ref(),
+        )
+        .unwrap();
+        let cancellation_flag = AtomicBool::new(true);
+
+        let error = AzureConnectionService::write_download_stream_to_paths(
+            &prepared_paths,
+            5,
+            &cancellation_flag,
+            &mut (),
+            |_| Box::pin(async { Ok::<Option<Vec<u8>>, String>(Some(b"hello".to_vec())) }),
+            |_, _, _| Ok(()),
+        )
+        .await
+        .unwrap_err();
+
+        assert_eq!(error, AZURE_DOWNLOAD_CANCELLED_ERROR);
+        assert!(!fs::try_exists(&prepared_paths.temp_path).await.unwrap());
+        assert!(!fs::try_exists(&prepared_paths.final_path).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn overwrites_existing_download_targets_when_stream_finishes() {
+        let temp_root = std::env::temp_dir().join(format!(
+            "cloudeasyfiles-azure-local-download-overwrite-{}",
+            std::process::id()
+        ));
+        let prepared_paths = prepare_direct_download_paths(
+            temp_root
+                .join("downloads")
+                .join("report.txt")
+                .to_string_lossy()
+                .as_ref(),
+        )
+        .unwrap();
+        fs::create_dir_all(prepared_paths.final_path.parent().unwrap())
+            .await
+            .unwrap();
+        fs::write(&prepared_paths.final_path, b"old").await.unwrap();
+        let cancellation_flag = AtomicBool::new(false);
+        let mut chunks = vec![b"new".to_vec()].into_iter();
+
+        AzureConnectionService::write_download_stream_to_paths(
+            &prepared_paths,
+            3,
+            &cancellation_flag,
+            &mut chunks,
+            |chunks| {
+                let next = chunks.next();
+                Box::pin(async move { Ok(next) })
+            },
+            |_, _, _| Ok(()),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            fs::read_to_string(&prepared_paths.final_path).await.unwrap(),
+            "new"
+        );
+
+        fs::remove_dir_all(&temp_root).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn surfaces_stream_errors_during_local_download_writes() {
+        let temp_root = std::env::temp_dir().join(format!(
+            "cloudeasyfiles-azure-local-download-stream-error-{}",
+            std::process::id()
+        ));
+        let prepared_paths = prepare_direct_download_paths(
+            temp_root
+                .join("downloads")
+                .join("report.txt")
+                .to_string_lossy()
+                .as_ref(),
+        )
+        .unwrap();
+        let cancellation_flag = AtomicBool::new(false);
+        let mut chunk_requests = 0;
+
+        let error = AzureConnectionService::write_download_stream_to_paths(
+            &prepared_paths,
+            10,
+            &cancellation_flag,
+            &mut chunk_requests,
+            |chunk_requests| {
+                *chunk_requests += 1;
+                Box::pin(async move {
+                    if *chunk_requests == 1 {
+                        Ok::<Option<Vec<u8>>, String>(Some(b"hello".to_vec()))
+                    } else {
+                        Err("stream failed".to_string())
+                    }
+                })
+            },
+            |_, _, _| Ok(()),
+        )
+        .await
+        .unwrap_err();
+
+        assert_eq!(error, "stream failed");
+        assert!(fs::try_exists(&prepared_paths.temp_path).await.unwrap());
+        assert!(!fs::try_exists(&prepared_paths.final_path).await.unwrap());
+
+        fs::remove_dir_all(&temp_root).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn surfaces_progress_callback_errors_during_local_download_writes() {
+        let temp_root = std::env::temp_dir().join(format!(
+            "cloudeasyfiles-azure-local-download-progress-error-{}",
+            std::process::id()
+        ));
+        let prepared_paths = prepare_direct_download_paths(
+            temp_root
+                .join("downloads")
+                .join("report.txt")
+                .to_string_lossy()
+                .as_ref(),
+        )
+        .unwrap();
+        let cancellation_flag = AtomicBool::new(false);
+        let mut chunks = vec![b"hello".to_vec()].into_iter();
+
+        let error = AzureConnectionService::write_download_stream_to_paths(
+            &prepared_paths,
+            5,
+            &cancellation_flag,
+            &mut chunks,
+            |chunks| {
+                let next = chunks.next();
+                Box::pin(async move { Ok(next) })
+            },
+            |_, _, _| Err("progress failed".to_string()),
+        )
+        .await
+        .unwrap_err();
+
+        assert_eq!(error, "progress failed");
+        assert!(fs::try_exists(&prepared_paths.temp_path).await.unwrap());
+        assert!(!fs::try_exists(&prepared_paths.final_path).await.unwrap());
+
+        fs::remove_dir_all(&temp_root).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn rejects_download_paths_when_parent_is_not_a_directory() {
+        let temp_root = std::env::temp_dir().join(format!(
+            "cloudeasyfiles-azure-local-download-parent-error-{}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&temp_root).await.unwrap();
+        let blocking_file = temp_root.join("blocking-file");
+        fs::write(&blocking_file, b"not-a-directory").await.unwrap();
+        let destination_path = blocking_file.join("report.txt");
+        let prepared_paths =
+            prepare_direct_download_paths(destination_path.to_string_lossy().as_ref()).unwrap();
+        let cancellation_flag = AtomicBool::new(false);
+        let mut chunks = vec![b"hello".to_vec()].into_iter();
+
+        let error = AzureConnectionService::write_download_stream_to_paths(
+            &prepared_paths,
+            5,
+            &cancellation_flag,
+            &mut chunks,
+            |chunks| {
+                let next = chunks.next();
+                Box::pin(async move { Ok(next) })
+            },
+            |_, _, _| Ok(()),
+        )
+        .await
+        .unwrap_err();
+
+        assert!(!error.trim().is_empty());
+
+        fs::remove_dir_all(&temp_root).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn resolves_cached_object_path_and_cleans_up_temp_files() {
+        let temp_root = std::env::temp_dir().join(format!(
+            "cloudeasyfiles-azure-cache-test-{}",
+            std::process::id()
+        ));
+        let recent_legacy_path = AzureConnectionService::build_recent_legacy_cache_object_path(
+            temp_root.to_str().unwrap(),
+            "container-a",
+            "docs/report.txt",
+        )
+        .unwrap();
+
+        fs::create_dir_all(recent_legacy_path.parent().unwrap())
+            .await
+            .unwrap();
+        fs::write(&recent_legacy_path, b"cached").await.unwrap();
+
+        let resolved = AzureConnectionService::resolve_cached_object_path(
+            "connection-123".to_string(),
+            "Primary Connection".to_string(),
+            "container-a".to_string(),
+            temp_root.to_string_lossy().to_string(),
+            "docs/report.txt".to_string(),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(resolved, recent_legacy_path);
+
+        let temp_file = temp_root.join("downloads").join(".report.txt.part");
+        fs::create_dir_all(temp_file.parent().unwrap())
+            .await
+            .unwrap();
+        fs::write(&temp_file, b"partial").await.unwrap();
+
+        AzureConnectionService::remove_temp_file_if_exists(&temp_file)
+            .await
+            .unwrap();
+        assert!(!fs::try_exists(&temp_file).await.unwrap());
+        AzureConnectionService::remove_temp_file_if_exists(&temp_file)
+            .await
+            .unwrap();
+
+        let temp_directory = temp_root.join("downloads").join(".directory.part");
+        fs::create_dir_all(&temp_directory).await.unwrap();
+        let remove_directory_error =
+            AzureConnectionService::remove_temp_file_if_exists(&temp_directory)
+                .await
+                .unwrap_err();
+        assert!(!remove_directory_error.trim().is_empty());
+
+        let missing = AzureConnectionService::resolve_cached_object_path(
+            "connection-123".to_string(),
+            "Primary Connection".to_string(),
+            "container-a".to_string(),
+            temp_root.to_string_lossy().to_string(),
+            "docs/missing.txt".to_string(),
+        )
+        .await;
+        assert!(missing.is_err());
+
+        fs::remove_dir_all(&temp_root).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn finds_cached_objects_from_available_candidates() {
+        let temp_root = std::env::temp_dir().join(format!(
+            "cloudeasyfiles-azure-find-cache-test-{}",
+            std::process::id()
+        ));
+        let existing_primary = AzureConnectionService::build_primary_cache_object_path(
+            temp_root.to_str().unwrap(),
+            "Primary Connection",
+            "container-a",
+            "docs/report.txt",
+        )
+        .unwrap();
+        let existing_legacy = AzureConnectionService::build_legacy_raw_cache_object_path(
+            temp_root.to_str().unwrap(),
+            "connection-123",
+            "container-a",
+            "docs/archive.zip",
+        )
+        .unwrap();
+
+        fs::create_dir_all(existing_primary.parent().unwrap())
+            .await
+            .unwrap();
+        fs::create_dir_all(existing_legacy.parent().unwrap())
+            .await
+            .unwrap();
+        fs::write(&existing_primary, b"cached-primary")
+            .await
+            .unwrap();
+        fs::write(&existing_legacy, b"cached-legacy").await.unwrap();
+
+        let cached = AzureConnectionService::find_cached_objects(
+            "connection-123".to_string(),
+            "Primary Connection".to_string(),
+            "container-a".to_string(),
+            temp_root.to_string_lossy().to_string(),
+            vec![
+                " docs/report.txt ".to_string(),
+                "docs/archive.zip".to_string(),
+                "".to_string(),
+                "docs/missing.txt".to_string(),
+            ],
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(cached, vec!["docs/report.txt", "docs/archive.zip"]);
+        assert!(AzureConnectionService::find_cached_objects(
+            "connection-123".to_string(),
+            "Primary Connection".to_string(),
+            "container-a".to_string(),
+            "   ".to_string(),
+            vec!["docs/report.txt".to_string()],
+        )
+        .await
+        .unwrap()
+        .is_empty());
+
+        fs::remove_dir_all(&temp_root).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn rejects_open_cached_object_requests_when_cache_is_unavailable() {
+        let blank_cache_dir_error = AzureConnectionService::open_cached_object_parent(
+            "connection-123".to_string(),
+            "Primary Connection".to_string(),
+            "container-a".to_string(),
+            "   ".to_string(),
+            "docs/report.txt".to_string(),
+        )
+        .await
+        .unwrap_err();
+        assert!(
+            blank_cache_dir_error.contains("not available in the local cache")
+                || blank_cache_dir_error.contains("Local cache directory is not configured"),
+            "unexpected error: {blank_cache_dir_error}"
+        );
+
+        let temp_root = std::env::temp_dir().join(format!(
+            "cloudeasyfiles-azure-open-cache-test-{}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&temp_root).await.unwrap();
+
+        let missing_open_error = AzureConnectionService::open_cached_object(
+            "connection-123".to_string(),
+            "Primary Connection".to_string(),
+            "container-a".to_string(),
+            temp_root.to_string_lossy().to_string(),
+            "docs/missing.txt".to_string(),
+        )
+        .await
+        .unwrap_err();
+        assert!(
+            missing_open_error.contains("not available in the local cache"),
+            "unexpected error: {missing_open_error}"
+        );
+
+        let missing_parent_error = AzureConnectionService::open_cached_object_parent(
+            "connection-123".to_string(),
+            "Primary Connection".to_string(),
+            "container-a".to_string(),
+            temp_root.to_string_lossy().to_string(),
+            "docs/missing.txt".to_string(),
+        )
+        .await
+        .unwrap_err();
+        assert!(
+            missing_parent_error.contains("not available in the local cache"),
+            "unexpected error: {missing_parent_error}"
+        );
+
+        fs::remove_dir_all(&temp_root).await.unwrap();
+    }
+
+    #[test]
+    fn registers_and_cancels_transfers() {
+        let download_operation_id = format!("download-{}", std::process::id());
+        let upload_operation_id = format!("upload-{}", std::process::id());
+
+        {
+            let (upload_flag, upload_guard) =
+                AzureConnectionService::register_upload_cancellation(&upload_operation_id).unwrap();
+            let (download_flag, download_guard) =
+                AzureConnectionService::register_download_cancellation(&download_operation_id)
+                    .unwrap();
+
+            assert!(AzureConnectionService::cancel_upload(upload_operation_id.clone()).unwrap());
+            assert!(
+                AzureConnectionService::cancel_download(download_operation_id.clone()).unwrap()
+            );
+            assert!(upload_flag.load(Ordering::SeqCst));
+            assert!(download_flag.load(Ordering::SeqCst));
+
+            drop(upload_guard);
+            drop(download_guard);
+        }
+
+        assert!(!AzureConnectionService::cancel_upload(upload_operation_id).unwrap());
+        assert!(!AzureConnectionService::cancel_download(download_operation_id).unwrap());
     }
 }

@@ -12,7 +12,7 @@
     "test:frontend": "vitest run",
     "test:frontend:coverage": "vitest run --coverage --coverage.reporter=text-summary --coverage.reporter=json-summary --coverage.reporter=html",
     "test:rust": "cargo test --manifest-path src-tauri/Cargo.toml",
-    "test:rust:coverage": "cargo llvm-cov --manifest-path src-tauri/Cargo.toml --json --summary-only --output-path coverage/rust-coverage.json",
+    "test:rust:coverage": "cargo llvm-cov --manifest-path src-tauri/Cargo.toml --json --summary-only --output-path coverage/rust-coverage.json && node ./scripts/check-rust-coverage.mjs",
     "test": "npm run test:frontend && npm run test:rust",
     "check": "npm run check:frontend && npm run check:rust",
     "preview": "vite preview",
