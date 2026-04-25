@@ -47,6 +47,8 @@ pub fn run() {
             commands::list_azure_container_items,
             commands::aws_object_exists,
             commands::azure_blob_exists,
+            commands::preview_aws_object,
+            commands::preview_azure_blob,
             commands::request_aws_object_restore,
             commands::create_aws_folder,
             commands::create_azure_folder,

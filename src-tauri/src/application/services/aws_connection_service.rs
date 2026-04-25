@@ -17,6 +17,7 @@ use aws_sdk_s3::Client as S3Client;
 use aws_sdk_sts::error::ProvideErrorMetadata;
 use aws_sdk_sts::operation::RequestId;
 use aws_sdk_sts::Client;
+use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
 use std::collections::{HashMap, HashSet};
 use std::future::Future;
@@ -32,7 +33,8 @@ use tokio::io::AsyncWriteExt;
 
 use crate::domain::aws_connection::{
     AwsBucketItemsResult, AwsBucketSummary, AwsCacheDownloadResult, AwsConnectionTestInput,
-    AwsConnectionTestResult, AwsDeleteResult, AwsObjectSummary, AwsVirtualDirectorySummary,
+    AwsConnectionTestResult, AwsDeleteResult, AwsObjectPreviewResult, AwsObjectSummary,
+    AwsVirtualDirectorySummary,
 };
 
 pub struct AwsConnectionService;
@@ -374,6 +376,17 @@ struct PreparedAwsObjectExistsRequest {
     restricted_bucket_name: Option<String>,
 }
 
+struct PreparedAwsObjectPreviewRequest {
+    access_key_id: String,
+    secret_access_key: String,
+    bucket_name: String,
+    object_key: String,
+    bucket_region: Option<String>,
+    object_size: i64,
+    max_bytes: i64,
+    restricted_bucket_name: Option<String>,
+}
+
 struct PreparedAwsRestoreObjectRequest {
     access_key_id: String,
     secret_access_key: String,
@@ -549,6 +562,45 @@ fn prepare_object_exists_request(
         bucket_name: bucket_name.trim().to_string(),
         object_key,
         bucket_region,
+        restricted_bucket_name: AwsConnectionService::normalize_restricted_bucket_name(
+            input.restricted_bucket_name,
+        ),
+    })
+}
+
+fn prepare_object_preview_request(
+    input: AwsConnectionTestInput,
+    bucket_name: String,
+    object_key: String,
+    object_size: i64,
+    max_bytes: i64,
+    bucket_region: Option<String>,
+) -> Result<PreparedAwsObjectPreviewRequest, String> {
+    let bucket_name = bucket_name.trim().to_string();
+    let object_key = object_key.trim().to_string();
+
+    validate_mutation_bucket_and_object(&bucket_name, &object_key, "preview")?;
+
+    if max_bytes <= 0 {
+        return Err("Preview byte limit must be greater than zero.".to_string());
+    }
+
+    if object_size < 0 {
+        return Err("Preview object size cannot be negative.".to_string());
+    }
+
+    if object_size > max_bytes {
+        return Err("File is too large to preview.".to_string());
+    }
+
+    Ok(PreparedAwsObjectPreviewRequest {
+        access_key_id: input.access_key_id.trim().to_string(),
+        secret_access_key: input.secret_access_key.trim().to_string(),
+        bucket_name,
+        object_key,
+        bucket_region,
+        object_size,
+        max_bytes,
         restricted_bucket_name: AwsConnectionService::normalize_restricted_bucket_name(
             input.restricted_bucket_name,
         ),
@@ -2369,6 +2421,80 @@ impl AwsConnectionService {
         }
     }
 
+    pub async fn preview_object(
+        input: AwsConnectionTestInput,
+        bucket_name: String,
+        object_key: String,
+        object_size: i64,
+        max_bytes: i64,
+        bucket_region: Option<String>,
+    ) -> Result<AwsObjectPreviewResult, String> {
+        let prepared = prepare_object_preview_request(
+            input,
+            bucket_name,
+            object_key,
+            object_size,
+            max_bytes,
+            bucket_region,
+        )?;
+
+        Self::validate_bucket_matches_restriction(
+            &prepared.bucket_name,
+            prepared.restricted_bucket_name.as_deref(),
+        )?;
+
+        let resolved_bucket_region = Self::resolve_bucket_region(
+            &prepared.access_key_id,
+            &prepared.secret_access_key,
+            &prepared.bucket_name,
+            prepared.bucket_region,
+            prepared.restricted_bucket_name,
+        )
+        .await?;
+
+        let (_, s3_client) = Self::build_clients(
+            &resolved_bucket_region,
+            prepared.access_key_id,
+            prepared.secret_access_key,
+        )
+        .await;
+
+        let response = s3_client
+            .get_object()
+            .bucket(prepared.bucket_name)
+            .key(prepared.object_key)
+            .send()
+            .await
+            .map_err(|error| {
+                error
+                    .as_service_error()
+                    .map(format_provider_service_error)
+                    .unwrap_or_else(|| error.to_string())
+            })?;
+
+        let content_length = response.content_length().unwrap_or(prepared.object_size).max(0);
+
+        if content_length > prepared.max_bytes {
+            return Err("File is too large to preview.".to_string());
+        }
+
+        let bytes = response
+            .body
+            .collect()
+            .await
+            .map_err(|error| error.to_string())?
+            .into_bytes();
+
+        if bytes.len() as i64 > prepared.max_bytes {
+            return Err("File is too large to preview.".to_string());
+        }
+
+        Ok(AwsObjectPreviewResult {
+            base64: BASE64_STANDARD.encode(bytes),
+            content_length,
+        })
+    }
+
     pub async fn upload_object_from_path<F>(
         operation_id: String,
         input: AwsConnectionTestInput,
@@ -3389,6 +3515,60 @@ mod tests {
         assert!(!should_use_single_request_upload(
             MULTIPART_UPLOAD_CHUNK_SIZE as u64 + 1
         ));
+    }
+
+    #[test]
+    fn prepares_object_preview_requests_with_size_guards() {
+        let prepared = prepare_object_preview_request(
+            AwsConnectionTestInput {
+                access_key_id: " access-key ".to_string(),
+                secret_access_key: " secret-key ".to_string(),
+                restricted_bucket_name: Some(" bucket-a ".to_string()),
+            },
+            " bucket-a ".to_string(),
+            " docs/report.txt ".to_string(),
+            512,
+            1024,
+            Some("us-east-1".to_string()),
+        )
+        .unwrap();
+
+        assert_eq!(prepared.access_key_id, "access-key");
+        assert_eq!(prepared.secret_access_key, "secret-key");
+        assert_eq!(prepared.bucket_name, "bucket-a");
+        assert_eq!(prepared.object_key, "docs/report.txt");
+        assert_eq!(prepared.object_size, 512);
+        assert_eq!(prepared.max_bytes, 1024);
+        assert_eq!(prepared.bucket_region.as_deref(), Some("us-east-1"));
+        assert_eq!(prepared.restricted_bucket_name.as_deref(), Some("bucket-a"));
+
+        assert!(prepare_object_preview_request(
+            aws_test_input(),
+            "bucket-a".to_string(),
+            "docs/report.txt".to_string(),
+            1025,
+            1024,
+            None,
+        )
+        .is_err());
+        assert!(prepare_object_preview_request(
+            aws_test_input(),
+            "bucket-a".to_string(),
+            "docs/report.txt".to_string(),
+            1,
+            0,
+            None,
+        )
+        .is_err());
+        assert!(prepare_object_preview_request(
+            aws_test_input(),
+            "bucket-a".to_string(),
+            "   ".to_string(),
+            1,
+            1024,
+            None,
+        )
+        .is_err());
     }
 
     #[test]

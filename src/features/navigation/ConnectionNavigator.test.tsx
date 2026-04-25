@@ -6,6 +6,7 @@ import { createAwsFolder, getAwsBucketRegion } from "../../lib/tauri/awsConnecti
 import {
   listContainerItemsForSavedConnection,
   listContainersForSavedConnection,
+  previewObjectForSavedConnection,
   testConnectionForSavedConnection
 } from "./providerReadAdapters";
 
@@ -46,7 +47,8 @@ vi.mock("../connections/services/connectionService", () => ({
 vi.mock("./providerReadAdapters", () => ({
   testConnectionForSavedConnection: vi.fn(),
   listContainersForSavedConnection: vi.fn(),
-  listContainerItemsForSavedConnection: vi.fn()
+  listContainerItemsForSavedConnection: vi.fn(),
+  previewObjectForSavedConnection: vi.fn()
 }));
 
 vi.mock("../../lib/tauri/awsConnections", () => ({
@@ -102,6 +104,7 @@ const mockedListContainersForSavedConnection = vi.mocked(listContainersForSavedC
 const mockedListContainerItemsForSavedConnection = vi.mocked(
   listContainerItemsForSavedConnection
 );
+const mockedPreviewObjectForSavedConnection = vi.mocked(previewObjectForSavedConnection);
 
 describe("ConnectionNavigator", () => {
   beforeEach(() => {
@@ -130,6 +133,11 @@ describe("ConnectionNavigator", () => {
       files: [],
       continuationToken: null,
       hasMore: false
+    });
+    mockedPreviewObjectForSavedConnection.mockResolvedValue({
+      kind: "text",
+      content: "preview body",
+      mimeType: "text/plain"
     });
   });
 
@@ -217,6 +225,55 @@ describe("ConnectionNavigator", () => {
       );
     });
     expect(await screen.findByText("content.list.empty_container")).toBeInTheDocument();
+  });
+
+  it("enables file preview and renders a supported text object", async () => {
+    const awsConnection = {
+      id: "connection-aws",
+      name: "Production AWS",
+      provider: "aws" as const,
+      connectOnStartup: false,
+      defaultUploadStorageClass: "STANDARD" as const
+    };
+    mockedConnectionService.listConnections.mockResolvedValue([awsConnection]);
+    mockedListContainersForSavedConnection.mockResolvedValue([{ name: "archive", region: null }]);
+    mockedListContainerItemsForSavedConnection.mockResolvedValue({
+      provider: "aws",
+      region: "us-east-1",
+      directories: [],
+      files: [
+        {
+          path: "docs/readme.txt",
+          size: 12,
+          lastModified: "2026-04-14T00:00:00Z",
+          storageClass: "STANDARD",
+          restoreInProgress: false,
+          restoreExpiryDate: null
+        }
+      ],
+      continuationToken: null,
+      hasMore: false
+    });
+
+    render(<ConnectionNavigator locale="en-US" onLocaleChange={vi.fn()} />);
+
+    fireEvent.doubleClick(await screen.findByRole("button", { name: /Production AWS/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /archive/i }));
+    expect(await screen.findByText("readme.txt")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByLabelText("content.preview.toggle"));
+    fireEvent.click(screen.getByText("readme.txt"));
+
+    expect(await screen.findByText("preview body")).toBeInTheDocument();
+    expect(mockedPreviewObjectForSavedConnection).toHaveBeenCalledWith({
+      connection: awsConnection,
+      containerName: "archive",
+      item: expect.objectContaining({
+        kind: "file",
+        path: "docs/readme.txt"
+      }),
+      region: "us-east-1"
+    });
   });
 
   it("surfaces connection errors without loading containers", async () => {

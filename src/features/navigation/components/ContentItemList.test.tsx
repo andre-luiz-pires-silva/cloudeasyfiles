@@ -28,6 +28,7 @@ function renderContentItemList(overrides: Partial<ContentItemListProps> = {}) {
     contentViewMode: "list",
     shouldRenderListHeaders: true,
     selectedContentItemIdSet: new Set(),
+    previewedContentItemId: null,
     isContentSelectionActive: false,
     selectedBucketConnectionId: "connection-1",
     selectedBucketName: "bucket-1",
@@ -49,14 +50,15 @@ function renderContentItemList(overrides: Partial<ContentItemListProps> = {}) {
     t: (key) => (key === "content.selection.select_item" ? "Select {name}" : key),
     onNavigateDirectory: vi.fn(),
     onToggleContentItemSelection: vi.fn(),
+    onPreviewContentItem: vi.fn(),
     onOpenContentMenu: vi.fn(),
     onPreviewFileAction: vi.fn(),
     ...overrides
   };
 
-  render(<ContentItemList {...props} />);
+  const view = render(<ContentItemList {...props} />);
 
-  return props;
+  return { ...props, ...view };
 }
 
 describe("ContentItemList", () => {
@@ -91,10 +93,17 @@ describe("ContentItemList", () => {
 
     fireEvent.click(screen.getByText("a.txt"));
 
+    expect(props.onPreviewContentItem).toHaveBeenCalledWith(fileItem);
     expect(props.onOpenContentMenu).toHaveBeenCalledWith(
       fileItem.id,
       expect.objectContaining({ x: expect.any(Number), y: expect.any(Number) })
     );
+  });
+
+  it("marks the previewed file row", () => {
+    const { container } = renderContentItemList({ previewedContentItemId: fileItem.id });
+
+    expect(container.querySelector('[data-previewed="true"]')).toHaveTextContent("a.txt");
   });
 
   it("dispatches actions from an open file menu", () => {

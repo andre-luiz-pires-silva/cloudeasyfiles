@@ -32,6 +32,11 @@ export type AzureContainerItemsResult = {
   hasMore: boolean;
 };
 
+export type AzureBlobPreviewResult = {
+  base64: string;
+  contentLength: number;
+};
+
 export type AzureDeleteResult = {
   deletedObjectCount: number;
   deletedDirectoryCount: number;
@@ -115,6 +120,24 @@ export async function azureBlobExists(
     accountKey,
     containerName,
     blobName
+  });
+}
+
+export async function previewAzureBlob(
+  storageAccountName: string,
+  accountKey: string,
+  containerName: string,
+  blobName: string,
+  blobSize: number,
+  maxBytes: number
+): Promise<AzureBlobPreviewResult> {
+  return invoke<AzureBlobPreviewResult>("preview_azure_blob", {
+    storageAccountName,
+    accountKey,
+    containerName,
+    blobName,
+    blobSize,
+    maxBytes
   });
 }
 

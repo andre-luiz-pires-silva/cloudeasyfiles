@@ -4,6 +4,7 @@ import type { SavedConnectionSummary } from "../connections/models";
 import {
   listContainerItemsForSavedConnection,
   listContainersForSavedConnection,
+  previewObjectForSavedConnection,
   testConnectionForSavedConnection
 } from "./providerReadAdapters";
 
@@ -14,6 +15,8 @@ const {
   mockListAzureContainers,
   mockListAwsBucketItems,
   mockListAzureContainerItems,
+  mockPreviewAwsObject,
+  mockPreviewAzureBlob,
   mockTestAwsConnection,
   mockTestAzureConnection
 } = vi.hoisted(() => ({
@@ -23,6 +26,8 @@ const {
   mockListAzureContainers: vi.fn(),
   mockListAwsBucketItems: vi.fn(),
   mockListAzureContainerItems: vi.fn(),
+  mockPreviewAwsObject: vi.fn(),
+  mockPreviewAzureBlob: vi.fn(),
   mockTestAwsConnection: vi.fn(),
   mockTestAzureConnection: vi.fn()
 }));
@@ -37,12 +42,14 @@ vi.mock("../connections/services/connectionService", () => ({
 vi.mock("../../lib/tauri/awsConnections", () => ({
   listAwsBucketItems: mockListAwsBucketItems,
   listAwsBuckets: mockListAwsBuckets,
+  previewAwsObject: mockPreviewAwsObject,
   testAwsConnection: mockTestAwsConnection
 }));
 
 vi.mock("../../lib/tauri/azureConnections", () => ({
   listAzureContainerItems: mockListAzureContainerItems,
   listAzureContainers: mockListAzureContainers,
+  previewAzureBlob: mockPreviewAzureBlob,
   testAzureConnection: mockTestAzureConnection
 }));
 
@@ -209,6 +216,81 @@ describe("providerReadAdapters", () => {
       "docs",
       "cursor-0",
       10
+    );
+  });
+
+  it("previews supported AWS text objects through the shared contract", async () => {
+    mockPreviewAwsObject.mockResolvedValue({
+      base64: btoa("hello"),
+      contentLength: 5
+    });
+
+    await expect(
+      previewObjectForSavedConnection({
+        connection: awsConnection,
+        containerName: "bucket-a",
+        region: "us-east-1",
+        item: {
+          id: "file:docs/readme.txt",
+          kind: "file",
+          name: "readme.txt",
+          path: "docs/readme.txt",
+          size: 5,
+          availabilityStatus: "available",
+          downloadState: "not_downloaded"
+        }
+      })
+    ).resolves.toEqual({
+      kind: "text",
+      content: "hello",
+      mimeType: "text/plain"
+    });
+
+    expect(mockPreviewAwsObject).toHaveBeenCalledWith(
+      "access",
+      "secret",
+      "bucket-a",
+      "docs/readme.txt",
+      5,
+      1048576,
+      "us-east-1",
+      "bucket-a"
+    );
+  });
+
+  it("previews supported Azure image blobs through the shared contract", async () => {
+    mockPreviewAzureBlob.mockResolvedValue({
+      base64: "abc",
+      contentLength: 3
+    });
+
+    await expect(
+      previewObjectForSavedConnection({
+        connection: azureConnection,
+        containerName: "container-a",
+        item: {
+          id: "file:images/photo.png",
+          kind: "file",
+          name: "photo.png",
+          path: "images/photo.png",
+          size: 3,
+          availabilityStatus: "available",
+          downloadState: "not_downloaded"
+        }
+      })
+    ).resolves.toEqual({
+      kind: "image",
+      base64: "abc",
+      mimeType: "image/png"
+    });
+
+    expect(mockPreviewAzureBlob).toHaveBeenCalledWith(
+      "mystorage",
+      "account-key",
+      "container-a",
+      "images/photo.png",
+      3,
+      1048576
     );
   });
 });

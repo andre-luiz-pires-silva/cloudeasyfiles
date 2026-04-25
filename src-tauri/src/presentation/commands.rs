@@ -9,10 +9,10 @@ use crate::application::services::azure_connection_service::{
 use crate::application::services::greeting_service::GreetingService;
 use crate::domain::aws_connection::{
     AwsBucketItemsResult, AwsBucketSummary, AwsConnectionTestInput, AwsConnectionTestResult,
-    AwsDeleteResult,
+    AwsDeleteResult, AwsObjectPreviewResult,
 };
 use crate::domain::azure_connection::{
-    AzureConnectionTestInput, AzureConnectionTestResult, AzureContainerItemsResult,
+    AzureBlobPreviewResult, AzureConnectionTestInput, AzureConnectionTestResult, AzureContainerItemsResult,
     AzureContainerSummary, AzureDeleteResult,
 };
 use crate::domain::connection_secrets::{
@@ -1017,6 +1017,28 @@ pub async fn azure_blob_exists(
 }
 
 #[tauri::command]
+pub async fn preview_azure_blob(
+    storage_account_name: String,
+    account_key: String,
+    container_name: String,
+    blob_name: String,
+    blob_size: i64,
+    max_bytes: i64,
+) -> Result<AzureBlobPreviewResult, String> {
+    AzureConnectionService::preview_blob(
+        AzureConnectionTestInput {
+            storage_account_name,
+            account_key,
+        },
+        container_name,
+        blob_name,
+        blob_size,
+        max_bytes,
+    )
+    .await
+}
+
+#[tauri::command]
 pub async fn create_azure_folder(
     storage_account_name: String,
     account_key: String,
@@ -1226,6 +1248,32 @@ pub async fn aws_object_exists(
         },
         bucket_name,
         object_key,
+        bucket_region,
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn preview_aws_object(
+    access_key_id: String,
+    secret_access_key: String,
+    bucket_name: String,
+    object_key: String,
+    object_size: i64,
+    max_bytes: i64,
+    bucket_region: Option<String>,
+    restricted_bucket_name: Option<String>,
+) -> Result<AwsObjectPreviewResult, String> {
+    AwsConnectionService::preview_object(
+        AwsConnectionTestInput {
+            access_key_id,
+            secret_access_key,
+            restricted_bucket_name,
+        },
+        bucket_name,
+        object_key,
+        object_size,
+        max_bytes,
         bucket_region,
     )
     .await

@@ -33,6 +33,7 @@ export type ContentItemListProps = {
   contentViewMode: "list" | "compact";
   shouldRenderListHeaders: boolean;
   selectedContentItemIdSet: Set<string>;
+  previewedContentItemId: string | null;
   isContentSelectionActive: boolean;
   selectedBucketConnectionId: string | null;
   selectedBucketName: string | null;
@@ -48,6 +49,7 @@ export type ContentItemListProps = {
   t: (key: string) => string;
   onNavigateDirectory: (path: string) => void;
   onToggleContentItemSelection: (itemId: string) => void;
+  onPreviewContentItem: (item: ContentExplorerItem) => void;
   onOpenContentMenu: (itemId: string | null, anchorPosition?: { x: number; y: number } | null) => void;
   onPreviewFileAction: (actionId: FileActionId, item: ContentExplorerItem) => void;
 };
@@ -57,6 +59,7 @@ export function ContentItemList({
   contentViewMode,
   shouldRenderListHeaders,
   selectedContentItemIdSet,
+  previewedContentItemId,
   isContentSelectionActive,
   selectedBucketConnectionId,
   selectedBucketName,
@@ -72,6 +75,7 @@ export function ContentItemList({
   t,
   onNavigateDirectory,
   onToggleContentItemSelection,
+  onPreviewContentItem,
   onOpenContentMenu,
   onPreviewFileAction
 }: ContentItemListProps) {
@@ -97,6 +101,7 @@ export function ContentItemList({
               item={item}
               contentViewMode={contentViewMode}
               isSelected={selectedContentItemIdSet.has(item.id)}
+              isPreviewed={previewedContentItemId === item.id}
               isContentSelectionActive={isContentSelectionActive}
               selectedBucketProvider={selectedBucketProvider}
               isMenuOpen={openContentMenuItemId === item.id}
@@ -113,6 +118,7 @@ export function ContentItemList({
               item={item}
               contentViewMode={contentViewMode}
               isSelected={selectedContentItemIdSet.has(item.id)}
+              isPreviewed={previewedContentItemId === item.id}
               isContentSelectionActive={isContentSelectionActive}
               selectedBucketConnectionId={selectedBucketConnectionId}
               selectedBucketName={selectedBucketName}
@@ -127,6 +133,7 @@ export function ContentItemList({
               locale={locale}
               t={t}
               onToggleSelection={onToggleContentItemSelection}
+              onPreviewContentItem={onPreviewContentItem}
               onOpenContentMenu={onOpenContentMenu}
               onPreviewFileAction={onPreviewFileAction}
             />
@@ -141,6 +148,7 @@ type DirectoryContentItemProps = {
   item: ContentExplorerItem;
   contentViewMode: "list" | "compact";
   isSelected: boolean;
+  isPreviewed: boolean;
   isContentSelectionActive: boolean;
   selectedBucketProvider: ConnectionProvider | null;
   isMenuOpen: boolean;
@@ -156,6 +164,7 @@ function DirectoryContentItem({
   item,
   contentViewMode,
   isSelected,
+  isPreviewed,
   isContentSelectionActive,
   selectedBucketProvider,
   isMenuOpen,
@@ -171,6 +180,7 @@ function DirectoryContentItem({
       className={`content-list-item content-list-item-action content-list-item-file-row${
         contentViewMode === "compact" ? " is-compact" : ""
       }${isSelected ? " is-selected" : ""}`}
+      data-previewed={isPreviewed ? "true" : undefined}
       onContextMenu={(event) => {
         if (isContentSelectionActive) {
           return;
@@ -251,6 +261,7 @@ type FileContentItemProps = {
   item: ContentExplorerItem;
   contentViewMode: "list" | "compact";
   isSelected: boolean;
+  isPreviewed: boolean;
   isContentSelectionActive: boolean;
   selectedBucketConnectionId: string | null;
   selectedBucketName: string | null;
@@ -265,6 +276,7 @@ type FileContentItemProps = {
   locale: Locale;
   t: (key: string) => string;
   onToggleSelection: (itemId: string) => void;
+  onPreviewContentItem: (item: ContentExplorerItem) => void;
   onOpenContentMenu: (itemId: string | null, anchorPosition?: { x: number; y: number } | null) => void;
   onPreviewFileAction: (actionId: FileActionId, item: ContentExplorerItem) => void;
 };
@@ -273,6 +285,7 @@ function FileContentItem({
   item,
   contentViewMode,
   isSelected,
+  isPreviewed,
   isContentSelectionActive,
   selectedBucketConnectionId,
   selectedBucketName,
@@ -287,6 +300,7 @@ function FileContentItem({
   locale,
   t,
   onToggleSelection,
+  onPreviewContentItem,
   onOpenContentMenu,
   onPreviewFileAction
 }: FileContentItemProps) {
@@ -300,9 +314,11 @@ function FileContentItem({
           return;
         }
 
+        onPreviewContentItem(item);
         const nextIsOpen = !isMenuOpen;
         onOpenContentMenu(nextIsOpen ? item.id : null, nextIsOpen ? { x: event.clientX, y: event.clientY } : null);
       }}
+      data-previewed={isPreviewed ? "true" : undefined}
     >
       {contentViewMode === "compact" ? null : (
         <SelectionCheckbox item={item} checked={isSelected} t={t} onChange={onToggleSelection} />

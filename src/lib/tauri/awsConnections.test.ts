@@ -26,7 +26,8 @@ describe("awsConnections", () => {
         continuationToken: "next-token",
         hasMore: true
       })
-      .mockResolvedValueOnce(true);
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce({ base64: "abc", contentLength: 3 });
 
     await expect(
       awsConnections.testAwsConnection("AKIA", "SECRET", "bucket-a")
@@ -69,6 +70,18 @@ describe("awsConnections", () => {
         "bucket-a"
       )
     ).resolves.toBe(true);
+    await expect(
+      awsConnections.previewAwsObject(
+        "AKIA",
+        "SECRET",
+        "bucket-a",
+        "docs/file.txt",
+        3,
+        1048576,
+        "us-east-1",
+        "bucket-a"
+      )
+    ).resolves.toEqual({ base64: "abc", contentLength: 3 });
 
     expect(invokeMock).toHaveBeenNthCalledWith(1, "test_aws_connection", {
       accessKeyId: "AKIA",
@@ -101,6 +114,16 @@ describe("awsConnections", () => {
       secretAccessKey: "SECRET",
       bucketName: "bucket-a",
       objectKey: "docs/file.txt",
+      bucketRegion: "us-east-1",
+      restrictedBucketName: "bucket-a"
+    });
+    expect(invokeMock).toHaveBeenNthCalledWith(6, "preview_aws_object", {
+      accessKeyId: "AKIA",
+      secretAccessKey: "SECRET",
+      bucketName: "bucket-a",
+      objectKey: "docs/file.txt",
+      objectSize: 3,
+      maxBytes: 1048576,
       bucketRegion: "us-east-1",
       restrictedBucketName: "bucket-a"
     });
