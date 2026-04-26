@@ -1,0 +1,10 @@
+#!/bin/sh
+set -eu
+
+if [ "${SKIP_RUST_COVERAGE_HOOK:-}" = "1" ]; then
+  echo "[pre-commit] Skipping Rust coverage check because SKIP_RUST_COVERAGE_HOOK=1."
+  exit 0
+fi
+
+echo "[pre-commit] Checking Rust coverage threshold."
+npm run test:rust:coverage

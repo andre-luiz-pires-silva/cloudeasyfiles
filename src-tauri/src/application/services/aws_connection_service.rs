@@ -3571,6 +3571,52 @@ mod tests {
         .is_err());
     }
 
+    #[tokio::test]
+    async fn preview_object_surfaces_local_guards_before_provider_requests() {
+        let restricted_error = AwsConnectionService::preview_object(
+            AwsConnectionTestInput {
+                access_key_id: " access-key ".to_string(),
+                secret_access_key: " secret-key ".to_string(),
+                restricted_bucket_name: Some("allowed-bucket".to_string()),
+            },
+            "other-bucket".to_string(),
+            "docs/report.txt".to_string(),
+            128,
+            1024,
+            Some("us-east-1".to_string()),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(restricted_error, "AWS_S3_RESTRICTED_BUCKET_MISMATCH");
+
+        let oversize_error = AwsConnectionService::preview_object(
+            aws_test_input(),
+            "bucket-a".to_string(),
+            "docs/report.txt".to_string(),
+            2048,
+            1024,
+            Some("us-east-1".to_string()),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(oversize_error, "File is too large to preview.");
+
+        let invalid_limit_error = AwsConnectionService::preview_object(
+            aws_test_input(),
+            "bucket-a".to_string(),
+            "docs/report.txt".to_string(),
+            128,
+            0,
+            Some("us-east-1".to_string()),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(
+            invalid_limit_error,
+            "Preview byte limit must be greater than zero."
+        );
+    }
+
     #[test]
     fn prepares_listing_and_delete_requests() {
         let list_prepared = prepare_list_bucket_items_request(

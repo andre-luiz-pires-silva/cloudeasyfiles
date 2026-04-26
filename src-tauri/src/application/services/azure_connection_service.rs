@@ -3634,6 +3634,51 @@ mod tests {
         .is_err());
     }
 
+    #[tokio::test]
+    async fn preview_blob_surfaces_local_guards_before_provider_requests() {
+        let invalid_account_error = AzureConnectionService::preview_blob(
+            AzureConnectionTestInput {
+                storage_account_name: "   ".to_string(),
+                account_key: "unused-key".to_string(),
+            },
+            "reports".to_string(),
+            "docs/report.txt".to_string(),
+            128,
+            1024,
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(
+            invalid_account_error,
+            "The Azure storage account name is required."
+        );
+
+        let oversize_error = AzureConnectionService::preview_blob(
+            azure_test_input(),
+            "reports".to_string(),
+            "docs/report.txt".to_string(),
+            2048,
+            1024,
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(oversize_error, "File is too large to preview.");
+
+        let invalid_limit_error = AzureConnectionService::preview_blob(
+            azure_test_input(),
+            "reports".to_string(),
+            "docs/report.txt".to_string(),
+            128,
+            0,
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(
+            invalid_limit_error,
+            "Preview byte limit must be greater than zero."
+        );
+    }
+
     #[test]
     fn prepares_listing_and_delete_requests() {
         let list_prepared = prepare_list_container_items_request(

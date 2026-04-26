@@ -2191,8 +2191,9 @@ mod tests {
         is_cancelled_azure_upload_error, is_cancelled_download_error, is_cancelled_upload_error,
         list_aws_bucket_items, list_azure_container_items, list_azure_containers,
         open_aws_cached_object, open_aws_cached_object_parent, open_azure_cached_object,
-        open_azure_cached_object_parent, open_external_url, rehydrate_azure_blob,
-        request_aws_object_restore, resolve_cache_download_outcome,
+        open_azure_cached_object_parent, open_external_url, preview_aws_object,
+        preview_azure_blob, rehydrate_azure_blob, request_aws_object_restore,
+        resolve_cache_download_outcome,
         resolve_direct_download_outcome, resolve_upload_outcome, test_azure_connection,
         upload_terminal_state, validate_local_mapping_directory, azure_blob_exists,
         AZURE_DOWNLOAD_CANCELLED_ERROR, AZURE_UPLOAD_CANCELLED_ERROR, DOWNLOAD_CANCELLED_ERROR,
@@ -3102,6 +3103,63 @@ mod tests {
             .await
             .unwrap_err(),
             "The Azure storage account name is required."
+        );
+
+        assert_eq!(
+            preview_aws_object(
+                "access-key".to_string(),
+                "secret-key".to_string(),
+                "other-bucket".to_string(),
+                "docs/report.txt".to_string(),
+                128,
+                1024,
+                Some("us-east-1".to_string()),
+                Some("allowed-bucket".to_string()),
+            )
+            .await
+            .unwrap_err(),
+            "AWS_S3_RESTRICTED_BUCKET_MISMATCH"
+        );
+        assert_eq!(
+            preview_aws_object(
+                "access-key".to_string(),
+                "secret-key".to_string(),
+                "allowed-bucket".to_string(),
+                "docs/report.txt".to_string(),
+                2048,
+                1024,
+                Some("us-east-1".to_string()),
+                Some("allowed-bucket".to_string()),
+            )
+            .await
+            .unwrap_err(),
+            "File is too large to preview."
+        );
+        assert_eq!(
+            preview_azure_blob(
+                "   ".to_string(),
+                "unused-key".to_string(),
+                "container-a".to_string(),
+                "docs/report.txt".to_string(),
+                128,
+                1024,
+            )
+            .await
+            .unwrap_err(),
+            "The Azure storage account name is required."
+        );
+        assert_eq!(
+            preview_azure_blob(
+                "storageacct".to_string(),
+                "unused-key".to_string(),
+                "container-a".to_string(),
+                "docs/report.txt".to_string(),
+                2048,
+                1024,
+            )
+            .await
+            .unwrap_err(),
+            "File is too large to preview."
         );
     }
 
