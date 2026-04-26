@@ -255,16 +255,27 @@ describe("ConnectionNavigator", () => {
       hasMore: false
     });
 
-    render(<ConnectionNavigator locale="en-US" onLocaleChange={vi.fn()} />);
+    const { container } = render(<ConnectionNavigator locale="en-US" onLocaleChange={vi.fn()} />);
 
     fireEvent.doubleClick(await screen.findByRole("button", { name: /Production AWS/i }));
     fireEvent.click(await screen.findByRole("button", { name: /archive/i }));
     expect(await screen.findByText("readme.txt")).toBeInTheDocument();
+    expect(container.querySelector(".content-explorer")).not.toHaveClass(
+      "content-explorer-with-preview"
+    );
 
     fireEvent.click(screen.getByLabelText("content.preview.toggle"));
+    expect(container.querySelector(".content-explorer")).toHaveClass(
+      "content-explorer-with-preview"
+    );
+    expect(screen.getByRole("separator", { name: "content.preview.resize_label" })).toBeInTheDocument();
     fireEvent.click(screen.getByText("readme.txt"));
 
     expect(await screen.findByText("preview body")).toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText("content.preview.toggle"));
+    expect(container.querySelector(".content-explorer")).not.toHaveClass(
+      "content-explorer-with-preview"
+    );
     expect(mockedPreviewObjectForSavedConnection).toHaveBeenCalledWith({
       connection: awsConnection,
       containerName: "archive",

@@ -463,13 +463,17 @@ export function ConnectionNavigator({
     contentListingPageSize,
     contentViewMode,
     sidebarWidth,
+    previewPanelWidth,
     localMappingDirectoryStatus,
     isResizingSidebar,
+    isResizingPreviewPanel,
     workspaceRef,
+    previewResizeContainerRef,
     setGlobalLocalCacheDirectory,
     setContentListingPageSize,
     setContentViewMode,
-    startResizing
+    startResizing,
+    startResizingPreviewPanel
   } = useNavigationPreferencesState();
   const [isLoadingConnections, setIsLoadingConnections] = useState(true);
   const [openMenuConnectionId, setOpenMenuConnectionId] = useState<string | null>(null);
@@ -3557,7 +3561,7 @@ export function ConnectionNavigator({
     <>
       <div
         ref={workspaceRef}
-        className={`workspace-shell${isResizingSidebar ? " is-resizing" : ""}`}
+        className={`workspace-shell${isResizingSidebar || isResizingPreviewPanel ? " is-resizing" : ""}`}
         style={{
           gridTemplateColumns: `${sidebarWidth}px 12px minmax(0, 1fr)`
         }}
@@ -3682,7 +3686,6 @@ export function ConnectionNavigator({
               allContentStatusFilters={ALL_CONTENT_STATUS_FILTERS}
               contentStatusSummaryItems={contentStatusSummaryItems}
               contentViewMode={contentViewMode}
-              isFilePreviewEnabled={filePreviewState.isEnabled}
               t={t}
               onNavigateConnectionBreadcrumb={() => {
                 if (!selectedNode) {
@@ -3705,7 +3708,6 @@ export function ConnectionNavigator({
               onContentFilterTextChange={setContentFilterText}
               onToggleContentStatusFilter={toggleContentStatusFilter}
               onContentViewModeChange={setContentViewMode}
-              onFilePreviewEnabledChange={setFilePreviewEnabled}
             />
           )}
 
@@ -3990,7 +3992,17 @@ export function ConnectionNavigator({
                   </div>
                 </>
               ) : (
-                <div className="content-explorer-with-preview">
+                <div
+                  ref={previewResizeContainerRef}
+                  className={`content-explorer${filePreviewState.isEnabled ? " content-explorer-with-preview" : ""}`}
+                  style={
+                    filePreviewState.isEnabled
+                      ? {
+                          gridTemplateColumns: `minmax(0, 1fr) 10px ${previewPanelWidth}px`
+                        }
+                      : undefined
+                  }
+                >
                 <div
                   className="content-list-section"
                   onContextMenu={handleOpenContentAreaContextMenu}
@@ -4074,6 +4086,14 @@ export function ConnectionNavigator({
                     </div>
 
                     <div className="content-selection-toolbar-context-actions">
+                      <label className="content-preview-toggle">
+                        <input
+                          type="checkbox"
+                          checked={filePreviewState.isEnabled}
+                          onChange={(event) => setFilePreviewEnabled(event.target.checked)}
+                        />
+                        <span>{t("content.preview.toggle")}</span>
+                      </label>
                       {canCreateFolderInCurrentContext ? (
                         <button
                           type="button"
@@ -4164,6 +4184,16 @@ export function ConnectionNavigator({
                   )}
                 </div>
                 {filePreviewState.isEnabled ? (
+                  <>
+                  <div
+                    className="preview-resizer"
+                    role="separator"
+                    aria-orientation="vertical"
+                    aria-label={t("content.preview.resize_label")}
+                    onPointerDown={startResizingPreviewPanel}
+                  >
+                    <span className="preview-resizer-handle" aria-hidden="true" />
+                  </div>
                   <FilePreviewPanel
                     item={previewedContentItem}
                     support={filePreviewSupport}
@@ -4174,6 +4204,7 @@ export function ConnectionNavigator({
                     t={t}
                     onRetry={retryFilePreview}
                   />
+                  </>
                 ) : null}
                 </div>
               )}

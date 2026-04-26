@@ -20,14 +20,12 @@ function renderHeader(overrides: Partial<ContentExplorerHeaderProps> = {}) {
       { key: "available", label: "Available", count: 3 }
     ],
     contentViewMode: "list",
-    isFilePreviewEnabled: false,
     t: (key) => key,
     onNavigateConnectionBreadcrumb: vi.fn(),
     onNavigateBucketBreadcrumb: vi.fn(),
     onContentFilterTextChange: vi.fn(),
     onToggleContentStatusFilter: vi.fn(),
     onContentViewModeChange: vi.fn(),
-    onFilePreviewEnabledChange: vi.fn(),
     ...overrides
   };
 
@@ -98,13 +96,5 @@ describe("ContentExplorerHeader", () => {
 
     expect(props.onContentViewModeChange).toHaveBeenCalledWith("list");
     expect(props.onContentViewModeChange).toHaveBeenCalledWith("compact");
-  });
-
-  it("toggles file preview for bucket nodes", () => {
-    const props = renderHeader();
-
-    fireEvent.click(screen.getByLabelText("content.preview.toggle"));
-
-    expect(props.onFilePreviewEnabledChange).toHaveBeenCalledWith(true);
   });
 });

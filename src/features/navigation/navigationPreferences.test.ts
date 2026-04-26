@@ -6,6 +6,7 @@ import {
   resolveInitialContentListingPageSize,
   resolveInitialContentViewMode,
   resolveInitialGlobalCacheDirectory,
+  resolveInitialPreviewPanelWidth,
   resolveInitialSidebarWidth
 } from "./navigationPreferences";
 
@@ -66,5 +67,13 @@ describe("navigationPreferences", () => {
     expect(resolveInitialSidebarWidth("280", 360, 300, 520)).toBe(300);
     expect(resolveInitialSidebarWidth("999", 360, 300, 520)).toBe(520);
     expect(resolveInitialSidebarWidth("400", 360, 300, 520)).toBe(400);
+  });
+
+  it("clamps and validates preview panel width", () => {
+    expect(resolveInitialPreviewPanelWidth(null, 380, 280, 760)).toBe(380);
+    expect(resolveInitialPreviewPanelWidth("invalid", 380, 280, 760)).toBe(380);
+    expect(resolveInitialPreviewPanelWidth("240", 380, 280, 760)).toBe(280);
+    expect(resolveInitialPreviewPanelWidth("999", 380, 280, 760)).toBe(760);
+    expect(resolveInitialPreviewPanelWidth("440", 380, 280, 760)).toBe(440);
   });
 });

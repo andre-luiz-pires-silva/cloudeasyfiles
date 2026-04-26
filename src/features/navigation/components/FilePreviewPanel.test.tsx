@@ -49,6 +49,22 @@ describe("FilePreviewPanel", () => {
       "src",
       "data:image/png;base64,abc"
     );
+    expect(screen.getByRole("img", { name: "content.preview.image_alt" })).toHaveAttribute(
+      "draggable",
+      "false"
+    );
+    expect(screen.getByRole("button", { name: "content.preview.zoom_in" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "content.preview.zoom_out" })).toBeInTheDocument();
+  });
+
+  it("formats JSON preview payloads", () => {
+    renderPanel({
+      payload: { kind: "text", content: "{\"a\":1}", mimeType: "application/json" }
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "content.preview.format" }));
+
+    expect(screen.getByText(/"a": 1/)).toBeInTheDocument();
   });
 
   it("shows unsupported and too-large states", () => {

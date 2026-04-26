@@ -88,12 +88,20 @@ describe("ContentItemList", () => {
     expect(props.onToggleContentItemSelection).toHaveBeenCalledWith(fileItem.id);
   });
 
-  it("opens a file context menu from the file row", () => {
+  it("previews a file from left click without opening the context menu", () => {
     const props = renderContentItemList();
 
     fireEvent.click(screen.getByText("a.txt"));
 
     expect(props.onPreviewContentItem).toHaveBeenCalledWith(fileItem);
+    expect(props.onOpenContentMenu).toHaveBeenCalledWith(null, null);
+  });
+
+  it("opens a file context menu from right click", () => {
+    const props = renderContentItemList();
+
+    fireEvent.contextMenu(screen.getByText("a.txt"));
+
     expect(props.onOpenContentMenu).toHaveBeenCalledWith(
       fileItem.id,
       expect.objectContaining({ x: expect.any(Number), y: expect.any(Number) })

@@ -77,7 +77,7 @@ describe("awsConnections", () => {
         "bucket-a",
         "docs/file.txt",
         3,
-        1048576,
+        10485760,
         "us-east-1",
         "bucket-a"
       )
@@ -123,7 +123,7 @@ describe("awsConnections", () => {
       bucketName: "bucket-a",
       objectKey: "docs/file.txt",
       objectSize: 3,
-      maxBytes: 1048576,
+      maxBytes: 10485760,
       bucketRegion: "us-east-1",
       restrictedBucketName: "bucket-a"
     });

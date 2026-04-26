@@ -62,7 +62,7 @@ describe("azureConnections", () => {
         "container-a",
         "docs/file.txt",
         3,
-        1048576
+        10485760
       )
     ).resolves.toEqual({ base64: "abc", contentLength: 3 });
 
@@ -94,7 +94,7 @@ describe("azureConnections", () => {
       containerName: "container-a",
       blobName: "docs/file.txt",
       blobSize: 3,
-      maxBytes: 1048576
+      maxBytes: 10485760
     });
   });
 

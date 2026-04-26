@@ -1,6 +1,6 @@
 import type { NavigationContentExplorerItem } from "./navigationContent";
 
-export const FILE_PREVIEW_MAX_BYTES = 1024 * 1024;
+export const FILE_PREVIEW_MAX_BYTES = 10 * 1024 * 1024;
 
 export type NavigationFilePreviewKind = "text" | "image";
 
@@ -134,4 +134,70 @@ export function buildFilePreviewDataUrl(payload: NavigationFilePreviewPayload): 
   }
 
   return `data:${payload.mimeType};base64,${payload.base64}`;
+}
+
+export function isFormattableTextPreviewPayload(payload: NavigationFilePreviewPayload): boolean {
+  return (
+    payload.kind === "text" &&
+    (payload.mimeType === "application/json" || payload.mimeType === "application/xml")
+  );
+}
+
+export function formatTextPreviewContent(content: string, mimeType: string): string {
+  if (mimeType === "application/json") {
+    return JSON.stringify(JSON.parse(content), null, 2);
+  }
+
+  if (mimeType === "application/xml") {
+    return formatXmlPreviewContent(content);
+  }
+
+  return content;
+}
+
+function formatXmlPreviewContent(content: string): string {
+  const trimmedContent = content.trim();
+
+  if (!trimmedContent) {
+    return content;
+  }
+
+  const parser = new DOMParser();
+  const document = parser.parseFromString(trimmedContent, "application/xml");
+
+  if (document.querySelector("parsererror")) {
+    throw new Error("Invalid XML");
+  }
+
+  const serializedContent = new XMLSerializer()
+    .serializeToString(document)
+    .replace(/>\s*</g, "><")
+    .replace(/(>)(<)(\/*)/g, "$1\n$2$3");
+  let indentLevel = 0;
+
+  return serializedContent
+    .split("\n")
+    .map((line) => {
+      const normalizedLine = line.trim();
+
+      if (!normalizedLine) {
+        return "";
+      }
+
+      if (normalizedLine.match(/^<\//)) {
+        indentLevel = Math.max(indentLevel - 1, 0);
+      }
+
+      const formattedLine = `${"  ".repeat(indentLevel)}${normalizedLine}`;
+
+      if (
+        normalizedLine.match(/^<[^!?/][^>]*[^/]>/) &&
+        !normalizedLine.match(/^<[^>]+>.*<\/[^>]+>$/)
+      ) {
+        indentLevel += 1;
+      }
+
+      return formattedLine;
+    })
+    .join("\n");
 }

@@ -252,7 +252,7 @@ describe("providerReadAdapters", () => {
       "bucket-a",
       "docs/readme.txt",
       5,
-      1048576,
+      10485760,
       "us-east-1",
       "bucket-a"
     );
@@ -290,7 +290,7 @@ describe("providerReadAdapters", () => {
       "container-a",
       "images/photo.png",
       3,
-      1048576
+      10485760
     );
   });
 });

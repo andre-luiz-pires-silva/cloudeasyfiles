@@ -27,14 +27,12 @@ export type ContentExplorerHeaderProps = {
   allContentStatusFilters: ContentStatusFilter[];
   contentStatusSummaryItems: ContentExplorerStatusSummaryItem[];
   contentViewMode: "list" | "compact";
-  isFilePreviewEnabled: boolean;
   t: (key: string) => string;
   onNavigateConnectionBreadcrumb: () => void;
   onNavigateBucketBreadcrumb: (path: string) => void;
   onContentFilterTextChange: (value: string) => void;
   onToggleContentStatusFilter: (status: ContentStatusFilter) => void;
   onContentViewModeChange: (mode: "list" | "compact") => void;
-  onFilePreviewEnabledChange: (enabled: boolean) => void;
 };
 
 export function ContentExplorerHeader({
@@ -47,14 +45,12 @@ export function ContentExplorerHeader({
   allContentStatusFilters,
   contentStatusSummaryItems,
   contentViewMode,
-  isFilePreviewEnabled,
   t,
   onNavigateConnectionBreadcrumb,
   onNavigateBucketBreadcrumb,
   onContentFilterTextChange,
   onToggleContentStatusFilter,
-  onContentViewModeChange,
-  onFilePreviewEnabledChange
+  onContentViewModeChange
 }: ContentExplorerHeaderProps) {
   const contentStatusSummaryMap = new Map(
     contentStatusSummaryItems.map((item) => [item.key, item] as const)
@@ -170,17 +166,6 @@ export function ContentExplorerHeader({
                     );
                   })}
                 </div>
-              ) : null}
-
-              {selectedNodeKind === "bucket" ? (
-                <label className="content-preview-toggle">
-                  <input
-                    type="checkbox"
-                    checked={isFilePreviewEnabled}
-                    onChange={(event) => onFilePreviewEnabledChange(event.target.checked)}
-                  />
-                  <span>{t("content.preview.toggle")}</span>
-                </label>
               ) : null}
 
               <div

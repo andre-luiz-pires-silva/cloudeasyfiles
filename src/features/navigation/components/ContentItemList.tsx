@@ -314,9 +314,17 @@ function FileContentItem({
           return;
         }
 
+        event.stopPropagation();
         onPreviewContentItem(item);
-        const nextIsOpen = !isMenuOpen;
-        onOpenContentMenu(nextIsOpen ? item.id : null, nextIsOpen ? { x: event.clientX, y: event.clientY } : null);
+        onOpenContentMenu(null, null);
+      }}
+      onContextMenu={(event) => {
+        if (isContentSelectionActive) {
+          return;
+        }
+
+        event.preventDefault();
+        onOpenContentMenu(item.id, { x: event.clientX, y: event.clientY });
       }}
       data-previewed={isPreviewed ? "true" : undefined}
     >

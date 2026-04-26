@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   FILE_PREVIEW_MAX_BYTES,
   buildFilePreviewDataUrl,
+  formatTextPreviewContent,
   getFilePreviewExtension,
   getFilePreviewSupport,
+  isFormattableTextPreviewPayload,
   type NavigationFilePreviewPayload
 } from "./navigationFilePreview";
 import type { NavigationContentExplorerItem } from "./navigationContent";
@@ -64,5 +66,19 @@ describe("navigationFilePreview", () => {
     expect(
       buildFilePreviewDataUrl({ kind: "text", content: "hello", mimeType: "text/plain" })
     ).toBeNull();
+  });
+
+  it("detects and formats JSON and XML preview payloads", () => {
+    expect(
+      isFormattableTextPreviewPayload({
+        kind: "text",
+        content: "{\"a\":1}",
+        mimeType: "application/json"
+      })
+    ).toBe(true);
+    expect(formatTextPreviewContent("{\"a\":1}", "application/json")).toBe('{\n  "a": 1\n}');
+    expect(formatTextPreviewContent("<root><item>1</item></root>", "application/xml")).toBe(
+      "<root>\n  <item>1</item>\n</root>"
+    );
   });
 });
