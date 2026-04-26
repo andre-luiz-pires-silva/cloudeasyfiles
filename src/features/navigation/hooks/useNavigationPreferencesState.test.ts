@@ -20,7 +20,8 @@ vi.mock("../navigationPreferences", () => ({
   resolveInitialGlobalCacheDirectory: () => "",
   resolveInitialContentListingPageSize: () => 100,
   resolveInitialContentViewMode: (v: string | null) => (v === "compact" ? "compact" : "list"),
-  resolveInitialSidebarWidth: (_v: unknown, def: number) => def
+  resolveInitialSidebarWidth: (_v: unknown, def: number) => def,
+  resolveInitialPreviewPanelWidth: (_v: unknown, def: number) => def
 }));
 
 describe("useNavigationPreferencesState", () => {
@@ -55,7 +56,9 @@ describe("useNavigationPreferencesState", () => {
     expect(result.current.contentListingPageSize).toBe(100);
     expect(result.current.contentViewMode).toBe("list");
     expect(result.current.sidebarWidth).toBe(360);
+    expect(result.current.previewPanelWidth).toBe(380);
     expect(result.current.isResizingSidebar).toBe(false);
+    expect(result.current.isResizingPreviewPanel).toBe(false);
     expect(result.current.localMappingDirectoryStatus).toBe("missing");
   });
 
@@ -101,6 +104,14 @@ describe("useNavigationPreferencesState", () => {
       result.current.startResizing();
     });
     expect(result.current.isResizingSidebar).toBe(true);
+  });
+
+  it("startResizingPreviewPanel sets isResizingPreviewPanel to true", () => {
+    const { result } = renderHook(() => useNavigationPreferencesState());
+    act(() => {
+      result.current.startResizingPreviewPanel();
+    });
+    expect(result.current.isResizingPreviewPanel).toBe(true);
   });
 
   it("workspaceRef is a mutable ref object", () => {

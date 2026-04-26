@@ -9,10 +9,10 @@ use crate::application::services::azure_connection_service::{
 use crate::application::services::greeting_service::GreetingService;
 use crate::domain::aws_connection::{
     AwsBucketItemsResult, AwsBucketSummary, AwsConnectionTestInput, AwsConnectionTestResult,
-    AwsDeleteResult,
+    AwsDeleteResult, AwsObjectPreviewResult,
 };
 use crate::domain::azure_connection::{
-    AzureConnectionTestInput, AzureConnectionTestResult, AzureContainerItemsResult,
+    AzureBlobPreviewResult, AzureConnectionTestInput, AzureConnectionTestResult, AzureContainerItemsResult,
     AzureContainerSummary, AzureDeleteResult,
 };
 use crate::domain::connection_secrets::{
@@ -1017,6 +1017,28 @@ pub async fn azure_blob_exists(
 }
 
 #[tauri::command]
+pub async fn preview_azure_blob(
+    storage_account_name: String,
+    account_key: String,
+    container_name: String,
+    blob_name: String,
+    blob_size: i64,
+    max_bytes: i64,
+) -> Result<AzureBlobPreviewResult, String> {
+    AzureConnectionService::preview_blob(
+        AzureConnectionTestInput {
+            storage_account_name,
+            account_key,
+        },
+        container_name,
+        blob_name,
+        blob_size,
+        max_bytes,
+    )
+    .await
+}
+
+#[tauri::command]
 pub async fn create_azure_folder(
     storage_account_name: String,
     account_key: String,
@@ -1226,6 +1248,32 @@ pub async fn aws_object_exists(
         },
         bucket_name,
         object_key,
+        bucket_region,
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn preview_aws_object(
+    access_key_id: String,
+    secret_access_key: String,
+    bucket_name: String,
+    object_key: String,
+    object_size: i64,
+    max_bytes: i64,
+    bucket_region: Option<String>,
+    restricted_bucket_name: Option<String>,
+) -> Result<AwsObjectPreviewResult, String> {
+    AwsConnectionService::preview_object(
+        AwsConnectionTestInput {
+            access_key_id,
+            secret_access_key,
+            restricted_bucket_name,
+        },
+        bucket_name,
+        object_key,
+        object_size,
+        max_bytes,
         bucket_region,
     )
     .await
@@ -2143,8 +2191,9 @@ mod tests {
         is_cancelled_azure_upload_error, is_cancelled_download_error, is_cancelled_upload_error,
         list_aws_bucket_items, list_azure_container_items, list_azure_containers,
         open_aws_cached_object, open_aws_cached_object_parent, open_azure_cached_object,
-        open_azure_cached_object_parent, open_external_url, rehydrate_azure_blob,
-        request_aws_object_restore, resolve_cache_download_outcome,
+        open_azure_cached_object_parent, open_external_url, preview_aws_object,
+        preview_azure_blob, rehydrate_azure_blob, request_aws_object_restore,
+        resolve_cache_download_outcome,
         resolve_direct_download_outcome, resolve_upload_outcome, test_azure_connection,
         upload_terminal_state, validate_local_mapping_directory, azure_blob_exists,
         AZURE_DOWNLOAD_CANCELLED_ERROR, AZURE_UPLOAD_CANCELLED_ERROR, DOWNLOAD_CANCELLED_ERROR,
@@ -3054,6 +3103,63 @@ mod tests {
             .await
             .unwrap_err(),
             "The Azure storage account name is required."
+        );
+
+        assert_eq!(
+            preview_aws_object(
+                "access-key".to_string(),
+                "secret-key".to_string(),
+                "other-bucket".to_string(),
+                "docs/report.txt".to_string(),
+                128,
+                1024,
+                Some("us-east-1".to_string()),
+                Some("allowed-bucket".to_string()),
+            )
+            .await
+            .unwrap_err(),
+            "AWS_S3_RESTRICTED_BUCKET_MISMATCH"
+        );
+        assert_eq!(
+            preview_aws_object(
+                "access-key".to_string(),
+                "secret-key".to_string(),
+                "allowed-bucket".to_string(),
+                "docs/report.txt".to_string(),
+                2048,
+                1024,
+                Some("us-east-1".to_string()),
+                Some("allowed-bucket".to_string()),
+            )
+            .await
+            .unwrap_err(),
+            "File is too large to preview."
+        );
+        assert_eq!(
+            preview_azure_blob(
+                "   ".to_string(),
+                "unused-key".to_string(),
+                "container-a".to_string(),
+                "docs/report.txt".to_string(),
+                128,
+                1024,
+            )
+            .await
+            .unwrap_err(),
+            "The Azure storage account name is required."
+        );
+        assert_eq!(
+            preview_azure_blob(
+                "storageacct".to_string(),
+                "unused-key".to_string(),
+                "container-a".to_string(),
+                "docs/report.txt".to_string(),
+                2048,
+                1024,
+            )
+            .await
+            .unwrap_err(),
+            "File is too large to preview."
         );
     }
 

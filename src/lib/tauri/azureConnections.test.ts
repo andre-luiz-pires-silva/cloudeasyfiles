@@ -27,7 +27,8 @@ describe("azureConnections", () => {
         continuationToken: "next-token",
         hasMore: true
       })
-      .mockResolvedValueOnce(true);
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce({ base64: "abc", contentLength: 3 });
 
     await expect(azureConnections.testAzureConnection("storage-a", "key")).resolves.toEqual({
       storageAccountName: "storage-a",
@@ -54,6 +55,16 @@ describe("azureConnections", () => {
     await expect(
       azureConnections.azureBlobExists("storage-a", "key", "container-a", "docs/file.txt")
     ).resolves.toBe(true);
+    await expect(
+      azureConnections.previewAzureBlob(
+        "storage-a",
+        "key",
+        "container-a",
+        "docs/file.txt",
+        3,
+        10485760
+      )
+    ).resolves.toEqual({ base64: "abc", contentLength: 3 });
 
     expect(invokeMock).toHaveBeenNthCalledWith(1, "test_azure_connection", {
       storageAccountName: "storage-a",
@@ -76,6 +87,14 @@ describe("azureConnections", () => {
       accountKey: "key",
       containerName: "container-a",
       blobName: "docs/file.txt"
+    });
+    expect(invokeMock).toHaveBeenNthCalledWith(5, "preview_azure_blob", {
+      storageAccountName: "storage-a",
+      accountKey: "key",
+      containerName: "container-a",
+      blobName: "docs/file.txt",
+      blobSize: 3,
+      maxBytes: 10485760
     });
   });
 

@@ -15,6 +15,7 @@
     "test:rust:coverage": "cargo llvm-cov --manifest-path src-tauri/Cargo.toml --json --summary-only --output-path coverage/rust-coverage.json && node ./scripts/check-rust-coverage.mjs",
     "test": "npm run test:frontend && npm run test:rust",
     "check": "npm run check:frontend && npm run check:rust",
+    "prepare": "git config core.hooksPath .githooks || true",
     "preview": "vite preview",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",

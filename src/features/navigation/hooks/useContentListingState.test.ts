@@ -44,6 +44,14 @@ describe("useContentListingState", () => {
     expect(result.current.contentMenuAnchor).toBeNull();
     expect(result.current.contentAreaMenuAnchor).toBeNull();
     expect(result.current.contentRefreshNonce).toBe(0);
+    expect(result.current.filePreviewState).toEqual({
+      isEnabled: false,
+      selectedItemId: null,
+      requestId: 0,
+      isLoading: false,
+      payload: null,
+      error: null
+    });
   });
 
   it("updates listed content and pagination state", () => {
@@ -140,5 +148,20 @@ describe("useContentListingState", () => {
     });
 
     expect(result.current.contentRefreshNonce).toBe(2);
+  });
+
+  it("updates file preview state", () => {
+    const { result } = renderHook(() => useContentListingState());
+
+    act(() => {
+      result.current.setFilePreviewState((currentState) => ({
+        ...currentState,
+        isEnabled: true,
+        selectedItemId: fileItem.id
+      }));
+    });
+
+    expect(result.current.filePreviewState.isEnabled).toBe(true);
+    expect(result.current.filePreviewState.selectedItemId).toBe(fileItem.id);
   });
 });

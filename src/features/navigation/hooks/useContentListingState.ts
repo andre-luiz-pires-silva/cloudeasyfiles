@@ -1,5 +1,9 @@
 import { type Dispatch, type SetStateAction, useState } from "react";
 import type { NavigationContentExplorerItem } from "../navigationContent";
+import {
+  buildInitialFilePreviewState,
+  type NavigationFilePreviewState
+} from "../navigationFilePreview";
 
 export type ContentMenuAnchor = {
   itemId: string;
@@ -35,6 +39,7 @@ export type ContentListingState = {
   contentMenuAnchor: ContentMenuAnchor | null;
   contentAreaMenuAnchor: ContentAreaMenuAnchor | null;
   contentRefreshNonce: number;
+  filePreviewState: NavigationFilePreviewState;
   setContentItems: Dispatch<SetStateAction<NavigationContentExplorerItem[]>>;
   setContentContinuationToken: Dispatch<SetStateAction<string | null>>;
   setContentHasMore: Dispatch<SetStateAction<boolean>>;
@@ -51,6 +56,7 @@ export type ContentListingState = {
   setContentMenuAnchor: Dispatch<SetStateAction<ContentMenuAnchor | null>>;
   setContentAreaMenuAnchor: Dispatch<SetStateAction<ContentAreaMenuAnchor | null>>;
   setContentRefreshNonce: Dispatch<SetStateAction<number>>;
+  setFilePreviewState: Dispatch<SetStateAction<NavigationFilePreviewState>>;
 };
 
 export function useContentListingState(): ContentListingState {
@@ -72,6 +78,9 @@ export function useContentListingState(): ContentListingState {
     null
   );
   const [contentRefreshNonce, setContentRefreshNonce] = useState(0);
+  const [filePreviewState, setFilePreviewState] = useState<NavigationFilePreviewState>(
+    buildInitialFilePreviewState
+  );
 
   return {
     contentItems,
@@ -90,6 +99,7 @@ export function useContentListingState(): ContentListingState {
     contentMenuAnchor,
     contentAreaMenuAnchor,
     contentRefreshNonce,
+    filePreviewState,
     setContentItems,
     setContentContinuationToken,
     setContentHasMore,
@@ -105,6 +115,7 @@ export function useContentListingState(): ContentListingState {
     setOpenContentMenuItemId,
     setContentMenuAnchor,
     setContentAreaMenuAnchor,
-    setContentRefreshNonce
+    setContentRefreshNonce,
+    setFilePreviewState
   };
 }
