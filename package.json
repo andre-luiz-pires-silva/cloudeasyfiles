@@ -17,6 +17,7 @@
     "check": "npm run check:frontend && npm run check:rust",
     "prepare": "git config core.hooksPath .githooks || true",
     "preview": "vite preview",
+    "installers": "bash ./scripts/build-installers.sh",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build"

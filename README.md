@@ -97,6 +97,7 @@ Available scripts:
 - `npm run check`
 - `npm run check:frontend`
 - `npm run check:rust`
+- `npm run installers`
 - `npm run tauri:dev`
 - `npm run tauri:build`
 
@@ -105,8 +106,10 @@ Available scripts:
 Local Linux bundles can be generated with:
 
 ```bash
-npm run tauri:build
+npm run installers -- --ci
 ```
+
+Use `npm run installers -- --help` to see options for bundle types, targets, checks, and cleanup.
 
 The repository also includes GitHub Actions workflows for:
 
