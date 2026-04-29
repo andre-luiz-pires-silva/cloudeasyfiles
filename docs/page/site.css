@@ -167,14 +167,14 @@ figure {
 }
 
 h1 {
-  max-width: 13ch;
+  max-width: 11em;
   font-size: clamp(3.2rem, 9vw, 6.6rem);
   line-height: 0.95;
   letter-spacing: -0.05em;
 }
 
 h2 {
-  max-width: 14ch;
+  max-width: 18em;
   font-size: clamp(2rem, 4vw, 3.4rem);
   line-height: 1;
   letter-spacing: -0.04em;
@@ -192,7 +192,7 @@ h3 {
 }
 
 .story-intro {
-  max-width: 560px;
+  max-width: 820px;
 }
 
 .hero-text,
@@ -378,7 +378,7 @@ h3 {
 }
 
 .gallery-panel h3 {
-  max-width: 18ch;
+  max-width: 24em;
 }
 
 .builder-note {
