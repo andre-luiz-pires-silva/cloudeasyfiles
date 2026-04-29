@@ -3,11 +3,82 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>CloudEasyFiles</title>
+    <title>CloudEasyFiles | Cloud Storage Software Built with AI and SDD</title>
     <meta
       name="description"
-      content="CloudEasyFiles makes it easier to use cloud storage and archive services for backup, restore, and file access. Built with Rust and Tauri using Spec Driven Development and AI-assisted workflows."
+      content="CloudEasyFiles is cloud storage software for AWS S3 and Azure Blob Storage, built with Rust, Tauri, AI development workflows, and Spec Driven Development."
     />
+    <meta
+      name="keywords"
+      content="CloudEasyFiles, cloud storage, cloud computing, software, technology, desktop application, backup software, AWS S3, Azure Blob Storage, Tauri, Rust, file explorer, AI development, Spec Driven Development, SDD"
+    />
+    <meta name="author" content="Andre Luiz Pires Silva" />
+    <meta name="application-name" content="CloudEasyFiles" />
+    <meta name="category" content="Software" />
+    <meta name="classification" content="Software, Technology, Developer Tools, Cloud Storage" />
+    <meta name="robots" content="index, follow" />
+    <meta name="rating" content="General" />
+    <meta name="theme-color" content="#050d18" />
+    <link rel="canonical" href="https://cloudeasyfiles.com/page/" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="CloudEasyFiles" />
+    <meta property="og:title" content="CloudEasyFiles - Cloud Storage Software Built with AI and SDD" />
+    <meta
+      property="og:description"
+      content="Desktop cloud storage software for AWS S3 and Azure Blob Storage, built with Rust, Tauri, AI development workflows, and Spec Driven Development."
+    />
+    <meta property="og:url" content="https://cloudeasyfiles.com/page/" />
+    <meta property="og:image" content="https://cloudeasyfiles.com/page/assets/home.png" />
+    <meta property="og:locale" content="en_US" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="CloudEasyFiles - Cloud Storage Software Built with AI and SDD" />
+    <meta
+      name="twitter:description"
+      content="Desktop cloud storage software for AWS S3 and Azure Blob Storage, built with Rust, Tauri, AI development workflows, and Spec Driven Development."
+    />
+    <meta name="twitter:image" content="https://cloudeasyfiles.com/page/assets/home.png" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        "name": "CloudEasyFiles",
+        "url": "https://cloudeasyfiles.com/page/",
+        "image": "https://cloudeasyfiles.com/page/assets/home.png",
+        "description": "CloudEasyFiles is desktop cloud storage software for managing cloud computing storage, backups, archive tiers, restores, downloads, and file previews across AWS S3 and Azure Blob Storage.",
+        "applicationCategory": "DeveloperApplication",
+        "applicationSubCategory": "Cloud storage file management software",
+        "operatingSystem": "Windows, Linux",
+        "softwareVersion": "0.2.3",
+        "programmingLanguage": ["Rust", "TypeScript"],
+        "keywords": "cloud storage, cloud computing, AWS S3, Azure Blob Storage, backup software, desktop software, AI development, Spec Driven Development, SDD, Rust, Tauri",
+        "about": [
+          {
+            "@type": "Thing",
+            "name": "Cloud Storage"
+          },
+          {
+            "@type": "Thing",
+            "name": "Cloud Computing"
+          },
+          {
+            "@type": "Thing",
+            "name": "AI Development"
+          },
+          {
+            "@type": "Thing",
+            "name": "Spec Driven Development"
+          }
+        ],
+        "author": {
+          "@type": "Person",
+          "name": "Andre Luiz Pires Silva",
+          "url": "https://www.linkedin.com/in/andre-pires-68a0b722/"
+        },
+        "codeRepository": "https://github.com/andre-luiz-pires-silva/cloudeasyfiles",
+        "downloadUrl": "https://github.com/andre-luiz-pires-silva/cloudeasyfiles/releases/latest",
+        "license": "https://github.com/andre-luiz-pires-silva/cloudeasyfiles/blob/main/LICENSE"
+      }
+    </script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -32,6 +103,7 @@
       <nav class="topbar-links" aria-label="Site navigation">
         <a href="#features">Features</a>
         <a href="#methodology">Methodology</a>
+        <a href="#technology">Technology</a>
         <a href="#about">About</a>
         <a href="#download">Download</a>
         <a href="https://github.com/andre-luiz-pires-silva/cloudeasyfiles">Repository</a>
@@ -42,11 +114,12 @@
       <section class="hero hero-simple">
         <div class="hero-copy reveal">
           <p class="eyebrow">Cloud Storage Explorer</p>
-          <h1>An easy way to manage cloud storage and archive services.</h1>
+          <h1>Easily manage your cloud storage.</h1>
           <p class="hero-text">
-            CloudEasyFiles helps people use cloud storage for backup and file access
+            CloudEasyFiles helps people use cloud storage and cloud computing services for backup and file access
             without depending on complex provider consoles. Today it supports AWS S3
-            and Azure Blob Storage, with room to support other providers in the future.
+            and Azure Blob Storage, and it was built with Rust, Tauri, AI development
+            workflows, and Spec Driven Development.
           </p>
 
           <div class="hero-actions">
@@ -67,9 +140,10 @@
           <ul class="hero-tags" aria-label="Project highlights">
             <li>Low-cost backup</li>
             <li>AWS &amp; Azure</li>
+            <li>Cloud Computing</li>
             <li>Rust + Tauri</li>
-            <li>Spec Driven Development</li>
-            <li>AI-Assisted</li>
+            <li>Spec Driven Development / SDD</li>
+            <li>AI Development</li>
           </ul>
         </div>
       </section>
@@ -88,7 +162,7 @@
               damage, or hardware failure.
             </p>
             <p>
-              Cloud providers offer a better option. Their archive and low-cost storage
+              Cloud computing providers offer a better option. Their archive and low-cost cloud storage
               tiers are reliable and inexpensive, but the setup, restore flow, and day-to-day
               file access are still hard for many users to understand.
             </p>
@@ -179,12 +253,12 @@
       <section class="section section-methodology" id="methodology">
         <div class="section-heading reveal">
           <p class="eyebrow">Case Study</p>
-          <h2>Built as a deliberate experiment in AI-assisted Spec Driven Development.</h2>
+          <h2>Built as a deliberate experiment in AI development and Spec Driven Development.</h2>
         </div>
 
         <div class="methodology-body reveal">
           <p>
-            CloudEasyFiles was designed from the start as a personal case study: a real problem,
+            CloudEasyFiles was designed from the start as a personal AI development case study: a real problem,
             a real product, and a deliberate choice of unfamiliar technology. I chose Rust and Tauri —
             languages and frameworks I had never worked with — specifically to create an honest
             challenge. If a methodology only works with comfortable tools, it is not a methodology.
@@ -199,12 +273,12 @@
 
         <div class="methodology-pillars">
           <div class="pillar reveal">
-            <span class="aside-label">Spec Driven Development</span>
+            <span class="aside-label">Spec Driven Development / SDD</span>
             <h3>Every feature starts as a written spec, not as code.</h3>
             <p>
               Before any implementation begins, the feature is described in a clear specification:
               its goal, behavior, edge cases, and constraints. This keeps the developer and the AI
-              aligned throughout the build, and creates a durable artifact that outlives the
+              aligned throughout the SDD build, and creates a durable artifact that outlives the
               implementation itself.
             </p>
           </div>
@@ -232,20 +306,48 @@
         </div>
       </section>
 
+      <section class="section section-technology reveal" id="technology">
+        <div class="section-heading">
+          <p class="eyebrow">Technology</p>
+          <h2>Cloud storage software shaped by cloud computing needs and AI-assisted delivery.</h2>
+        </div>
+
+        <div class="technology-body">
+          <p>
+            CloudEasyFiles connects practical cloud computing workflows with a desktop experience
+            for AWS S3 and Azure Blob Storage. The product focuses on cloud storage operations
+            that matter in backup and recovery scenarios: browsing, filtering, uploading,
+            downloading, previewing, tier changes, and archive restore requests.
+          </p>
+          <p>
+            The engineering approach is also part of the project. CloudEasyFiles is a case study
+            in AI development using Spec Driven Development, also referenced as SDD, where specs,
+            tests, architecture decisions, and implementation move together instead of being
+            treated as separate afterthoughts.
+          </p>
+          <ul class="feature-list technology-list">
+            <li>Cloud Storage software for AWS S3 and Azure Blob Storage</li>
+            <li>Cloud Computing workflows for backup, archive access, restore, and file recovery</li>
+            <li>AI development process using Spec Driven Development and SDD documentation</li>
+            <li>Rust and Tauri desktop architecture with React and TypeScript on the frontend</li>
+          </ul>
+        </div>
+      </section>
+
       <section class="section section-story" id="about">
         <div class="story-intro reveal">
           <p class="eyebrow">About The Builder</p>
           <h2>15+ years of experience. A deep focus on what AI-assisted development can really achieve.</h2>
           <p>
             CloudEasyFiles is both a working product and a proof of concept. I built it to develop
-            a rigorous, repeatable methodology for AI-assisted development — one grounded in
+            a rigorous, repeatable methodology for AI development and Spec Driven Development — one grounded in
             real outcomes, not in demos.
           </p>
         </div>
 
         <div class="builder-card reveal">
           <div class="builder-photo-col">
-            <img src="./assets/andre-IA-avatar.jpg" alt="Andre Luiz Pires Silva" class="builder-photo" />
+            <img src="./assets/andre-avatar.jpeg" alt="Andre Luiz Pires Silva" class="builder-photo" />
           </div>
           <div class="builder-info">
             <p class="builder-label">Built by</p>
