@@ -90,6 +90,25 @@ export function resolveInitialSidebarWidth(
   return Math.min(Math.max(parsedSidebarWidth, minSidebarWidth), maxSidebarWidth);
 }
 
+export function resolveInitialPreviewPanelWidth(
+  storedPreviewPanelWidth: string | null | undefined,
+  defaultPreviewPanelWidth: number,
+  minPreviewPanelWidth: number,
+  maxPreviewPanelWidth: number
+): number {
+  if (!storedPreviewPanelWidth) {
+    return defaultPreviewPanelWidth;
+  }
+
+  const parsedPreviewPanelWidth = Number(storedPreviewPanelWidth);
+
+  if (!Number.isFinite(parsedPreviewPanelWidth)) {
+    return defaultPreviewPanelWidth;
+  }
+
+  return Math.min(Math.max(parsedPreviewPanelWidth, minPreviewPanelWidth), maxPreviewPanelWidth);
+}
+
 export const navigationPreferenceBounds = {
   defaultContentListingPageSize: DEFAULT_CONTENT_LISTING_PAGE_SIZE,
   minContentListingPageSize: MIN_CONTENT_LISTING_PAGE_SIZE,

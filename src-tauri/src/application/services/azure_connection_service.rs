@@ -1,5 +1,5 @@
 use crate::domain::azure_connection::{
-    AzureBlobSummary, AzureCacheDownloadResult, AzureConnectionTestInput,
+    AzureBlobPreviewResult, AzureBlobSummary, AzureCacheDownloadResult, AzureConnectionTestInput,
     AzureConnectionTestResult, AzureContainerItemsResult, AzureContainerSummary, AzureDeleteResult,
     AzureVirtualDirectorySummary,
 };
@@ -278,6 +278,48 @@ impl AzureConnectionService {
         }
 
         Ok(true)
+    }
+
+    pub async fn preview_blob(
+        input: AzureConnectionTestInput,
+        container_name: String,
+        blob_name: String,
+        blob_size: i64,
+        max_bytes: i64,
+    ) -> Result<AzureBlobPreviewResult, String> {
+        let prepared =
+            prepare_blob_preview_request(input, container_name, blob_name, blob_size, max_bytes)?;
+
+        let client = Client::new();
+        let response = download_blob_response(
+            &client,
+            &prepared.storage_account_name,
+            &prepared.account_key,
+            &prepared.normalized_container_name,
+            &prepared.normalized_blob_name,
+        )
+        .await?;
+
+        let content_length = response
+            .content_length()
+            .map(|value| value as i64)
+            .unwrap_or(prepared.blob_size)
+            .max(0);
+
+        if content_length > prepared.max_bytes {
+            return Err("File is too large to preview.".to_string());
+        }
+
+        let bytes = response.bytes().await.map_err(|error| error.to_string())?;
+
+        if bytes.len() as i64 > prepared.max_bytes {
+            return Err("File is too large to preview.".to_string());
+        }
+
+        Ok(AzureBlobPreviewResult {
+            base64: BASE64_STANDARD.encode(bytes),
+            content_length,
+        })
     }
 
     pub async fn create_folder(
@@ -1374,6 +1416,15 @@ struct PreparedAzureBlobExistsRequest {
     normalized_blob_name: String,
 }
 
+struct PreparedAzureBlobPreviewRequest {
+    storage_account_name: String,
+    account_key: String,
+    normalized_container_name: String,
+    normalized_blob_name: String,
+    blob_size: i64,
+    max_bytes: i64,
+}
+
 struct PreparedAzureCreateFolderRequest {
     storage_account_name: String,
     account_key: String,
@@ -1546,6 +1597,39 @@ fn prepare_blob_exists_request(
         account_key: input.account_key,
         normalized_container_name,
         normalized_blob_name,
+    })
+}
+
+fn prepare_blob_preview_request(
+    input: AzureConnectionTestInput,
+    container_name: String,
+    blob_name: String,
+    blob_size: i64,
+    max_bytes: i64,
+) -> Result<PreparedAzureBlobPreviewRequest, String> {
+    let normalized_container_name =
+        normalize_container_name_for_operation(&container_name, "preview")?;
+    let normalized_blob_name = normalize_blob_name_for_operation(&blob_name, "preview")?;
+
+    if max_bytes <= 0 {
+        return Err("Preview byte limit must be greater than zero.".to_string());
+    }
+
+    if blob_size < 0 {
+        return Err("Preview blob size cannot be negative.".to_string());
+    }
+
+    if blob_size > max_bytes {
+        return Err("File is too large to preview.".to_string());
+    }
+
+    Ok(PreparedAzureBlobPreviewRequest {
+        storage_account_name: normalize_storage_account_name(&input.storage_account_name)?,
+        account_key: input.account_key,
+        normalized_container_name,
+        normalized_blob_name,
+        blob_size,
+        max_bytes,
     })
 }
 
@@ -3501,6 +3585,98 @@ mod tests {
         assert!(has_next_marker(Some("cursor-1")));
         assert!(!has_next_marker(Some("   ")));
         assert!(!has_next_marker(None));
+    }
+
+    #[test]
+    fn prepares_blob_preview_requests_with_size_guards() {
+        let prepared = prepare_blob_preview_request(
+            AzureConnectionTestInput {
+                storage_account_name: " StorageAcct ".to_string(),
+                account_key: "unused-key".to_string(),
+            },
+            " reports ".to_string(),
+            " docs/report.txt ".to_string(),
+            512,
+            1024,
+        )
+        .unwrap();
+
+        assert_eq!(prepared.storage_account_name, "storageacct");
+        assert_eq!(prepared.account_key, "unused-key");
+        assert_eq!(prepared.normalized_container_name, "reports");
+        assert_eq!(prepared.normalized_blob_name, "docs/report.txt");
+        assert_eq!(prepared.blob_size, 512);
+        assert_eq!(prepared.max_bytes, 1024);
+
+        assert!(prepare_blob_preview_request(
+            azure_test_input(),
+            "reports".to_string(),
+            "docs/report.txt".to_string(),
+            1025,
+            1024,
+        )
+        .is_err());
+        assert!(prepare_blob_preview_request(
+            azure_test_input(),
+            "reports".to_string(),
+            "docs/report.txt".to_string(),
+            1,
+            0,
+        )
+        .is_err());
+        assert!(prepare_blob_preview_request(
+            azure_test_input(),
+            "reports".to_string(),
+            "   ".to_string(),
+            1,
+            1024,
+        )
+        .is_err());
+    }
+
+    #[tokio::test]
+    async fn preview_blob_surfaces_local_guards_before_provider_requests() {
+        let invalid_account_error = AzureConnectionService::preview_blob(
+            AzureConnectionTestInput {
+                storage_account_name: "   ".to_string(),
+                account_key: "unused-key".to_string(),
+            },
+            "reports".to_string(),
+            "docs/report.txt".to_string(),
+            128,
+            1024,
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(
+            invalid_account_error,
+            "The Azure storage account name is required."
+        );
+
+        let oversize_error = AzureConnectionService::preview_blob(
+            azure_test_input(),
+            "reports".to_string(),
+            "docs/report.txt".to_string(),
+            2048,
+            1024,
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(oversize_error, "File is too large to preview.");
+
+        let invalid_limit_error = AzureConnectionService::preview_blob(
+            azure_test_input(),
+            "reports".to_string(),
+            "docs/report.txt".to_string(),
+            128,
+            0,
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(
+            invalid_limit_error,
+            "Preview byte limit must be greater than zero."
+        );
     }
 
     #[test]

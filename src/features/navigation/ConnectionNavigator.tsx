@@ -36,6 +36,7 @@ import logoPrimary from "../../assets/logo-primary.svg";
 import { ContentExplorerHeader } from "./components/ContentExplorerHeader";
 import { ContentItemList } from "./components/ContentItemList";
 import { ConnectionsSidebar } from "./components/ConnectionsSidebar";
+import { FilePreviewPanel } from "./components/FilePreviewPanel";
 import { NavigatorModalOrchestrator } from "./components/NavigatorModalOrchestrator";
 import type { AwsUploadStorageClass } from "../connections/awsUploadStorageClasses";
 import type { AzureUploadTier } from "../connections/azureUploadTiers";
@@ -102,6 +103,7 @@ import {
   type CloudContainerSummary,
   listContainerItemsForSavedConnection,
   listContainersForSavedConnection,
+  previewObjectForSavedConnection,
   testConnectionForSavedConnection
 } from "./providerReadAdapters";
 import {
@@ -151,6 +153,10 @@ import {
   mergeContentItems,
   type NavigationContentExplorerItem as ContentExplorerItem
 } from "./navigationContent";
+import {
+  buildInitialFilePreviewState,
+  getFilePreviewSupport
+} from "./navigationFilePreview";
 import {
   buildAvailableUntilTooltip,
   buildBreadcrumbs,
@@ -457,13 +463,17 @@ export function ConnectionNavigator({
     contentListingPageSize,
     contentViewMode,
     sidebarWidth,
+    previewPanelWidth,
     localMappingDirectoryStatus,
     isResizingSidebar,
+    isResizingPreviewPanel,
     workspaceRef,
+    previewResizeContainerRef,
     setGlobalLocalCacheDirectory,
     setContentListingPageSize,
     setContentViewMode,
-    startResizing
+    startResizing,
+    startResizingPreviewPanel
   } = useNavigationPreferencesState();
   const [isLoadingConnections, setIsLoadingConnections] = useState(true);
   const [openMenuConnectionId, setOpenMenuConnectionId] = useState<string | null>(null);
@@ -496,6 +506,7 @@ export function ConnectionNavigator({
     contentMenuAnchor,
     contentAreaMenuAnchor,
     contentRefreshNonce,
+    filePreviewState,
     setContentItems,
     setContentContinuationToken,
     setContentHasMore,
@@ -511,7 +522,8 @@ export function ConnectionNavigator({
     setOpenContentMenuItemId,
     setContentMenuAnchor,
     setContentAreaMenuAnchor,
-    setContentRefreshNonce
+    setContentRefreshNonce,
+    setFilePreviewState
   } = useContentListingState();
   const {
     restoreRequest,
@@ -579,6 +591,7 @@ export function ConnectionNavigator({
   const connectionTestRequestIdRef = useRef(0);
   const connectionRequestIdsRef = useRef<Record<string, number>>({});
   const contentRequestIdRef = useRef(0);
+  const filePreviewRequestIdRef = useRef(0);
   const deferredSidebarFilterText = useDeferredValue(sidebarFilterText);
   const deferredContentFilterText = useDeferredValue(contentFilterText);
 
@@ -696,6 +709,14 @@ export function ConnectionNavigator({
   const isContentSelectionActive = contentSelectionState.isSelectionActive;
   const visibleContentItemIds = contentSelectionState.visibleItemIds;
   const allVisibleContentItemsSelected = contentSelectionState.allVisibleItemsSelected;
+  const previewedContentItem = useMemo(
+    () => contentItems.find((item) => item.id === filePreviewState.selectedItemId) ?? null,
+    [contentItems, filePreviewState.selectedItemId]
+  );
+  const filePreviewSupport = useMemo(
+    () => getFilePreviewSupport(previewedContentItem),
+    [previewedContentItem]
+  );
   const { loadedContentCount, displayedContentCount } = buildContentCounts({
     selectedNodeKind: selectedNode?.kind,
     connectionBucketCount:
@@ -1219,6 +1240,101 @@ export function ConnectionNavigator({
     setSelectedContentItemIds((currentItemIds) =>
       toggleContentSelectionItem(currentItemIds, itemId)
     );
+  }
+
+  function setFilePreviewEnabled(isEnabled: boolean) {
+    filePreviewRequestIdRef.current += 1;
+    setFilePreviewState((currentState) => ({
+      ...currentState,
+      isEnabled,
+      requestId: filePreviewRequestIdRef.current,
+      isLoading: false,
+      payload: isEnabled ? currentState.payload : null,
+      error: null
+    }));
+  }
+
+  function selectFileForPreview(item: ContentExplorerItem) {
+    if (!filePreviewState.isEnabled || item.kind !== "file") {
+      return;
+    }
+
+    void loadFilePreview(item);
+  }
+
+  async function loadFilePreview(item: ContentExplorerItem) {
+    if (!selectedConnection || !selectedBucketName || item.kind !== "file") {
+      return;
+    }
+
+    const support = getFilePreviewSupport(item);
+    const requestId = filePreviewRequestIdRef.current + 1;
+    filePreviewRequestIdRef.current = requestId;
+
+    if (support.status !== "supported") {
+      setFilePreviewState((currentState) => ({
+        ...currentState,
+        selectedItemId: item.id,
+        requestId,
+        isLoading: false,
+        payload: null,
+        error: null
+      }));
+      return;
+    }
+
+    setFilePreviewState((currentState) => ({
+      ...currentState,
+      selectedItemId: item.id,
+      requestId,
+      isLoading: true,
+      payload: null,
+      error: null
+    }));
+
+    try {
+      const payload = await previewObjectForSavedConnection({
+        connection: selectedConnection,
+        containerName: selectedBucketName,
+        item,
+        region:
+          selectedBucketRegion && selectedBucketRegion !== BUCKET_REGION_PLACEHOLDER
+            ? selectedBucketRegion
+            : undefined
+      });
+
+      if (filePreviewRequestIdRef.current !== requestId) {
+        return;
+      }
+
+      setFilePreviewState((currentState) => ({
+        ...currentState,
+        selectedItemId: item.id,
+        requestId,
+        isLoading: false,
+        payload,
+        error: null
+      }));
+    } catch (error) {
+      if (filePreviewRequestIdRef.current !== requestId) {
+        return;
+      }
+
+      setFilePreviewState((currentState) => ({
+        ...currentState,
+        selectedItemId: item.id,
+        requestId,
+        isLoading: false,
+        payload: null,
+        error: extractErrorMessage(error) ?? t("content.preview.error_body")
+      }));
+    }
+  }
+
+  function retryFilePreview() {
+    if (previewedContentItem?.kind === "file") {
+      void loadFilePreview(previewedContentItem);
+    }
   }
 
   function toggleSelectAllVisibleContentItems() {
@@ -2486,6 +2602,7 @@ export function ConnectionNavigator({
     return () => {
       connectionTestRequestIdRef.current += 1;
       contentRequestIdRef.current += 1;
+      filePreviewRequestIdRef.current += 1;
     };
   }, []);
 
@@ -2496,6 +2613,12 @@ export function ConnectionNavigator({
     setContentAreaMenuAnchor(null);
     setOpenContentMenuItemId(null);
     setContentMenuAnchor(null);
+    filePreviewRequestIdRef.current += 1;
+    setFilePreviewState((currentState) => ({
+      ...buildInitialFilePreviewState(),
+      isEnabled: currentState.isEnabled,
+      requestId: filePreviewRequestIdRef.current
+    }));
     setIsCreateFolderModalOpen(false);
     setNewFolderName("");
     setCreateFolderError(null);
@@ -2514,6 +2637,22 @@ export function ConnectionNavigator({
     setSelectedContentItemIds((currentItemIds) =>
       currentItemIds.filter((itemId) => contentItems.some((item) => item.id === itemId))
     );
+    setFilePreviewState((currentState) => {
+      if (
+        !currentState.selectedItemId ||
+        contentItems.some((item) => item.id === currentState.selectedItemId)
+      ) {
+        return currentState;
+      }
+
+      filePreviewRequestIdRef.current += 1;
+
+      return {
+        ...buildInitialFilePreviewState(),
+        isEnabled: currentState.isEnabled,
+        requestId: filePreviewRequestIdRef.current
+      };
+    });
   }, [contentItems]);
 
   useEffect(() => {
@@ -3422,7 +3561,7 @@ export function ConnectionNavigator({
     <>
       <div
         ref={workspaceRef}
-        className={`workspace-shell${isResizingSidebar ? " is-resizing" : ""}`}
+        className={`workspace-shell${isResizingSidebar || isResizingPreviewPanel ? " is-resizing" : ""}`}
         style={{
           gridTemplateColumns: `${sidebarWidth}px 12px minmax(0, 1fr)`
         }}
@@ -3854,6 +3993,17 @@ export function ConnectionNavigator({
                 </>
               ) : (
                 <div
+                  ref={previewResizeContainerRef}
+                  className={`content-explorer${filePreviewState.isEnabled ? " content-explorer-with-preview" : ""}`}
+                  style={
+                    filePreviewState.isEnabled
+                      ? {
+                          gridTemplateColumns: `minmax(0, 1fr) 10px ${previewPanelWidth}px`
+                        }
+                      : undefined
+                  }
+                >
+                <div
                   className="content-list-section"
                   onContextMenu={handleOpenContentAreaContextMenu}
                 >
@@ -3936,6 +4086,14 @@ export function ConnectionNavigator({
                     </div>
 
                     <div className="content-selection-toolbar-context-actions">
+                      <label className="content-preview-toggle">
+                        <input
+                          type="checkbox"
+                          checked={filePreviewState.isEnabled}
+                          onChange={(event) => setFilePreviewEnabled(event.target.checked)}
+                        />
+                        <span>{t("content.preview.toggle")}</span>
+                      </label>
                       {canCreateFolderInCurrentContext ? (
                         <button
                           type="button"
@@ -3994,6 +4152,9 @@ export function ConnectionNavigator({
                       contentViewMode={contentViewMode}
                       shouldRenderListHeaders={shouldRenderListHeaders}
                       selectedContentItemIdSet={selectedContentItemIdSet}
+                      previewedContentItemId={
+                        filePreviewState.isEnabled ? filePreviewState.selectedItemId : null
+                      }
                       isContentSelectionActive={isContentSelectionActive}
                       selectedBucketConnectionId={selectedBucketConnectionId}
                       selectedBucketName={selectedBucketName}
@@ -4009,6 +4170,7 @@ export function ConnectionNavigator({
                       t={t}
                       onNavigateDirectory={(path) => navigateBucketPath(selectedNode.id, path)}
                       onToggleContentItemSelection={toggleContentItemSelection}
+                      onPreviewContentItem={selectFileForPreview}
                       onOpenContentMenu={(itemId, anchorPosition) => {
                         setOpenContentMenuItemId(itemId);
                         setContentMenuAnchor(
@@ -4020,6 +4182,30 @@ export function ConnectionNavigator({
                       onPreviewFileAction={handlePreviewFileAction}
                     />
                   )}
+                </div>
+                {filePreviewState.isEnabled ? (
+                  <>
+                  <div
+                    className="preview-resizer"
+                    role="separator"
+                    aria-orientation="vertical"
+                    aria-label={t("content.preview.resize_label")}
+                    onPointerDown={startResizingPreviewPanel}
+                  >
+                    <span className="preview-resizer-handle" aria-hidden="true" />
+                  </div>
+                  <FilePreviewPanel
+                    item={previewedContentItem}
+                    support={filePreviewSupport}
+                    payload={filePreviewState.payload}
+                    isLoading={filePreviewState.isLoading}
+                    error={filePreviewState.error}
+                    locale={locale}
+                    t={t}
+                    onRetry={retryFilePreview}
+                  />
+                  </>
+                ) : null}
                 </div>
               )}
 

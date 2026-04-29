@@ -33,6 +33,11 @@ export type AwsBucketItemsResult = {
   hasMore: boolean;
 };
 
+export type AwsObjectPreviewResult = {
+  base64: string;
+  contentLength: number;
+};
+
 export type AwsDeleteResult = {
   deletedObjectCount: number;
   deletedDirectoryCount: number;
@@ -147,6 +152,28 @@ export async function requestAwsObjectRestore(
     bucketRegion,
     restoreTier,
     days,
+    restrictedBucketName
+  });
+}
+
+export async function previewAwsObject(
+  accessKeyId: string,
+  secretAccessKey: string,
+  bucketName: string,
+  objectKey: string,
+  objectSize: number,
+  maxBytes: number,
+  bucketRegion?: string,
+  restrictedBucketName?: string
+): Promise<AwsObjectPreviewResult> {
+  return invoke<AwsObjectPreviewResult>("preview_aws_object", {
+    accessKeyId,
+    secretAccessKey,
+    bucketName,
+    objectKey,
+    objectSize,
+    maxBytes,
+    bucketRegion,
     restrictedBucketName
   });
 }

@@ -61,3 +61,10 @@ pub struct AzureCacheDownloadResult {
     pub local_path: String,
     pub bytes_written: i64,
 }
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AzureBlobPreviewResult {
+    pub base64: String,
+    pub content_length: i64,
+}
